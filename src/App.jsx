@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from './lib/api.js';
+import NotificationCenter from './features/notifications/NotificationCenter.jsx';
+import { showMobileSafeNotification } from './services/notifications.js';
+import OptionsStrategyLab from './features/options-simulator/OptionsStrategyLab.jsx';
+import LearningCenter from './features/learning/LearningCenter.jsx';
 
 const cash = (value) => Number.isFinite(value) ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : '--';
 const decimal = (value, digits = 1) => Number.isFinite(value) ? Number(value).toFixed(digits) : '--';
@@ -54,7 +58,7 @@ function AccessGate({ error, onUnlock }) {
 function MobileQuickNav() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-sigma-line bg-sigma-bg/95 px-1 py-2 backdrop-blur md:hidden">
-      {[['decision', 'Decision'], ['signals', 'Senales'], ['sofi', 'SOFI'], ['academy', 'Aprender'], ['risk', 'Riesgo']].map(([target, label]) => (
+      {[['decision', 'Scanner'], ['signals', 'Senales'], ['news', 'Noticias'], ['academy', 'Aprender'], ['settings', 'Config']].map(([target, label]) => (
         <a className="rounded-lg px-2 py-2 text-[11px] font-semibold text-slate-300" href={`#${target}`} key={target}>{label}</a>
       ))}
     </nav>
@@ -196,7 +200,120 @@ function DataCollectionPanel({ scan }) {
   );
 }
 
-function TopSetupCard({ setup, rank }) {
+function DataHealthPanel({ scan }) {
+  const health = scan?.dataHealth;
+  if (!health) return null;
+  return (
+    <section className="panel p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><p className="eyebrow">Data health</p><h3 className="mt-1 text-lg font-semibold">Estado y procedencia de datos</h3></div>
+        <span className="status-chip">{health.validSymbols?.length || 0} simbolos validos</span>
+      </div>
+      <p className="mt-2 text-xs text-slate-400">Actualizado: {dateTime(health.timestamp)}. Live/delayed depende de tu suscripcion en cada proveedor.</p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {(health.metrics || []).map((metric) => (
+          <div className="rounded-lg border border-sigma-line bg-sigma-soft p-3 text-xs" key={metric.name}>
+            <div className="flex justify-between gap-2"><strong>{metric.name}</strong><span className={metric.available ? 'text-sigma-green' : 'text-sigma-amber'}>{metric.available ? 'OK' : 'No disponible'}</span></div>
+            <p className="mt-2 leading-5 text-slate-500">{metric.source}</p>
+          </div>
+        ))}
+      </div>
+      {!!health.endpointErrors?.length && <p className="mt-3 rounded-lg bg-red-500/10 p-3 text-xs text-sigma-red">Errores de endpoints: {health.endpointErrors.slice(0, 3).join(' | ')}</p>}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {(health.providers || []).filter((provider) => provider.urlToReadMore).map((provider) => (
+          <a className="btn text-xs" href={provider.urlToReadMore} target="_blank" rel="noreferrer" key={provider.id}>Fuente {provider.source}</a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MarketSentiment({ scan }) {
+  const market = scan?.market;
+  if (!market) return null;
+  const sentiment = market.regime === 'BULL_TREND' ? 'Risk-On' :
+    ['BEAR_TREND', 'RISK_OFF', 'PANIC'].includes(market.regime) ? 'Risk-Off' :
+      market.regime === 'HIGH_VOLATILITY' ? 'Volatility Expansion' :
+        ['LOW_VOLATILITY', 'GAMMA_PINNED'].includes(market.regime) ? 'Volatility Compression' : 'Neutral';
+  const reason = `SPY ${market.technicals?.SPY?.trend || 'No disponible'}, QQQ ${market.technicals?.QQQ?.trend || 'No disponible'}, VIX ${Number.isFinite(market.vix) ? market.vix : 'No disponible'} y breadth ${Number.isFinite(market.breadth) ? `${market.breadth}%` : 'No disponible'}.`;
+  return (
+    <section className="panel p-4">
+      <p className="eyebrow">Sentimiento del Mercado</p>
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-3"><h3 className="text-lg font-semibold">Bias institucional: {sentiment}</h3><span className="status-chip">{market.regime}</span></div>
+      <p className="mt-3 text-xs leading-5 text-slate-300">{reason}</p>
+      <p className="mt-2 text-xs leading-5 text-slate-500">Se invalida si cambian tendencia/breadth, aparece riesgo macro, el VIX se expande o el proxy gamma cambia de regimen.</p>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <TradeValue label="SPY trend" value={market.technicals?.SPY?.trend || 'No disponible'} />
+        <TradeValue label="QQQ trend" value={market.technicals?.QQQ?.trend || 'No disponible'} />
+        <TradeValue label="VIX9D" value="No disponible" />
+        <TradeValue label="Put/Call" value="No disponible" />
+      </div>
+    </section>
+  );
+}
+
+function ConditionalIdeas({ scan, onSimulate }) {
+  const labels = { bullish: 'Alcista', bearish: 'Bajista', neutral: 'Lateral / neutral' };
+  return (
+    <section className="panel p-4">
+      <div className="flex flex-wrap justify-between gap-3">
+        <div><p className="eyebrow text-sigma-blue">Plan educativo condicionado</p><h3 className="mt-1 text-lg font-semibold">Tres escenarios, aunque hoy sea NO TRADE</h3></div>
+        <span className="status-chip text-sigma-amber">No son ordenes aprobadas</span>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-slate-400">Estas ideas solo usan strikes si existe cadena real. Deben convertirse en plan aprobado tras cumplir todos los gatillos y pasar un nuevo escaneo.</p>
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        {(scan?.conditionalIdeas || []).map((idea) => (
+          <article className="rounded-xl border border-sigma-line bg-sigma-soft p-3 text-xs" key={idea.educationBias}>
+            <p className="font-semibold text-sigma-blue">{labels[idea.educationBias]}</p>
+            {idea.strategy ? (
+              <>
+                <p className="mt-2 font-mono font-semibold text-slate-100">{idea.symbol} {idea.strategy}</p>
+                <p className="mt-1 text-slate-300">Exp: {idea.expiration} | Strikes: {idea.strikes}</p>
+                <p className="mt-1 text-slate-300">Riesgo max: {cash(idea.maxRisk)} | POP est.: {decimal(idea.pop, 0)}% | Score: {idea.confidenceScore}/100</p>
+                <p className="mt-2 rounded bg-amber-500/10 p-2 text-sigma-amber">{idea.classification}</p>
+                {(idea.activationRules || []).slice(0, 3).map((rule) => <p className="mt-2 leading-5 text-slate-400" key={rule}>- {rule}</p>)}
+                <button className="btn mt-3 w-full text-xs" onClick={() => onSimulate(idea)}>Simular esta estrategia</button>
+              </>
+            ) : <p className="mt-2 leading-5 text-sigma-amber">{idea.reason}</p>}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function NewsPanel({ scan }) {
+  const provider = scan?.providers?.find((item) => item.id === 'finnhub' && item.configured);
+  const items = [...(scan?.macro?.companyNews || []), ...(scan?.macro?.news || [])].filter((item) => item.url).slice(0, 12);
+  return (
+    <section id="news" className="panel scroll-mt-24 p-4">
+      <p className="eyebrow">Noticias que afectan las operaciones</p>
+      <h3 className="mt-1 text-lg font-semibold">Fuentes para leer antes de ejecutar</h3>
+      {!provider && <p className="mt-3 rounded-lg bg-amber-500/10 p-3 text-xs text-sigma-amber">No hay proveedor de noticias por simbolo configurado. Agrega FINNHUB_API_KEY en el backend. Polygon/FMP cubren otros datos en esta version; NEWS_API_KEY requiere un adaptador adicional.</p>}
+      <div className="mt-4 grid gap-2 lg:grid-cols-2">
+        {items.map((item) => {
+          const highRisk = (scan?.macro?.breakingRisk || []).some((risk) => risk.url === item.url);
+          const relevance = highRisk ? 95 : item.symbol ? 70 : 40;
+          return (
+            <article className="rounded-lg border border-sigma-line bg-sigma-soft p-3 text-xs" key={`${item.url}-${item.symbol || 'market'}`}>
+              <div className="flex justify-between gap-2"><span className="font-mono text-sigma-blue">{item.symbol || 'MARKET'}</span><span className={highRisk ? 'text-sigma-red' : 'text-slate-400'}>{highRisk ? 'Riesgo alto' : 'Neutral / revisar'} | Rel. {relevance}/100</span></div>
+              <p className="mt-2 font-semibold leading-5 text-slate-100">{item.headline}</p>
+              <p className="mt-1 line-clamp-2 text-slate-400">{item.summary || 'Resumen no disponible por la fuente.'}</p>
+              <p className="mt-2 text-slate-500">{item.source} | {dateTime(item.datetime)}</p>
+              <div className="mt-2 flex gap-2">
+                <a className="btn text-[11px]" href={item.url} target="_blank" rel="noreferrer">Abrir noticia</a>
+                <button className="btn text-[11px]" onClick={() => navigator.clipboard?.writeText(item.url)}>Copiar link</button>
+              </div>
+            </article>
+          );
+        })}
+        {!items.length && provider && <Empty>No se recibieron noticias enlazables en la ultima consulta.</Empty>}
+      </div>
+    </section>
+  );
+}
+
+function TopSetupCard({ setup, rank, onSimulate }) {
   const wheelPhase = setup.strategy === 'Cash Secured Put' ? 'Wheel: acquisition phase' :
     setup.strategy === 'Covered Call' ? 'Wheel: income phase' : null;
   const execution = setup.executionPlan;
@@ -264,6 +381,7 @@ function TopSetupCard({ setup, rank }) {
               <p className="mt-3 text-[11px] leading-5 text-sigma-amber">{execution.note}</p>
             </div>
           )}
+          <button className="btn btn-primary w-full" onClick={() => onSimulate(setup)}>Simular esta estrategia</button>
         </div>
       </div>
     </motion.article>
@@ -274,7 +392,7 @@ function TradeValue({ label, value }) {
   return <div className="rounded-lg border border-sigma-line bg-sigma-soft px-2.5 py-2"><p className="eyebrow">{label}</p><p className="mt-1 font-mono text-xs font-semibold text-slate-100">{value}</p></div>;
 }
 
-function TopOpportunities({ scan }) {
+function TopOpportunities({ scan, onSimulate }) {
   return (
     <section id="signals" className="scroll-mt-24">
       <div className="mb-4 flex items-end justify-between">
@@ -282,7 +400,7 @@ function TopOpportunities({ scan }) {
         <span className="status-chip">Solo aprobadas</span>
       </div>
       <div className="space-y-4">
-        {scan?.opportunities?.length ? scan.opportunities.map((setup, index) => <TopSetupCard setup={setup} rank={index + 1} key={`${setup.symbol}-${setup.strategy}`} />) : (
+        {scan?.opportunities?.length ? scan.opportunities.map((setup, index) => <TopSetupCard setup={setup} rank={index + 1} onSimulate={onSimulate} key={`${setup.symbol}-${setup.strategy}`} />) : (
           <Empty>Senal actual: NO TRADE. No hay estructura con strikes recomendados que haya superado todos los filtros en este momento.</Empty>
         )}
       </div>
@@ -328,13 +446,18 @@ function MarketDashboard({ scan, onExplain }) {
           <button className="text-xs text-sigma-gold" onClick={() => onExplain('expectedMove')}>Explicar</button>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <TradeValue label="EMA 9" value={decimal(technical?.ema9, 2)} />
+          <TradeValue label="EMA 8" value={decimal(technical?.ema8, 2)} />
           <TradeValue label="EMA 21" value={decimal(technical?.ema21, 2)} />
           <TradeValue label="EMA 50" value={decimal(technical?.ema50, 2)} />
+          <TradeValue label="EMA 200" value={decimal(technical?.ema200, 2)} />
+          <TradeValue label="RSI 14" value={decimal(technical?.rsi14, 1)} />
+          <TradeValue label="MACD hist." value={decimal(technical?.macd?.histogram, 3)} />
           <TradeValue label="ATR 14" value={decimal(technical?.atr14, 2)} />
-          <TradeValue label="VWAP proxy" value={decimal(technical?.vwap, 2)} />
-          <TradeValue label="Realized vol" value={Number.isFinite(technical?.realizedVolatility) ? `${decimal(technical.realizedVolatility, 1)}%` : '--'} />
+          <TradeValue label="VWAP proxy diario" value={decimal(technical?.vwap20, 2)} />
+          <TradeValue label="Volumen relativo" value={Number.isFinite(technical?.relativeVolume20) ? `${decimal(technical.relativeVolume20, 2)}x` : '--'} />
+          <TradeValue label="Realized vol" value={Number.isFinite(technical?.realizedVolatility20) ? `${decimal(technical.realizedVolatility20, 1)}%` : '--'} />
         </div>
+        <p className="mt-3 text-[11px] leading-5 text-slate-500">VWAP es proxy rolling diario. VWAP y tendencia intradia permanecen No disponible hasta conectar barras intradia.</p>
       </div>
     </section>
   );
@@ -625,12 +748,11 @@ function RisksAndEvents({ scan }) {
   );
 }
 
-function AlertCenter({ scan, notificationEnabled, onEnable }) {
+function AlertCenter({ scan }) {
   return (
     <section className="panel p-4">
       <div className="mb-3 flex items-center justify-between">
         <div><p className="eyebrow">Smart alerts</p><h3 className="mt-1 text-lg font-semibold">Centro de alertas</h3></div>
-        <button className="btn" onClick={onEnable}>{notificationEnabled ? 'Alertas activas' : 'Activar notificaciones'}</button>
       </div>
       <div className="space-y-2">
         {(scan?.alerts || []).slice(0, 5).map((alert) => (
@@ -652,7 +774,8 @@ function RiskDesk({ scan }) {
   const tradeBudget = profile.accountSize * profile.riskPct / 100;
   const collateralLimit = profile.accountSize * profile.maxCollateralPct / 100;
   const dailyLossLimit = profile.accountSize * profile.maxDailyLossPct / 100;
-  const killSwitch = profile.tradingPaused || profile.dailyLossPct >= profile.maxDailyLossPct;
+  const weeklyLossLimit = profile.accountSize * profile.maxWeeklyLossPct / 100;
+  const killSwitch = profile.tradingPaused || profile.dailyLossPct >= profile.maxDailyLossPct || profile.weeklyLossPct >= profile.maxWeeklyLossPct || profile.collateralUsedPct >= 80;
   return (
     <section id="risk" className={`panel scroll-mt-24 border p-4 ${killSwitch ? 'border-red-500/40' : 'border-sigma-line'}`}>
       <div className="flex items-start justify-between gap-3">
@@ -665,6 +788,10 @@ function RiskDesk({ scan }) {
         <TradeValue label="Max collateral" value={`${cash(collateralLimit)} (${profile.maxCollateralPct}%)`} />
         <TradeValue label="Daily stop" value={`${cash(dailyLossLimit)} (${profile.maxDailyLossPct}%)`} />
         <TradeValue label="Daily loss used" value={`${decimal(profile.dailyLossPct, 1)}%`} />
+        <TradeValue label="Weekly stop" value={`${cash(weeklyLossLimit)} (${profile.maxWeeklyLossPct}%)`} />
+        <TradeValue label="Weekly loss used" value={`${decimal(profile.weeklyLossPct, 1)}%`} />
+        <TradeValue label="Collateral used" value={`${decimal(profile.collateralUsedPct, 1)}%`} />
+        <TradeValue label="Risk mode" value={profile.riskMode || 'CONSERVADOR'} />
         <TradeValue label="Open trades" value={`${profile.activeSymbols?.length || 0} / ${profile.maxOpenTrades}`} />
         <TradeValue label="1DTE approval" value={profile.allow1DteApproval ? 'Enabled' : 'Blocked'} />
         <TradeValue label="0DTE" value="Collection only" />
@@ -676,10 +803,13 @@ function RiskDesk({ scan }) {
 function TradeJournal({ scan }) {
   const candidate = scan?.opportunities?.[0] || scan?.rejected?.[0];
   const [entries, setEntries] = useState([]);
-  const [draft, setDraft] = useState({ symbol: '', strategy: '', outcome: 'OBSERVED', notes: '' });
+  const [draft, setDraft] = useState({ symbol: '', strategy: '', outcome: 'OBSERVED', mentalState: 'DISCIPLINADO', plannedEntry: '', realEntry: '', plannedExit: '', realExit: '', pnl: '', lesson: '', notes: '' });
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     api.journal().then(setEntries).catch(() => {});
+    const update = () => api.journal().then(setEntries).catch(() => {});
+    window.addEventListener('journal-updated', update);
+    return () => window.removeEventListener('journal-updated', update);
   }, []);
   useEffect(() => {
     if (!candidate) return;
@@ -699,7 +829,7 @@ function TradeJournal({ scan }) {
     try {
       const item = await api.addJournal(draft);
       setEntries((current) => [item, ...current]);
-      setDraft((current) => ({ ...current, notes: '' }));
+      setDraft((current) => ({ ...current, notes: '', lesson: '', pnl: '' }));
     } finally {
       setSaving(false);
     }
@@ -708,23 +838,34 @@ function TradeJournal({ scan }) {
     <section className="panel p-4">
       <p className="eyebrow">Trade journal</p>
       <h3 className="mt-1 text-lg font-semibold">Decision audit trail</h3>
-      <form className="mt-4 grid gap-2 md:grid-cols-[105px_1fr_125px_auto]" onSubmit={saveEntry}>
+      <form className="mt-4 grid gap-2 md:grid-cols-[105px_1fr_140px_150px_auto]" onSubmit={saveEntry}>
         <input className="input font-mono" value={draft.symbol} onChange={(event) => setDraft({ ...draft, symbol: event.target.value.toUpperCase() })} placeholder="SPY" />
         <input className="input" value={draft.strategy} onChange={(event) => setDraft({ ...draft, strategy: event.target.value })} placeholder="Strategy" />
         <select className="input" value={draft.outcome} onChange={(event) => setDraft({ ...draft, outcome: event.target.value })}>
           <option>OBSERVED</option>
+          <option>EXECUTED</option>
+          <option>PAPER TRADE</option>
           <option>OPEN</option>
           <option>WON</option>
           <option>LOST</option>
           <option>SKIPPED</option>
         </select>
+        <select className="input" value={draft.mentalState} onChange={(event) => setDraft({ ...draft, mentalState: event.target.value })}>
+          <option>DISCIPLINADO</option><option>TRANQUILO</option><option>ANSIEDAD</option><option>FOMO</option><option>REVENGE</option>
+        </select>
         <button className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Record'}</button>
-        <input className="input md:col-span-4" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Notas de ejecucion o por que se descarto" />
+        <input className="input" value={draft.plannedEntry} onChange={(event) => setDraft({ ...draft, plannedEntry: event.target.value })} placeholder="Entrada planificada" />
+        <input className="input" value={draft.realEntry} onChange={(event) => setDraft({ ...draft, realEntry: event.target.value })} placeholder="Entrada real" />
+        <input className="input" value={draft.plannedExit} onChange={(event) => setDraft({ ...draft, plannedExit: event.target.value })} placeholder="Salida planificada" />
+        <input className="input" value={draft.realExit} onChange={(event) => setDraft({ ...draft, realExit: event.target.value })} placeholder="Salida real" />
+        <input className="input" value={draft.pnl} onChange={(event) => setDraft({ ...draft, pnl: event.target.value })} placeholder="P/L USD" />
+        <input className="input md:col-span-3" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Error cometido / notas de ejecucion" />
+        <input className="input md:col-span-2" value={draft.lesson} onChange={(event) => setDraft({ ...draft, lesson: event.target.value })} placeholder="Leccion aprendida" />
       </form>
       <div className="mt-4 max-h-48 space-y-2 overflow-auto scrollbar">
         {entries.length ? entries.slice(0, 10).map((entry) => (
           <div className="flex flex-wrap justify-between gap-2 rounded-lg border border-sigma-line bg-sigma-soft p-3 text-xs" key={entry.id}>
-            <div><strong className="font-mono">{entry.symbol}</strong> <span className="text-slate-300">{entry.strategy}</span><p className="text-slate-500">{entry.notes || entry.reason || 'No notes'}</p></div>
+            <div><strong className="font-mono">{entry.symbol}</strong> <span className="text-slate-300">{entry.strategy}</span><p className="text-slate-500">{entry.notes || entry.reason || 'No notes'}</p><p className="text-slate-500">{entry.mental_state || entry.mentalState || ''} {entry.lesson ? `| ${entry.lesson}` : ''}</p></div>
             <div className="text-right"><strong className="text-sigma-gold">{entry.outcome}</strong><p className="text-slate-500">{dateTime(entry.createdAt || entry.created_at)}</p></div>
           </div>
         )) : <Empty>Aun no hay decisiones registradas.</Empty>}
@@ -751,6 +892,7 @@ function WatchlistAndProfile({ scan, onSaveWatchlist, onSaveProfile }) {
       <p className="eyebrow">Mandato persistente</p>
       <h3 className="mt-1 text-lg font-semibold">Watchlist y control de riesgo</h3>
       <p className="mt-2 text-xs leading-5 text-slate-500">Aqui defines universo y limites de capital. VIX, IV, tendencia, gamma y eventos nunca se introducen manualmente.</p>
+      <p className="mt-2 text-xs leading-5 text-slate-500">Incluidos: SPY, SPX, QQQ, IWM, DIA, MAG7 y SOFI. Puedes agregar XSP o NDX si tu plan de datos y broker los soportan.</p>
       <label className="mt-4 block text-xs text-slate-400">Watchlist adicional</label>
       <input className="input mt-1" value={symbols} onChange={(event) => setSymbols(event.target.value)} placeholder="SPY, QQQ, NVDA" />
       <button className="btn mt-2" onClick={() => onSaveWatchlist(symbols.split(',').map((item) => item.trim()))}>Guardar watchlist</button>
@@ -761,7 +903,16 @@ function WatchlistAndProfile({ scan, onSaveWatchlist, onSaveProfile }) {
           <ProfileInput label="Colateral max %" value={profile.maxCollateralPct} onChange={(value) => setProfile({ ...profile, maxCollateralPct: value })} />
           <ProfileInput label="Perdida diaria max %" value={profile.maxDailyLossPct} onChange={(value) => setProfile({ ...profile, maxDailyLossPct: value })} />
           <ProfileInput label="Perdida diaria actual %" value={profile.dailyLossPct} onChange={(value) => setProfile({ ...profile, dailyLossPct: value })} />
+          <ProfileInput label="Perdida semanal max %" value={profile.maxWeeklyLossPct} onChange={(value) => setProfile({ ...profile, maxWeeklyLossPct: value })} />
+          <ProfileInput label="Perdida semanal actual %" value={profile.weeklyLossPct} onChange={(value) => setProfile({ ...profile, weeklyLossPct: value })} />
+          <ProfileInput label="Colateral usado %" value={profile.collateralUsedPct} onChange={(value) => setProfile({ ...profile, collateralUsedPct: value })} />
           <ProfileInput label="Operaciones abiertas max" value={profile.maxOpenTrades} onChange={(value) => setProfile({ ...profile, maxOpenTrades: value })} />
+          <label className="text-xs text-slate-400">
+            Modo
+            <select className="input mt-1" value={profile.riskMode || 'CONSERVADOR'} onChange={(event) => setProfile({ ...profile, riskMode: event.target.value })}>
+              <option>CONSERVADOR</option><option>NORMAL</option><option>AGRESIVO EDUCATIVO</option>
+            </select>
+          </label>
           <label className="flex items-center gap-2 rounded-lg border border-sigma-line bg-sigma-soft px-3 text-xs text-slate-300">
             <input type="checkbox" checked={profile.tradingPaused || false} onChange={(event) => setProfile({ ...profile, tradingPaused: event.target.checked })} />
             Kill switch
@@ -839,6 +990,7 @@ export default function App() {
   const [accessError, setAccessError] = useState('');
   const [seconds, setSeconds] = useState(60);
   const [notificationEnabled, setNotificationEnabled] = useState(typeof Notification !== 'undefined' && Notification.permission === 'granted');
+  const [simulationSetup, setSimulationSetup] = useState(null);
   const latestAlert = useRef(null);
 
   async function load(force = false) {
@@ -852,7 +1004,12 @@ export default function App() {
       setSeconds(data.refreshSeconds || 60);
       const newest = data.alerts?.[0];
       if (notificationEnabled && newest && newest.key !== latestAlert.current) {
-        new Notification(newest.kind === 'a_setup' ? 'Valido 1M: setup detectado' : 'Valido 1M: NO TRADE', { body: newest.message });
+        await showMobileSafeNotification({
+          title: newest.kind === 'a_setup' ? 'Valido 1M: setup detectado' : 'Valido 1M: NO TRADE',
+          body: newest.message,
+          tag: newest.key,
+          data: { url: '/institutional-os.html#signals' }
+        });
       }
       latestAlert.current = newest?.key || null;
     } catch (loadError) {
@@ -878,17 +1035,21 @@ export default function App() {
     return () => { window.clearInterval(countdown); window.clearInterval(refresh); };
   }, [scan?.refreshSeconds, notificationEnabled]);
 
-  async function enableNotifications() {
-    if (typeof Notification === 'undefined') return;
-    const permission = await Notification.requestPermission();
-    setNotificationEnabled(permission === 'granted');
-  }
-
   const selected = useMemo(() => selectedExplainer ? explainers[selectedExplainer] : null, [selectedExplainer, explainers]);
   async function unlock(key) {
     api.setAccessKey(key);
     api.explainers().then(setExplainers).catch(() => {});
     await load();
+  }
+
+  function simulateSetup(setup) {
+    setSimulationSetup({ ...setup, simulationRequestId: Date.now() });
+    window.setTimeout(() => document.getElementById('lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  }
+
+  async function saveSimulationJournal(entry) {
+    await api.addJournal(entry);
+    window.dispatchEvent(new Event('journal-updated'));
   }
 
   if (locked) return <AccessGate error={accessError} onUnlock={unlock} />;
@@ -901,23 +1062,29 @@ export default function App() {
         <DecisionHero scan={scan} />
         <DailyAssistant scan={scan} />
         <DataCollectionPanel scan={scan} />
+        <DataHealthPanel scan={scan} />
         <div className="grid gap-5 xl:grid-cols-[315px_minmax(0,1fr)]">
           <aside className="order-2 space-y-4 xl:order-1">
             <ProviderCoverage scan={scan} />
-            <AlertCenter scan={scan} notificationEnabled={notificationEnabled} onEnable={enableNotifications} />
+            <NotificationCenter enabled={notificationEnabled} onEnabled={setNotificationEnabled} />
+            <AlertCenter scan={scan} />
             <WatchlistAndProfile scan={scan} onSaveWatchlist={async (symbols) => { await api.saveWatchlist(symbols); load(true); }} onSaveProfile={async (profile) => { await api.saveProfile(profile); load(true); }} />
             <Explainers onOpen={setSelectedExplainer} />
           </aside>
           <div className="order-1 space-y-5 xl:order-2">
             <RiskDesk scan={scan} />
-            <TopOpportunities scan={scan} />
+            <MarketSentiment scan={scan} />
+            <TopOpportunities scan={scan} onSimulate={simulateSetup} />
+            <ConditionalIdeas scan={scan} onSimulate={simulateSetup} />
             <SofiDesk scan={scan} />
             <MarketDashboard scan={scan} onExplain={setSelectedExplainer} />
             <GammaDesk scan={scan} onExplain={setSelectedExplainer} />
             <ScannerBoards scan={scan} />
             <SmartMoney scan={scan} />
             <RisksAndEvents scan={scan} />
-            <OptionsAcademy scan={scan} onExplain={setSelectedExplainer} />
+            <NewsPanel scan={scan} />
+            <OptionsStrategyLab prefillSetup={simulationSetup} profile={scan?.profile} onSaveJournal={saveSimulationJournal} />
+            <LearningCenter scan={scan} />
             <TradeJournal scan={scan} />
           </div>
         </div>

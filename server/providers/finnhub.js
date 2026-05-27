@@ -56,6 +56,24 @@ export class FinnhubProvider {
     });
   }
 
+  async getCompanyNews(symbols) {
+    const results = [];
+    for (const symbol of symbols.slice(0, 12)) {
+      const data = await cache.remember(`finnhub:company-news:${symbol}`, 300000, () =>
+        requestJson(this.name, this.url('/company-news', { symbol, from: daysFromNow(-7), to: daysFromNow(0) }))
+      );
+      results.push(...(data || []).slice(0, 5).map((item) => ({
+        symbol,
+        headline: item.headline,
+        summary: item.summary,
+        url: item.url,
+        datetime: item.datetime ? new Date(item.datetime * 1000).toISOString() : null,
+        source: item.source || this.name
+      })));
+    }
+    return results.sort((left, right) => new Date(right.datetime) - new Date(left.datetime));
+  }
+
   async getInsiderTransactions(symbols) {
     const results = [];
     for (const symbol of symbols.slice(0, 12)) {

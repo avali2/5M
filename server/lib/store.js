@@ -38,21 +38,29 @@ export async function getRiskProfile(defaults) {
   return stored ? { ...defaults, ...stored } : defaults;
 }
 
-export async function saveRiskProfile(profile, defaults) {
-  const value = {
+export function normalizeRiskProfile(profile, defaults) {
+  return {
     ...defaults,
     accountSize: Math.max(100, Number(profile.accountSize ?? defaults.accountSize)),
     riskPct: Math.min(5, Math.max(0.5, Number(profile.riskPct ?? defaults.riskPct))),
     maxCollateralPct: Math.min(50, Math.max(5, Number(profile.maxCollateralPct ?? defaults.maxCollateralPct))),
     maxDailyLossPct: Math.min(10, Math.max(1, Number(profile.maxDailyLossPct ?? defaults.maxDailyLossPct))),
+    maxWeeklyLossPct: Math.min(20, Math.max(1, Number(profile.maxWeeklyLossPct ?? defaults.maxWeeklyLossPct ?? 8))),
     maxOpenTrades: Math.min(10, Math.max(1, Number(profile.maxOpenTrades ?? defaults.maxOpenTrades))),
     dailyLossPct: Math.min(100, Math.max(0, Number(profile.dailyLossPct || 0))),
+    weeklyLossPct: Math.min(100, Math.max(0, Number(profile.weeklyLossPct || 0))),
+    collateralUsedPct: Math.min(100, Math.max(0, Number(profile.collateralUsedPct || 0))),
+    riskMode: ['CONSERVADOR', 'NORMAL', 'AGRESIVO EDUCATIVO'].includes(profile.riskMode) ? profile.riskMode : (defaults.riskMode || 'CONSERVADOR'),
     allow1DteApproval: Boolean(profile.allow1DteApproval ?? defaults.allow1DteApproval),
     tradingPaused: Boolean(profile.tradingPaused),
     holdings: typeof profile.holdings === 'object' && profile.holdings ? profile.holdings : {},
     activeSymbols: Array.isArray(profile.activeSymbols) ? profile.activeSymbols.map((item) => String(item).toUpperCase()).slice(0, 20) : [],
     updatedAt: new Date().toISOString()
   };
+}
+
+export async function saveRiskProfile(profile, defaults) {
+  const value = normalizeRiskProfile(profile, defaults);
   await writeJson('risk-profile.json', value);
   return value;
 }
@@ -116,6 +124,13 @@ export async function addTradeJournal(entry) {
     confidence: Number(entry.confidence || 0),
     outcome: String(entry.outcome || 'OPEN'),
     notes: String(entry.notes || ''),
+    plannedEntry: String(entry.plannedEntry || ''),
+    realEntry: String(entry.realEntry || ''),
+    plannedExit: String(entry.plannedExit || ''),
+    realExit: String(entry.realExit || ''),
+    pnl: Number.isFinite(Number(entry.pnl)) ? Number(entry.pnl) : null,
+    mentalState: String(entry.mentalState || ''),
+    lesson: String(entry.lesson || ''),
     createdAt: new Date().toISOString()
   };
   journal.unshift(item);

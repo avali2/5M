@@ -5,8 +5,13 @@ import { config } from '../config.js';
 import {
   addTradeJournal as addLocalJournal,
   getCollectionStats as getLocalStats,
+  getRiskProfile as getLocalRiskProfile,
+  getWatchlist as getLocalWatchlist,
   listTradeJournal as listLocalJournal,
+  normalizeRiskProfile,
   recordIvObservation as recordLocalIv,
+  saveRiskProfile as saveLocalRiskProfile,
+  saveWatchlist as saveLocalWatchlist,
   saveLatestOptionsSnapshot
 } from '../lib/store.js';
 import { ivStatistics } from '../lib/math.js';
@@ -180,13 +185,54 @@ class InstitutionalRepository {
     return result.rows;
   }
 
+  async getWatchlist(defaultSymbols) {
+    if (!this.pool) return getLocalWatchlist(defaultSymbols);
+    await this.initialize();
+    const result = await this.pool.query("SELECT value FROM app_settings WHERE key = 'watchlist'");
+    return result.rows[0]?.value || { symbols: defaultSymbols, updatedAt: null };
+  }
+
+  async saveWatchlist(symbols) {
+    if (!this.pool) return saveLocalWatchlist(symbols);
+    await this.initialize();
+    const clean = [...new Set(symbols.map((symbol) => String(symbol).toUpperCase().trim()).filter(Boolean))].slice(0, 40);
+    const value = { symbols: clean, updatedAt: new Date().toISOString() };
+    await this.pool.query(
+      `INSERT INTO app_settings(key, value, updated_at) VALUES ('watchlist', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [value]
+    );
+    return value;
+  }
+
+  async getRiskProfile(defaults) {
+    if (!this.pool) return getLocalRiskProfile(defaults);
+    await this.initialize();
+    const result = await this.pool.query("SELECT value FROM app_settings WHERE key = 'risk_profile'");
+    return result.rows[0]?.value ? { ...defaults, ...result.rows[0].value } : defaults;
+  }
+
+  async saveRiskProfile(profile, defaults) {
+    if (!this.pool) return saveLocalRiskProfile(profile, defaults);
+    await this.initialize();
+    const value = normalizeRiskProfile(profile, defaults);
+    await this.pool.query(
+      `INSERT INTO app_settings(key, value, updated_at) VALUES ('risk_profile', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [value]
+    );
+    return value;
+  }
+
   async addJournal(entry) {
     if (!this.pool) return addLocalJournal(entry);
     await this.initialize();
     const result = await this.pool.query(
-      `INSERT INTO trade_journal(symbol, strategy, reason, regime, confidence, outcome, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [entry.symbol, entry.strategy, entry.reason, entry.regime, entry.confidence, entry.outcome || 'OPEN', entry.notes]
+      `INSERT INTO trade_journal(symbol, strategy, reason, regime, confidence, outcome, notes, planned_entry, real_entry, planned_exit, real_exit, pnl, mental_state, lesson)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+      [entry.symbol, entry.strategy, entry.reason, entry.regime, entry.confidence, entry.outcome || 'OPEN', entry.notes,
+        entry.plannedEntry, entry.realEntry, entry.plannedExit, entry.realExit,
+        Number.isFinite(Number(entry.pnl)) ? Number(entry.pnl) : null, entry.mentalState, entry.lesson]
     );
     return result.rows[0];
   }

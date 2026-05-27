@@ -10,6 +10,32 @@ function ema(values, period) {
   return round(current);
 }
 
+function rsi(values, period = 14) {
+  if (values.length < period + 1) return null;
+  const changes = values.slice(-period - 1).slice(1).map((value, index) => value - values.slice(-period - 1)[index]);
+  const gain = changes.reduce((sum, value) => sum + Math.max(value, 0), 0) / period;
+  const loss = changes.reduce((sum, value) => sum + Math.max(-value, 0), 0) / period;
+  if (loss === 0) return 100;
+  return round(100 - (100 / (1 + gain / loss)), 1);
+}
+
+function macd(values) {
+  if (values.length < 35) return { line: null, signal: null, histogram: null };
+  const lines = values.map((_, index) => {
+    const subset = values.slice(0, index + 1);
+    const fast = ema(subset, 12);
+    const slow = ema(subset, 26);
+    return Number.isFinite(fast) && Number.isFinite(slow) ? fast - slow : null;
+  }).filter(Number.isFinite);
+  const line = lines.at(-1);
+  const signal = ema(lines, 9);
+  return {
+    line: Number.isFinite(line) ? round(line, 3) : null,
+    signal: Number.isFinite(signal) ? round(signal, 3) : null,
+    histogram: Number.isFinite(line) && Number.isFinite(signal) ? round(line - signal, 3) : null
+  };
+}
+
 function atr(bars, period = 14) {
   if (bars.length < period + 1) return null;
   const ranges = bars.slice(1).map((bar, index) => {
@@ -17,6 +43,13 @@ function atr(bars, period = 14) {
     return Math.max(bar.high - bar.low, Math.abs(bar.high - previousClose), Math.abs(bar.low - previousClose));
   });
   return round(ranges.slice(-period).reduce((sum, value) => sum + value, 0) / period);
+}
+
+function relativeVolume(bars, period = 20) {
+  const usable = bars.filter((bar) => Number.isFinite(bar.volume) && bar.volume > 0);
+  if (usable.length < period + 1) return null;
+  const baseline = usable.slice(-(period + 1), -1).reduce((sum, bar) => sum + bar.volume, 0) / period;
+  return baseline > 0 ? round(usable.at(-1).volume / baseline, 2) : null;
 }
 
 function rollingVwap(bars, period = 20) {
@@ -68,15 +101,23 @@ export function deriveTechnicals(bars) {
   const levels = priceLevels(valid);
   return {
     trend: trendFromHistory(closes),
+    ema8: ema(closes, 8),
     ema9: ema(closes, 9),
     ema21: ema(closes, 21),
     ema50: ema(closes, 50),
+    ema200: ema(closes, 200),
+    rsi14: rsi(closes),
+    macd: macd(closes),
     atr14: atr(valid),
     vwap20: rollingVwap(valid),
+    relativeVolume20: relativeVolume(valid),
     realizedVolatility20: realizedVolatility(valid),
     support: levels.support,
     resistance: levels.resistance,
     volumeProfile: volumeProfile(valid),
-    source: 'daily OHLCV provider bars'
+    intradayTrend: null,
+    intradayVwap: null,
+    source: 'daily OHLCV provider bars',
+    limitations: ['VWAP mostrado es proxy rolling diario; VWAP intradia requiere barras intradia.', 'Tendencia intradia no disponible con la consulta diaria actual.']
   };
 }

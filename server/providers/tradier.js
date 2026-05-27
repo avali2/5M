@@ -40,7 +40,7 @@ export class TradierProvider {
   async getHistory(symbol) {
     const ticker = symbolForTradier(symbol);
     return cache.remember(`tradier:history:${ticker}`, 900000, async () => {
-      const url = `${this.settings.baseUrl}/markets/history?symbol=${encodeURIComponent(ticker)}&start=${daysFromNow(-100)}&end=${daysFromNow(0)}&interval=daily`;
+      const url = `${this.settings.baseUrl}/markets/history?symbol=${encodeURIComponent(ticker)}&start=${daysFromNow(-340)}&end=${daysFromNow(0)}&interval=daily`;
       const data = await requestJson(this.name, url, { headers: this.headers() });
       return toArray(data.history?.day).map((day) => ({
         date: day.date,

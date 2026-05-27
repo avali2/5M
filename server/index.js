@@ -6,7 +6,6 @@ import path from 'node:path';
 import { access } from 'node:fs/promises';
 import { config, providerStatus, UNIVERSE } from './config.js';
 import { cache } from './lib/cache.js';
-import { getRiskProfile, getWatchlist, saveRiskProfile, saveWatchlist } from './lib/store.js';
 import { createProviders } from './providers/index.js';
 import { explainers } from './explainers.js';
 import { ScanScheduler } from './services/scheduler.js';
@@ -16,7 +15,7 @@ export function createApp(settings = config, customProviders = null, options = {
   const app = express();
   const providers = customProviders || createProviders(settings);
   const scheduler = new ScanScheduler({ providers, settings });
-  const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], tradingPaused: false };
+  const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, riskMode: 'CONSERVADOR', tradingPaused: false };
   const defaultWatchlist = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
 
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -80,7 +79,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.get('/api/watchlist', async (_req, res, next) => {
     try {
-      res.json(await getWatchlist(defaultWatchlist));
+      res.json(await repository.getWatchlist(defaultWatchlist));
     } catch (error) {
       next(error);
     }
@@ -90,7 +89,7 @@ export function createApp(settings = config, customProviders = null, options = {
     try {
       if (!Array.isArray(req.body.symbols)) return res.status(400).json({ error: 'symbols array required' });
       cache.clear();
-      const watchlist = await saveWatchlist(req.body.symbols);
+      const watchlist = await repository.saveWatchlist(req.body.symbols);
       scheduler.run(true).catch(() => {});
       return res.json(watchlist);
     } catch (error) {
@@ -100,7 +99,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.get('/api/profile', async (_req, res, next) => {
     try {
-      res.json(await getRiskProfile(defaults));
+      res.json(await repository.getRiskProfile(defaults));
     } catch (error) {
       next(error);
     }
@@ -109,7 +108,7 @@ export function createApp(settings = config, customProviders = null, options = {
   app.put('/api/profile', async (req, res, next) => {
     try {
       cache.clear();
-      const profile = await saveRiskProfile(req.body || {}, defaults);
+      const profile = await repository.saveRiskProfile(req.body || {}, defaults);
       scheduler.run(true).catch(() => {});
       res.json(profile);
     } catch (error) {

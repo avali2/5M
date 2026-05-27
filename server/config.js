@@ -9,6 +9,7 @@ export const UNIVERSE = {
   indices: ['SPY', 'SPX', 'QQQ', 'IWM', 'DIA'],
   magnificent7: ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA'],
   focusEquities: ['SOFI'],
+  optionalIndices: ['XSP', 'NDX'],
   liquidEtfs: ['XLF', 'XLK', 'XLE', 'XLV', 'TLT', 'GLD'],
   breadth: ['SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'XLK', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU'],
   volatility: 'VIX'
@@ -60,6 +61,7 @@ export const config = {
     riskPct: asNumber(process.env.RISK_PER_TRADE_PCT, 2),
     maxCollateralPct: asNumber(process.env.MAX_COLLATERAL_PCT, 20),
     maxDailyLossPct: asNumber(process.env.MAX_DAILY_LOSS_PCT, 5),
+    maxWeeklyLossPct: asNumber(process.env.MAX_WEEKLY_LOSS_PCT, 8),
     maxOpenTrades: asNumber(process.env.MAX_OPEN_TRADES, 3),
     minScore: asNumber(process.env.MIN_SCORE, 75),
     minDte: asNumber(process.env.MIN_DTE, 21),

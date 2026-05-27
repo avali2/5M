@@ -1,6 +1,6 @@
 import pLimit from 'p-limit';
 import { UNIVERSE, config, providerStatus } from '../config.js';
-import { appendAlert, getAlerts, getRiskProfile, getWatchlist } from '../lib/store.js';
+import { appendAlert, getAlerts } from '../lib/store.js';
 import { daysTo, round } from '../lib/math.js';
 import { repository } from '../db/repository.js';
 import { classifyEventRisk, classifyNewsRisk, computeGammaProxy, detectMarketRegime, loadMarketOverview } from './market-intelligence.js';
@@ -14,6 +14,7 @@ import {
 } from './strategies.js';
 import { scoreSetup } from './scoring.js';
 import { createDailyAssistant, createExecutionPlan } from './guidance.js';
+import { buildDataHealth } from './data-health.js';
 
 const DEFAULT_SYMBOLS = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
 const SHORT_DTE_SYMBOLS = new Set(['SPY', 'SPX', 'QQQ', 'IWM', 'DIA']);
@@ -89,6 +90,8 @@ function individualBlocks({ setup, ivRank, gamma, earningsRisk, policy, profile,
   if (correlationRisk(setup.symbol, profile.activeSymbols)) blocks.push('Limite de exposicion correlacionada alcanzado');
   if (profile.activeSymbols.length >= profile.maxOpenTrades) blocks.push('Numero maximo de operaciones abiertas alcanzado');
   if (profile.dailyLossPct >= profile.maxDailyLossPct) blocks.push('Kill switch por perdida diaria activado');
+  if (profile.weeklyLossPct >= profile.maxWeeklyLossPct) blocks.push('Kill switch por perdida semanal activado');
+  if (profile.collateralUsedPct >= 80) blocks.push('Colateral utilizado sobre 80%; solo educacion/paper trade');
   if (/0DTE/i.test(setup.strategy)) blocks.push('0DTE solo se observa en modo trabajo');
   if (/1DTE/i.test(setup.strategy) && !profile.allow1DteApproval) blocks.push('1DTE requiere aprobacion expresa en el mandato');
   if (/Debit Spread/i.test(setup.strategy) && policy.workMode) blocks.push('Estructura direccional incompatible con modo trabajo');
@@ -125,6 +128,7 @@ async function scanSymbol({ symbol, providers, market, macro, policy, profile })
     const primaryMetrics = atmMetrics(ivChain.chain, quote.price, ivChain.dte);
     const ivStats = await repository.recordIv(symbol, primaryMetrics.iv, policy.ivRankMinObservations);
     const candidates = [];
+    const conditionalCandidates = [];
     chains.forEach((entry) => {
       const metrics = atmMetrics(entry.chain, quote.price, entry.dte);
       const gamma = computeGammaProxy(entry.chain, quote.price);
@@ -163,10 +167,46 @@ async function scanSymbol({ symbol, providers, market, macro, policy, profile })
         ivPercentile: ivStats.ivPercentile,
         ivRankObservations: ivStats.samples.length
       }));
+      if (entry.category === 'income') {
+        const conditionalStructures = [
+          {
+            educationBias: 'bullish',
+            options: generateDefinedRiskSetups({ symbol, spot: quote.price, expiration: entry.date, chain: entry.chain, trend: 'bullish', policy: standardPolicy })
+              .filter((setup) => /Bull Put Spread/i.test(setup.strategy))
+          },
+          {
+            educationBias: 'bearish',
+            options: generateDefinedRiskSetups({ symbol, spot: quote.price, expiration: entry.date, chain: entry.chain, trend: 'bearish', policy: standardPolicy })
+              .filter((setup) => /Bear Call Spread/i.test(setup.strategy))
+          },
+          {
+            educationBias: 'neutral',
+            options: generateDefinedRiskSetups({ symbol, spot: quote.price, expiration: entry.date, chain: entry.chain, trend: 'range', policy: standardPolicy })
+              .filter((setup) => /Iron Condor/i.test(setup.strategy))
+          }
+        ];
+        conditionalStructures.forEach(({ educationBias, options }) => {
+          if (!options[0]) return;
+          conditionalCandidates.push({
+            setup: options[0],
+            educationBias,
+            gamma,
+            technicals,
+            earningsRisk,
+            metrics,
+            dte: entry.dte,
+            category: 'educational',
+            ivRank: ivStats.ivRank,
+            ivPercentile: ivStats.ivPercentile,
+            ivRankObservations: ivStats.samples.length
+          });
+        });
+      }
     });
     return {
       symbol,
       candidates,
+      conditionalCandidates,
       gamma: candidates.find((candidate) => candidate.category === 'income')?.gamma || candidates[0]?.gamma,
       technicals,
       ivRank: ivStats.ivRank,
@@ -189,12 +229,15 @@ function requiredProviderGates(providers) {
 
 export async function runAutonomousScan({ providers, settings = config } = {}) {
   const policy = settings.policy;
-  const watchlist = await getWatchlist(DEFAULT_SYMBOLS);
-  const profile = await getRiskProfile({
+  const watchlist = await repository.getWatchlist(DEFAULT_SYMBOLS);
+  const profile = await repository.getRiskProfile({
     ...policy,
     holdings: {},
     activeSymbols: [],
     dailyLossPct: 0,
+    weeklyLossPct: 0,
+    collateralUsedPct: 0,
+    riskMode: 'CONSERVADOR',
     tradingPaused: false
   });
   const symbols = [...new Set([...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...watchlist.symbols])];
@@ -217,23 +260,28 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
       macro: null,
       opportunities: [],
       rejected: [],
+      conditionalIdeas: [],
+      dataHealth: buildDataHealth({ providerStates: base.providers }),
       alerts: await getAlerts()
     };
     scan.summary = deterministicSummary(scan);
     return scan;
   }
-  const [market, events, earnings, news, flow, blockTrades, insiders] = await Promise.all([
+  const [market, events, earnings, news, companyNews, flow, blockTrades, insiders] = await Promise.all([
     loadMarketOverview({ providers, symbols: [...new Set([...symbols, ...UNIVERSE.breadth])] }),
     providers.calendar.getEconomicCalendar().catch(() => []),
     providers.calendar.getEarningsCalendar(symbols).catch(() => []),
     providers.finnhub.getMarketNews().catch(() => []),
+    providers.finnhub.configured && typeof providers.finnhub.getCompanyNews === 'function'
+      ? providers.finnhub.getCompanyNews([...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities]).catch(() => [])
+      : Promise.resolve([]),
     providers.benzinga.configured && typeof providers.benzinga.getUnusualOptions === 'function' ? providers.benzinga.getUnusualOptions(symbols).catch(() => []) : Promise.resolve([]),
     providers.benzinga.configured && typeof providers.benzinga.getBlockTrades === 'function' ? providers.benzinga.getBlockTrades(symbols).catch(() => []) : Promise.resolve([]),
     providers.finnhub.configured && typeof providers.finnhub.getInsiderTransactions === 'function' ? providers.finnhub.getInsiderTransactions(symbols).catch(() => []) : Promise.resolve([])
   ]);
   const highImpactEvents = classifyEventRisk(events);
   const breakingRisk = classifyNewsRisk(news);
-  const macro = { events, earnings, news, highImpactEvents, breakingRisk, flow, blockTrades, insiders };
+  const macro = { events, earnings, news, companyNews, highImpactEvents, breakingRisk, flow, blockTrades, insiders };
   const globalBlocks = [];
   if (!Number.isFinite(market.vix)) globalBlocks.push('Cotizacion de VIX no disponible');
   if (market.vix >= policy.maxVix) globalBlocks.push(`Regimen VIX extremo: ${market.vix}`);
@@ -241,6 +289,8 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   if (breakingRisk.length) globalBlocks.push('Noticias sensibles requieren revision humana');
   if (profile.tradingPaused) globalBlocks.push('Kill switch del mandato esta activo');
   if (profile.dailyLossPct >= profile.maxDailyLossPct) globalBlocks.push('Se alcanzo la perdida diaria maxima');
+  if (profile.weeklyLossPct >= profile.maxWeeklyLossPct) globalBlocks.push('Se alcanzo la perdida semanal maxima');
+  if (profile.collateralUsedPct >= 80) globalBlocks.push('Colateral utilizado sobre 80%; solo paper trade');
   const limit = pLimit(3);
   const results = await Promise.all(symbols.map((symbol) => limit(() => scanSymbol({ symbol, providers, market, macro, policy, profile }))));
   const spyGamma = results.find((result) => result.symbol === 'SPY')?.gamma;
@@ -253,7 +303,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     gamma: spyGamma,
     macroRisk: highImpactEvents.length > 0 || breakingRisk.length > 0
   });
-  const allSetups = results.flatMap((result) => (result.candidates || []).map((candidate) => {
+  const formatCandidate = (candidate) => {
     const setup = candidate.setup;
     const flowBias = flowAlignment(flow, setup);
     const riskAllowed = setup.maxRisk <= profile.accountSize * profile.riskPct / 100;
@@ -298,7 +348,8 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
         flowBias === 'unavailable' ? 'Flujo institucional opcional no disponible' : `Flujo inusual ${flowBias}`
       ]
     };
-  }));
+  };
+  const allSetups = results.flatMap((result) => (result.candidates || []).map(formatCandidate));
   const eligible = globalBlocks.length ? [] : allSetups.filter((setup) => !setup.blocks.length && setup.confidenceScore >= policy.minScore)
     .sort((a, b) => b.confidenceScore - a.confidenceScore || b.pop - a.pop || a.maxRisk - b.maxRisk);
   const opportunities = eligible.slice(0, 5).map((setup) => ({
@@ -307,6 +358,37 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   }));
   const rejected = allSetups.filter((setup) => setup.blocks.length || setup.confidenceScore < policy.minScore)
     .sort((a, b) => b.confidenceScore - a.confidenceScore).slice(0, 30);
+  const conditionalPool = results.flatMap((result) => (result.conditionalCandidates || []).map((candidate) => ({
+    ...formatCandidate(candidate),
+    educationBias: candidate.educationBias
+  }))).sort((left, right) => right.confidenceScore - left.confidenceScore || right.liquidityScore - left.liquidityScore);
+  const conditionalIdeas = ['bullish', 'bearish', 'neutral'].map((bias) => {
+    const setup = conditionalPool.find((candidate) => candidate.educationBias === bias);
+    if (!setup) {
+      return {
+        educationBias: bias,
+        status: 'no_data',
+        classification: 'IDEA EDUCATIVA SIN STRIKES',
+        reason: 'No existe cadena liquida suficiente para construir esta estructura sin inventar datos.'
+      };
+    }
+    const technicalTrigger = bias === 'bullish'
+      ? `Confirmar precio sobre VWAP proxy ${setup.technicals.vwap20 ?? 'No disponible'} y soporte ${setup.technicals.support ?? 'No disponible'}.`
+      : bias === 'bearish'
+        ? `Confirmar rechazo bajo VWAP proxy ${setup.technicals.vwap20 ?? 'No disponible'} o resistencia ${setup.technicals.resistance ?? 'No disponible'}.`
+        : `Confirmar rango entre soporte ${setup.technicals.support ?? 'No disponible'} y resistencia ${setup.technicals.resistance ?? 'No disponible'}, sin expansion de VIX.`;
+    return {
+      ...setup,
+      status: 'conditional',
+      classification: 'PAPER / CONDICIONAL - NO ES ORDEN APROBADA',
+      activationRules: [
+        technicalTrigger,
+        'Reescanear y exigir que liquidez, IV, gamma, noticias, earnings y riesgo pasen sin bloqueos.',
+        ...globalBlocks.map((block) => `Bloqueo actual a resolver: ${block}.`)
+      ],
+      missingValidation: [...new Set(setup.blocks.length ? setup.blocks : ['Requiere revalidacion de precio y chain al momento de entrada.'])]
+    };
+  });
   const reasons = globalBlocks.length ? globalBlocks : opportunities.length ? [] : ['Ninguna estructura paso regimen, liquidez, riesgo, historial IV, gamma y probabilidad.'];
   const decision = opportunities.length ? { status: 'eligible', label: 'PLANES INSTITUCIONALES APROBADOS', reasons: [] } : { status: 'no_trade', label: 'HOY NO HAY VENTAJAS', reasons };
   if (!opportunities.length) await appendAlert({ kind: 'no_trade', message: reasons.join(' ') });
@@ -324,6 +406,8 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     macro,
     opportunities,
     rejected,
+    conditionalIdeas,
+    dataHealth: buildDataHealth({ providerStates: base.providers, market, macro, results }),
     gammaSurfaces: results.filter((result) => result.gamma).map((result) => ({ symbol: result.symbol, ...result.gamma })),
     scanErrors: results.filter((result) => result.error),
     alerts: await getAlerts()

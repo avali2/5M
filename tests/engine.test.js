@@ -157,4 +157,7 @@ test('ranks a live sourced credit spread when all work-mode gates pass', async (
   assert.equal(scan.decision.status, 'eligible');
   assert.ok(scan.opportunities.length > 0);
   assert.equal(scan.opportunities[0].strategy, 'Bull Put Spread');
+  assert.equal(scan.conditionalIdeas.length, 3);
+  assert.ok(scan.conditionalIdeas.every((idea) => idea.classification.includes('CONDICIONAL')));
+  assert.ok(scan.dataHealth.metrics.some((metric) => metric.name === 'VIX9D' && metric.available === false));
 });

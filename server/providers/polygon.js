@@ -36,7 +36,7 @@ export class PolygonProvider {
   async getHistory(symbol) {
     const ticker = symbol === 'VIX' ? 'I:VIX' : symbol;
     return cache.remember(`polygon:history:${ticker}`, 900000, async () => {
-      const url = this.keyed(`${this.settings.baseUrl}/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/1/day/${daysFromNow(-100)}/${daysFromNow(0)}?adjusted=true&sort=asc&limit=120`);
+      const url = this.keyed(`${this.settings.baseUrl}/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/1/day/${daysFromNow(-340)}/${daysFromNow(0)}?adjusted=true&sort=asc&limit=350`);
       const data = await requestJson(this.name, url);
       return (data.results || []).map((bar) => ({
         date: new Date(bar.t).toISOString().slice(0, 10),
