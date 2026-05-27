@@ -6,6 +6,23 @@ import NotificationCenter from './features/notifications/NotificationCenter.jsx'
 import { showMobileSafeNotification } from './services/notifications.js';
 import OptionsStrategyLab from './features/options-simulator/OptionsStrategyLab.jsx';
 import LearningCenter from './features/learning/LearningCenter.jsx';
+import LearningRoadmap from './features/learning/LearningRoadmap.jsx';
+import ProSignals from './features/pro-signals/ProSignals.jsx';
+import AiStatusPanel from './features/ai-status/AiStatusPanel.jsx';
+import PaperTradingDesk from './features/options-paper-trading/PaperTradingDesk.jsx';
+import RiskGovernorPanel from './features/risk-governor/RiskGovernorPanel.jsx';
+import ProDataMap from './features/pro-data-map/ProDataMap.jsx';
+import GreeksVolatilityAcademy from './features/greeks-volatility-academy/GreeksVolatilityAcademy.jsx';
+import GexLab from './features/gex-dealer-positioning-lab/GexLab.jsx';
+import MovingAveragePlaybook from './features/moving-average-options-playbook/MovingAveragePlaybook.jsx';
+import TradingPlan from './features/pro-trading-plan/TradingPlan.jsx';
+import StrategyLibrary from './features/options-strategy-library/StrategyLibrary.jsx';
+import TapeReadingLab from './features/tape-reading-lab/TapeReadingLab.jsx';
+import OptionsFlowLite from './features/options-flow-lite/OptionsFlowLite.jsx';
+import AlgorithmicStrategyLab from './features/algorithmic-strategy-lab/AlgorithmicStrategyLab.jsx';
+import PracticeReplay from './features/practice-replay/PracticeReplay.jsx';
+import SourceFormulaAudit from './features/source-formula-audit/SourceFormulaAudit.jsx';
+import DailyLearningCards from './features/dashboard-education/DailyLearningCards.jsx';
 
 const cash = (value) => Number.isFinite(value) ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : '--';
 const decimal = (value, digits = 1) => Number.isFinite(value) ? Number(value).toFixed(digits) : '--';
@@ -58,9 +75,23 @@ function AccessGate({ error, onUnlock }) {
 function MobileQuickNav() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-sigma-line bg-sigma-bg/95 px-1 py-2 backdrop-blur md:hidden">
-      {[['decision', 'Scanner'], ['signals', 'Senales'], ['news', 'Noticias'], ['academy', 'Aprender'], ['settings', 'Config']].map(([target, label]) => (
+      {[['decision', 'Dashboard'], ['pro-signals', 'Senales'], ['lab', 'Simulador'], ['paper', 'Paper'], ['journal', 'Journal']].map(([target, label]) => (
         <a className="rounded-lg px-2 py-2 text-[11px] font-semibold text-slate-300" href={`#${target}`} key={target}>{label}</a>
       ))}
+    </nav>
+  );
+}
+
+function DesktopTabs() {
+  const tabs = [
+    ['decision', 'Dashboard'], ['pro-signals', 'Senales Pro'], ['signals', 'Scanner'], ['lab', 'Simulador'],
+    ['paper', 'Paper Trading'], ['data-map', 'Fuentes Pro'], ['greeks', 'Greeks'], ['gex-lab', 'GEX Lab'],
+    ['moving-averages', 'Medias'], ['trading-plan', 'Plan'], ['library', 'Biblioteca'], ['tape-lab', 'Tape'],
+    ['options-flow', 'Flow'], ['algo-lab', 'Algo'], ['replay', 'Replay'], ['journal', 'Journal'], ['notification-status', 'Alertas'], ['settings', 'Config']
+  ];
+  return (
+    <nav className="hidden overflow-x-auto rounded-xl border border-sigma-line bg-sigma-elevated p-2 md:flex md:gap-1">
+      {tabs.map(([target, label]) => <a className="whitespace-nowrap rounded-lg px-3 py-2 text-xs text-slate-300 hover:bg-sigma-soft hover:text-white" href={`#${target}`} key={target}>{label}</a>)}
     </nav>
   );
 }
@@ -631,12 +662,14 @@ function SofiDesk({ scan }) {
   );
 }
 
+// Legacy lesson retained while the searchable LearningCenter supplies the active academy view.
+// eslint-disable-next-line no-unused-vars
 function OptionsAcademy({ scan, onExplain }) {
   const guide = scan?.assistant?.greekTargets || [];
   const lessons = [
     ['Credit spread', 'Vendes una opcion y compras proteccion. La ganancia y la perdida maxima estan definidas desde el inicio.'],
     ['Iron condor', 'Dos credit spreads alrededor de un rango. Necesita mercado estable, liquidez y bajo riesgo de evento.'],
-    ['IV crush', 'Despues de un evento, la volatilidad implicita puede caer; puede ayudar al vendedor o dañar al comprador.'],
+    ['IV crush', 'Despues de un evento, la volatilidad implicita puede caer; puede ayudar al vendedor o danar al comprador.'],
     ['Assignment', 'CSP y covered calls pueden terminar en compra o venta de 100 acciones por contrato.']
   ];
   return (
@@ -803,7 +836,7 @@ function RiskDesk({ scan }) {
 function TradeJournal({ scan }) {
   const candidate = scan?.opportunities?.[0] || scan?.rejected?.[0];
   const [entries, setEntries] = useState([]);
-  const [draft, setDraft] = useState({ symbol: '', strategy: '', outcome: 'OBSERVED', mentalState: 'DISCIPLINADO', plannedEntry: '', realEntry: '', plannedExit: '', realExit: '', pnl: '', lesson: '', notes: '' });
+  const [draft, setDraft] = useState({ symbol: '', strategy: '', outcome: 'OBSERVADA', mentalState: 'DISCIPLINADO', plannedEntry: '', realEntry: '', plannedExit: '', realExit: '', pnl: '', mae: '', mfe: '', error: '', ruleViolated: '', ruleRespected: '', lesson: '', notes: '' });
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     api.journal().then(setEntries).catch(() => {});
@@ -829,29 +862,27 @@ function TradeJournal({ scan }) {
     try {
       const item = await api.addJournal(draft);
       setEntries((current) => [item, ...current]);
-      setDraft((current) => ({ ...current, notes: '', lesson: '', pnl: '' }));
+      setDraft((current) => ({ ...current, notes: '', lesson: '', pnl: '', mae: '', mfe: '', error: '', ruleViolated: '', ruleRespected: '' }));
     } finally {
       setSaving(false);
     }
   }
   return (
-    <section className="panel p-4">
+    <section id="journal" className="panel scroll-mt-24 p-4">
       <p className="eyebrow">Trade journal</p>
       <h3 className="mt-1 text-lg font-semibold">Decision audit trail</h3>
       <form className="mt-4 grid gap-2 md:grid-cols-[105px_1fr_140px_150px_auto]" onSubmit={saveEntry}>
         <input className="input font-mono" value={draft.symbol} onChange={(event) => setDraft({ ...draft, symbol: event.target.value.toUpperCase() })} placeholder="SPY" />
         <input className="input" value={draft.strategy} onChange={(event) => setDraft({ ...draft, strategy: event.target.value })} placeholder="Strategy" />
         <select className="input" value={draft.outcome} onChange={(event) => setDraft({ ...draft, outcome: event.target.value })}>
-          <option>OBSERVED</option>
-          <option>EXECUTED</option>
+          <option>OBSERVADA</option>
+          <option>EJECUTADA</option>
           <option>PAPER TRADE</option>
-          <option>OPEN</option>
-          <option>WON</option>
-          <option>LOST</option>
-          <option>SKIPPED</option>
+          <option>IGNORADA</option>
+          <option>CANCELADA POR RISK GOVERNOR</option>
         </select>
         <select className="input" value={draft.mentalState} onChange={(event) => setDraft({ ...draft, mentalState: event.target.value })}>
-          <option>DISCIPLINADO</option><option>TRANQUILO</option><option>ANSIEDAD</option><option>FOMO</option><option>REVENGE</option>
+          <option>DISCIPLINADO</option><option>TRANQUILO</option><option>ANSIEDAD</option><option>FOMO</option><option>REVENGE</option><option>CANSANCIO</option>
         </select>
         <button className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Record'}</button>
         <input className="input" value={draft.plannedEntry} onChange={(event) => setDraft({ ...draft, plannedEntry: event.target.value })} placeholder="Entrada planificada" />
@@ -859,7 +890,12 @@ function TradeJournal({ scan }) {
         <input className="input" value={draft.plannedExit} onChange={(event) => setDraft({ ...draft, plannedExit: event.target.value })} placeholder="Salida planificada" />
         <input className="input" value={draft.realExit} onChange={(event) => setDraft({ ...draft, realExit: event.target.value })} placeholder="Salida real" />
         <input className="input" value={draft.pnl} onChange={(event) => setDraft({ ...draft, pnl: event.target.value })} placeholder="P/L USD" />
-        <input className="input md:col-span-3" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Error cometido / notas de ejecucion" />
+        <input className="input" value={draft.mae} onChange={(event) => setDraft({ ...draft, mae: event.target.value })} placeholder="MAE USD" />
+        <input className="input" value={draft.mfe} onChange={(event) => setDraft({ ...draft, mfe: event.target.value })} placeholder="MFE USD" />
+        <input className="input md:col-span-2" value={draft.error} onChange={(event) => setDraft({ ...draft, error: event.target.value })} placeholder="Error cometido" />
+        <input className="input" value={draft.ruleViolated} onChange={(event) => setDraft({ ...draft, ruleViolated: event.target.value })} placeholder="Regla violada" />
+        <input className="input" value={draft.ruleRespected} onChange={(event) => setDraft({ ...draft, ruleRespected: event.target.value })} placeholder="Regla respetada" />
+        <input className="input md:col-span-3" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Notas de ejecucion" />
         <input className="input md:col-span-2" value={draft.lesson} onChange={(event) => setDraft({ ...draft, lesson: event.target.value })} placeholder="Leccion aprendida" />
       </form>
       <div className="mt-4 max-h-48 space-y-2 overflow-auto scrollbar">
@@ -888,7 +924,7 @@ function WatchlistAndProfile({ scan, onSaveWatchlist, onSaveProfile }) {
     }
   }, [scan?.watchlist?.updatedAt, scan?.profile?.updatedAt, scan?.decision?.status]);
   return (
-    <section className="panel p-4">
+    <section id="settings" className="panel scroll-mt-24 p-4">
       <p className="eyebrow">Mandato persistente</p>
       <h3 className="mt-1 text-lg font-semibold">Watchlist y control de riesgo</h3>
       <p className="mt-2 text-xs leading-5 text-slate-500">Aqui defines universo y limites de capital. VIX, IV, tendencia, gamma y eventos nunca se introducen manualmente.</p>
@@ -921,6 +957,15 @@ function WatchlistAndProfile({ scan, onSaveWatchlist, onSaveProfile }) {
             <input type="checkbox" checked={profile.allow1DteApproval || false} onChange={(event) => setProfile({ ...profile, allow1DteApproval: event.target.checked })} />
             Habilitar aprobacion 1DTE
           </label>
+          <label className="flex items-center gap-2 rounded-lg border border-sigma-line bg-sigma-soft px-3 text-xs text-slate-300">
+            <input type="checkbox" checked={profile.allow0Dte || false} onChange={(event) => setProfile({ ...profile, allow0Dte: event.target.checked })} />
+            0DTE solo con confirmacion
+          </label>
+          <label className="flex items-center gap-2 rounded-lg border border-sigma-line bg-sigma-soft px-3 text-xs text-slate-300">
+            <input type="checkbox" checked={profile.allowEarnings || false} onChange={(event) => setProfile({ ...profile, allowEarnings: event.target.checked })} />
+            Earnings educativo
+          </label>
+          <ProfileInput label="Perdidas consecutivas hoy" value={profile.consecutiveDailyLosses || 0} onChange={(value) => setProfile({ ...profile, consecutiveDailyLosses: value })} />
           <label className="col-span-2 text-xs text-slate-400">
             Acciones cubiertas (para Covered Call / Wheel)
             <input className="input mt-1 font-mono" value={holdings} onChange={(event) => setHoldings(event.target.value)} placeholder="AAPL:100, F:200" />
@@ -991,6 +1036,9 @@ export default function App() {
   const [seconds, setSeconds] = useState(60);
   const [notificationEnabled, setNotificationEnabled] = useState(typeof Notification !== 'undefined' && Notification.permission === 'granted');
   const [simulationSetup, setSimulationSetup] = useState(null);
+  const [paperSetup, setPaperSetup] = useState(null);
+  const [replayTrade, setReplayTrade] = useState(null);
+  const [auditItem, setAuditItem] = useState(null);
   const latestAlert = useRef(null);
 
   async function load(force = false) {
@@ -1047,6 +1095,15 @@ export default function App() {
     window.setTimeout(() => document.getElementById('lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   }
 
+  function paperSetupTrade(setup) {
+    setPaperSetup({ ...setup, paperRequestId: Date.now() });
+    window.setTimeout(() => document.getElementById('paper')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  }
+
+  function openAiPanel() {
+    document.getElementById('ai-status')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   async function saveSimulationJournal(entry) {
     await api.addJournal(entry);
     window.dispatchEvent(new Event('journal-updated'));
@@ -1058,24 +1115,29 @@ export default function App() {
     <div className="min-h-screen bg-sigma-bg text-sigma-text">
       <Header scan={scan} loading={loading} onRefresh={() => load(true)} seconds={seconds} />
       <main className="mx-auto max-w-[1540px] space-y-5 px-4 py-5 pb-20 md:px-8 md:pb-5">
+        <DesktopTabs />
         {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-sigma-red">{error}</div>}
         <DecisionHero scan={scan} />
         <DailyAssistant scan={scan} />
+        <DailyLearningCards scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
         <DataCollectionPanel scan={scan} />
         <DataHealthPanel scan={scan} />
         <div className="grid gap-5 xl:grid-cols-[315px_minmax(0,1fr)]">
           <aside className="order-2 space-y-4 xl:order-1">
             <ProviderCoverage scan={scan} />
             <NotificationCenter enabled={notificationEnabled} onEnabled={setNotificationEnabled} />
+            <AiStatusPanel scan={scan} />
             <AlertCenter scan={scan} />
             <WatchlistAndProfile scan={scan} onSaveWatchlist={async (symbols) => { await api.saveWatchlist(symbols); load(true); }} onSaveProfile={async (profile) => { await api.saveProfile(profile); load(true); }} />
             <Explainers onOpen={setSelectedExplainer} />
           </aside>
           <div className="order-1 space-y-5 xl:order-2">
             <RiskDesk scan={scan} />
+            <RiskGovernorPanel scan={scan} />
             <MarketSentiment scan={scan} />
             <TopOpportunities scan={scan} onSimulate={simulateSetup} />
             <ConditionalIdeas scan={scan} onSimulate={simulateSetup} />
+            <ProSignals scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} onAudit={setAuditItem} onAiExplain={openAiPanel} />
             <SofiDesk scan={scan} />
             <MarketDashboard scan={scan} onExplain={setSelectedExplainer} />
             <GammaDesk scan={scan} onExplain={setSelectedExplainer} />
@@ -1083,8 +1145,20 @@ export default function App() {
             <SmartMoney scan={scan} />
             <RisksAndEvents scan={scan} />
             <NewsPanel scan={scan} />
-            <OptionsStrategyLab prefillSetup={simulationSetup} profile={scan?.profile} onSaveJournal={saveSimulationJournal} />
+            <OptionsStrategyLab prefillSetup={simulationSetup} profile={scan?.profile} onSaveJournal={saveSimulationJournal} onSendPaper={paperSetupTrade} />
+            <PaperTradingDesk importedSetup={paperSetup} profile={scan?.profile} onSaveJournal={saveSimulationJournal} onReplay={setReplayTrade} />
+            <ProDataMap scan={scan} />
+            <GreeksVolatilityAcademy />
+            <GexLab scan={scan} />
+            <MovingAveragePlaybook scan={scan} />
+            <TradingPlan scan={scan} onAiExplain={openAiPanel} />
+            <StrategyLibrary onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+            <TapeReadingLab scan={scan} />
+            <OptionsFlowLite scan={scan} />
+            <AlgorithmicStrategyLab onPaper={paperSetupTrade} />
+            <PracticeReplay importedTrade={replayTrade} />
             <LearningCenter scan={scan} />
+            <LearningRoadmap onSimulate={simulateSetup} onPaper={paperSetupTrade} />
             <TradeJournal scan={scan} />
           </div>
         </div>
@@ -1094,6 +1168,7 @@ export default function App() {
       </main>
       <MobileQuickNav />
       <Modal item={selected} onClose={() => setSelectedExplainer(null)} />
+      <SourceFormulaAudit item={auditItem} onClose={() => setAuditItem(null)} />
     </div>
   );
 }

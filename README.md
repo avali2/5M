@@ -10,11 +10,14 @@ Valido 1M is a semiautonomous scanner and learning assistant for defined-risk, h
 - `server/providers/` contains Tradier, Finnhub, Polygon, FMP, Benzinga, and OpenAI adapters.
 - `server/db/` contains the PostgreSQL repository and production schema.
 - `src/features/options-simulator/` contains pure payoff/Greek/scenario calculations and the embedded Options Strategy Lab.
+- `src/features/pro-signals/`, `probability-edge-engine/` and `risk-governor/` present deterministic scored signals with source/formula auditing.
+- `src/features/options-paper-trading/` and `practice-replay/` provide offline/manual practice and post-plan review without sending broker orders.
+- `src/features/pro-data-map/`, `greeks-volatility-academy/`, `gex-dealer-positioning-lab/`, `moving-average-options-playbook/`, `options-strategy-library/`, `tape-reading-lab/`, `options-flow-lite/`, `algorithmic-strategy-lab/` and `pro-trading-plan/` form the learning desk.
 - `src/services/notifications.js` and `public/sw.js` implement mobile-safe PWA notifications.
 - `data/` is a local development fallback for watchlists, snapshots, journal, alerts, risk mandate, and IV observations.
 - The Express scheduler continues rescanning on the configured interval while the server is running, even when the browser tab is closed.
 - The default watchlist includes `SPY`, `SPX`, `QQQ`, `IWM`, `DIA`, Magnificent 7 and the focused equity `SOFI`.
-- `XSP` and `NDX` can be added to the watchlist when the selected broker/data plan supports their chains.
+- `XSP`, `NDX` and `RUT` can be added to the watchlist when the selected broker/data plan supports their chains.
 
 ## Live Provider Coverage
 
@@ -24,7 +27,7 @@ Valido 1M is a semiautonomous scanner and learning assistant for defined-risk, h
 | Macro calendar and earnings | Finnhub or FMP | Yes |
 | Breaking market news | Finnhub | Yes |
 | Unusual options activity and block trades | Benzinga | Optional; adds flow confidence |
-| Contextual narrative | OpenAI | Optional; never creates prices or trades |
+| User-requested contextual explanation | OpenAI | Optional and off by default; never creates prices or trades |
 | IV history, option snapshots, trade journal | PostgreSQL | Optional in development; recommended in production |
 
 `Gamma Exposure` is intentionally labeled as an OI-weighted gamma proxy computed from the real chain. It is not presented as verified dealer positioning without a licensed positioning feed.
@@ -39,8 +42,9 @@ Valido 1M is a semiautonomous scanner and learning assistant for defined-risk, h
 - The scanner collects and evaluates 0DTE/1DTE index condors; 0DTE is collection-only in work mode and 1DTE requires explicit mandate approval.
 - Earnings before expiry, high-impact events, extreme VIX, negative gamma proxy, poor liquidity, insufficient IV history, flow conflict, or excess max loss block a setup.
 - IV Rank is based on persisted real-IV observations and stays blocked while its history window is incomplete.
-- Approval requires an institutional confidence score of at least `75/100`; data collection continues under `NO TRADE`.
-- Under `NO TRADE`, the dashboard may show bullish, bearish and neutral `PAPER / CONDICIONAL` structures from a valid real chain with explicit activation gates; these are not approved trades.
+- Trade Quality Score weights are liquidity 20, technical context 15, volatility/IV edge 15, modeled probability 15, expected value 10, event/news safety 10, Tape/GEX/flow context 10 and account fit 5.
+- A real-review candidate requires `Trade Validado` (`80-100`) and every Risk Governor gate; `70-79` is `Trade Condicional`, `60-69` is reduced-size educational review and below 60 is paper study only.
+- Under `NO TRADE`, the dashboard may still show bullish, bearish and neutral conditional structures from a valid real chain with explicit activation gates; these are not approved trades.
 - Collateral used at or above 80%, daily loss stop or weekly loss stop switches new recommendations to educational/paper review.
 
 ## Options Strategy Lab
@@ -49,12 +53,23 @@ The same dashboard includes a modular simulator for manual structures and scanne
 
 Naked calls and unprotected short puts are blocked by validation unless the put is explicitly a cash-secured structure. Calendar, diagonal and PMCC structures remain educational simulations because exact pre-expiration valuation needs per-leg expiration surfaces and a volatility model.
 
+## Paper Trading And Edge
+
+`Paper Trading de Opciones` accepts a scanner plan, a simulator setup or an explicitly labeled manual/educational template even while the market is closed. It calculates payoff, break-even and risk from entered legs, stores practice locally, can send a closed practice to the journal and exposes a chain checklist. It never sends orders.
+
+Probability and EV are displayed only when required inputs exist. Manual templates with no numeric Greeks show `No disponible`; the system does not replace missing Delta/IV with a favorable probability. For real-chain setups, `Probability & Edge Engine` labels POP, EV, ROC and slippage as modeled estimates and exposes the formula audit.
+
+## Optional AI
+
+OpenAI remains supported but is not required. Keep `ENABLE_AI_ASSISTANT=false` to run the complete scanner, simulator, paper desk, journal, tutorials and notifications without AI. If enabled, the backend calls it only after the user chooses `Explicar con IA`, caches repeated explanations and enforces `AI_DAILY_CALL_LIMIT`. It never calculates prices, Greeks, payoff, risk or score.
+
 ## Setup
 
 ```powershell
 Copy-Item .env.example .env
 # Add server-side provider credentials and optionally DATABASE_URL to .env.
 # For a public deployment also add a long APP_ACCESS_KEY.
+# Leave ENABLE_AI_ASSISTANT=false unless you explicitly want paid explanations.
 npm.cmd install
 npm.cmd run dev
 ```
@@ -92,7 +107,7 @@ The Render Blueprint enables `REQUIRE_ACCESS_KEY=true`; a public deployment with
 Notifications no longer use `new Notification(...)` from page JavaScript. The client registers `/sw.js` and all test/engine alerts go through `ServiceWorkerRegistration.showNotification()`.
 
 1. Open the HTTPS Render URL on the phone and enter the private app access key.
-2. Go to `Config` in the mobile bottom navigation and tap `Probar notificacion movil`.
+2. From Dashboard tap `Estado alertas`, then tap `Probar notificacion movil`.
 3. Android Chrome or Samsung Internet: accept permission and confirm the notification appears.
 4. iPhone Safari: on iOS 16.4 or newer, first choose `Share > Add to Home Screen`, open the installed Valido 1M PWA, then tap the test button.
 5. Incognito/private browsing may disable persistent permissions or service workers; test in a normal browser tab.
@@ -105,10 +120,11 @@ Current notifications are local Service Worker notifications initiated by a live
 
 ```powershell
 npm.cmd test
+npm.cmd run lint
 npm.cmd run build
 ```
 
-The test suite asserts that page code contains no unsafe `new Notification(...)` constructor and verifies defined-risk payoff calculations for the simulator.
+The test suite asserts that page code contains no unsafe `new Notification(...)` constructor, verifies defined-risk payoff calculations, prevents fabricated manual probabilities, validates the Risk Governor and verifies that automatic scans do not call OpenAI.
 
 ## API Endpoints
 
@@ -119,5 +135,14 @@ The test suite asserts that page code contains no unsafe `new Notification(...)`
 - `GET /api/collection` reports snapshot and IV-history collection independent of trade approval.
 - `GET|POST /api/journal` reads and records the audited decision journal.
 - `GET /api/explainers` returns plain-language and institutional metric explanations.
+- `GET /api/ai/status` reports optional AI availability and usage without exposing keys.
+- `POST /api/ai/explain` requests a narrative only after user action and only when `ENABLE_AI_ASSISTANT=true`.
+
+## Known Limits
+
+- Browser-open alert refresh is implemented; closed-app push subscriptions/VAPID are not yet implemented.
+- Tape Reading is Lite until a time-and-sales/Level 2 source is connected.
+- Options Flow Lite and GEX are educational chain-derived context, not confirmed institutional flow or dealer books.
+- Replay accepts manual checkpoints until intraday historical replay endpoints are added.
 
 Valido 1M is a planning, filtering and educational system; it does not transmit brokerage orders or replace brokerage confirmation or personalized financial advice.

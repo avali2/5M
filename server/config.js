@@ -9,7 +9,7 @@ export const UNIVERSE = {
   indices: ['SPY', 'SPX', 'QQQ', 'IWM', 'DIA'],
   magnificent7: ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA'],
   focusEquities: ['SOFI'],
-  optionalIndices: ['XSP', 'NDX'],
+  optionalIndices: ['XSP', 'NDX', 'RUT'],
   liquidEtfs: ['XLF', 'XLK', 'XLE', 'XLV', 'TLT', 'GLD'],
   breadth: ['SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'XLK', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU'],
   volatility: 'VIX'
@@ -47,8 +47,11 @@ export const config = {
   },
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL || ''
+    model: process.env.OPENAI_MODEL || '',
+    enabled: String(process.env.ENABLE_AI_ASSISTANT || '').toLowerCase() === 'true',
+    dailyLimit: asNumber(process.env.AI_DAILY_CALL_LIMIT, 10)
   },
+  marketDataMode: process.env.MARKET_DATA_MODE || 'live',
   database: {
     url: process.env.DATABASE_URL || '',
     ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true',
@@ -74,6 +77,9 @@ export const config = {
     maxVix: 30,
     ivRankMinObservations: asNumber(process.env.IV_RANK_MIN_OBSERVATIONS, 30),
     allow1DteApproval: String(process.env.ALLOW_1DTE_APPROVAL || '').toLowerCase() === 'true',
+    allow0Dte: String(process.env.ALLOW_0DTE || '').toLowerCase() === 'true',
+    allowEarnings: String(process.env.ALLOW_EARNINGS || '').toLowerCase() === 'true',
+    allowMargin: String(process.env.ALLOW_MARGIN || '').toLowerCase() === 'true',
     workMode: true
   },
   refreshSeconds: asNumber(process.env.AUTO_REFRESH_SECONDS, 60)
@@ -128,6 +134,7 @@ export function providerStatus() {
       id: 'openai',
       name: 'OpenAI',
       configured: Boolean(config.openai.apiKey && config.openai.model),
+      enabled: config.openai.enabled,
       primary: false,
       required: false,
       optional: true,

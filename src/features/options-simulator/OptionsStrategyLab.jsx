@@ -6,6 +6,7 @@ import {
   calculateMaxProfit,
   calculateMaxRisk,
   calculateNetGreeks,
+  estimateEdge,
   estimateProbability,
   simulateScenario,
   validateStrategy
@@ -24,7 +25,7 @@ const explanations = {
   chart: 'La linea de vencimiento es payoff contractual. Hoy e IV +/-10 usan una aproximacion local por Greeks.'
 };
 
-export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJournal }) {
+export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJournal, onSendPaper }) {
   const [symbol, setSymbol] = useState('SPY');
   const [spot, setSpot] = useState(100);
   const [strategy, setStrategy] = useState('Bull Put Credit Spread');
@@ -48,15 +49,16 @@ export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJourna
 
   useEffect(() => {
     if (!prefillSetup) return;
+    const nextStrategy = STRATEGIES.includes(prefillSetup.strategy) ? prefillSetup.strategy : 'Bull Put Credit Spread';
     setSymbol(prefillSetup.symbol);
     setSpot(prefillSetup.underlyingPrice || 100);
-    setStrategy(prefillSetup.strategy);
-    setExpiration(prefillSetup.expiration);
+    setStrategy(nextStrategy);
+    setExpiration(prefillSetup.expiration || nextMonth());
     setDte(prefillSetup.dte || 30);
     setIv(prefillSetup.iv ?? '');
     setAtr(prefillSetup.technicals?.atr14 || prefillSetup.expectedMove || 2);
     setGammaRisk(prefillSetup.gammaRisk || 'unavailable');
-    setLegs(legsFromSignal(prefillSetup));
+    setLegs(prefillSetup.legs?.length ? legsFromSignal(prefillSetup) : templateLegs(nextStrategy, prefillSetup.underlyingPrice || 100));
     setSaved('');
   }, [prefillSetup]);
 
@@ -74,12 +76,16 @@ export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJourna
 
   const analytics = useMemo(() => {
     const input = { legs, spot: Number(spot), commissions: Number(commissions) };
+    const maxRisk = calculateMaxRisk(input);
+    const maxProfit = calculateMaxProfit(input);
+    const pop = estimateProbability(legs);
     return {
-      maxRisk: calculateMaxRisk(input),
-      maxProfit: calculateMaxProfit(input),
+      maxRisk,
+      maxProfit,
       breakEvens: calculateBreakEven(input),
       greeks: calculateNetGreeks(legs),
-      pop: estimateProbability(legs),
+      pop,
+      edge: estimateEdge({ maxRisk, maxProfit, probability: pop.probability, legs }),
       chart: buildPayoffChart({ ...input, dte: Number(dte) }),
       scenarios: simulateScenario({ ...input, atr: Number(atr), dte: Number(dte) }),
       warnings: validateStrategy({ legs, strategy, spot: Number(spot), accountSize: Number(accountSize), riskPercent: Number(riskPercent), dte: Number(dte), gammaRisk })
@@ -107,7 +113,10 @@ export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJourna
           <h2 className="mt-1 text-xl font-bold">Simulador de Estrategias</h2>
           <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-400">Construye o carga una senal del scanner antes de actuar. Estos resultados son estimaciones basadas en datos disponibles, IV, Greeks y supuestos del modelo; no prometen ganancias.</p>
         </div>
-        <button className="btn" onClick={saveSimulation}>Guardar como paper trade</button>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn" onClick={saveSimulation}>Guardar en journal</button>
+          <button className="btn btn-primary" onClick={() => onSendPaper?.({ symbol, strategy, underlyingPrice: Number(spot), expiration, dte: Number(dte), iv: iv === '' ? null : Number(iv), legs, sourceMode: 'manual', analytics })}>Enviar a Paper Trading</button>
+        </div>
       </div>
       {saved && <p className="mt-3 rounded-lg bg-emerald-500/10 p-3 text-xs text-sigma-green">{saved}</p>}
       <div className="mt-4 grid gap-2 sm:grid-cols-4">
@@ -157,6 +166,9 @@ export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJourna
             <Metric label="Ganancia max." value={money(analytics.maxProfit)} onClick={() => setHelp('profit')} />
             <Metric label="Break-even" value={analytics.breakEvens.join(' / ') || 'No disponible'} onClick={() => setHelp('breakeven')} />
             <Metric label="POP estimada" value={analytics.pop.probability === null ? 'No disponible' : `${analytics.pop.probability}%`} onClick={() => setHelp('pop')} />
+            <Metric label="EV estimado" value={money(analytics.edge.expectedValue)} onClick={() => setHelp('pop')} />
+            <Metric label="ROC max." value={analytics.edge.returnOnCapital === null ? 'No disponible' : `${analytics.edge.returnOnCapital}%`} onClick={() => setHelp('risk')} />
+            <Metric label="Slippage est." value={money(analytics.edge.slippage)} onClick={() => setHelp('risk')} />
             <Metric label="Delta neta" value={digits(analytics.greeks.delta, 3)} onClick={() => setHelp('greeks')} />
             <Metric label="Gamma neta" value={digits(analytics.greeks.gamma, 5)} onClick={() => setHelp('greeks')} />
             <Metric label="Theta neta" value={digits(analytics.greeks.theta, 3)} onClick={() => setHelp('greeks')} />

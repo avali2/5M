@@ -150,14 +150,20 @@ test('ranks a live sourced credit spread when all work-mode gates pass', async (
   };
   const finnhub = { configured: true, async getMarketNews() { return []; } };
   const flow = { configured: false };
+  let aiCalls = 0;
+  const ai = { configured: true, status() { return { configured: true, enabled: true, automaticCalls: false }; }, async summarize() { aiCalls += 1; return 'Should not be called by scan'; } };
   const scan = await runAutonomousScan({
-    providers: { market: marketProvider, options: marketProvider, calendar, finnhub, benzinga: flow, openai: flow },
+    providers: { market: marketProvider, options: marketProvider, calendar, finnhub, benzinga: flow, openai: ai },
     settings: { policy, refreshSeconds: 60 }
   });
   assert.equal(scan.decision.status, 'eligible');
   assert.ok(scan.opportunities.length > 0);
   assert.equal(scan.opportunities[0].strategy, 'Bull Put Spread');
   assert.equal(scan.conditionalIdeas.length, 3);
-  assert.ok(scan.conditionalIdeas.every((idea) => idea.classification.includes('CONDICIONAL')));
+  assert.ok(scan.conditionalIdeas.every((idea) => ['Trade Condicional', 'Agresivo / tamano reducido', 'Paper Trade / solo estudio'].includes(idea.classification)));
   assert.ok(scan.dataHealth.metrics.some((metric) => metric.name === 'VIX9D' && metric.available === false));
+  assert.equal(scan.summarySource, 'Motor deterministico');
+  assert.equal(aiCalls, 0);
+  assert.ok(scan.opportunities[0].edge.available);
+  assert.equal(scan.opportunities[0].classification, 'Trade Validado');
 });

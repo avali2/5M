@@ -8,13 +8,41 @@ export class OpenAiProvider {
     this.name = 'OpenAI';
     this.blockedUntil = 0;
     this.lastFailure = '';
+    this.lastUsedAt = null;
+    this.callsToday = 0;
+    this.callsDate = null;
   }
 
   get configured() {
     return Boolean(this.settings.apiKey && this.settings.model);
   }
 
+  status() {
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      configured: this.configured,
+      enabled: Boolean(this.settings.enabled),
+      model: this.configured ? this.settings.model : null,
+      automaticCalls: false,
+      lastUsedAt: this.lastUsedAt,
+      callsToday: this.callsDate === today ? this.callsToday : 0,
+      dailyLimit: this.settings.dailyLimit,
+      lastError: this.lastFailure || null,
+      costEstimate: 'No disponible: consulta el panel de facturacion del proveedor.'
+    };
+  }
+
   async summarize(scan) {
+    if (!this.settings.enabled) throw new Error('Asistente IA desactivado. Activalo en el entorno solo si deseas solicitar una explicacion.');
+    if (!this.configured) throw new Error('Asistente IA no configurado: faltan OPENAI_API_KEY u OPENAI_MODEL.');
+    const today = new Date().toISOString().slice(0, 10);
+    if (this.callsDate !== today) {
+      this.callsDate = today;
+      this.callsToday = 0;
+    }
+    if (this.callsToday >= this.settings.dailyLimit) {
+      throw new Error('Limite diario de explicaciones IA alcanzado.');
+    }
     if (this.blockedUntil > Date.now()) throw new Error(this.lastFailure);
     const safePayload = {
       asOf: scan.asOf,
@@ -33,7 +61,9 @@ export class OpenAiProvider {
     };
     const digest = createHash('sha256').update(JSON.stringify(safePayload)).digest('hex').slice(0, 16);
     try {
-      return await cache.remember(`openai:summary:${digest}`, 1800000, async () => {
+      const summary = await cache.remember(`openai:summary:${digest}`, 1800000, async () => {
+      this.callsToday += 1;
+      this.lastUsedAt = new Date().toISOString();
       const data = await requestJson(this.name, 'https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -59,12 +89,15 @@ export class OpenAiProvider {
       });
       return data.output_text || data.output?.flatMap((item) => item.content || []).map((content) => content.text).filter(Boolean).join(' ') || null;
       });
+      this.lastFailure = '';
+      return summary;
     } catch (error) {
       if (/HTTP 429/i.test(error.message)) {
         this.blockedUntil = Date.now() + 30 * 60 * 1000;
         this.lastFailure = 'OpenAI: HTTP 429; narrativa pausada 30 minutos mientras el analisis cuantitativo continua';
         throw new Error(this.lastFailure);
       }
+      this.lastFailure = error.message;
       throw error;
     }
   }

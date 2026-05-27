@@ -228,11 +228,13 @@ class InstitutionalRepository {
     if (!this.pool) return addLocalJournal(entry);
     await this.initialize();
     const result = await this.pool.query(
-      `INSERT INTO trade_journal(symbol, strategy, reason, regime, confidence, outcome, notes, planned_entry, real_entry, planned_exit, real_exit, pnl, mental_state, lesson)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+      `INSERT INTO trade_journal(symbol, strategy, reason, regime, confidence, outcome, notes, planned_entry, real_entry, planned_exit, real_exit, pnl, mental_state, lesson, mae, mfe, error, rule_violated, rule_respected, signal_original)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
       [entry.symbol, entry.strategy, entry.reason, entry.regime, entry.confidence, entry.outcome || 'OPEN', entry.notes,
         entry.plannedEntry, entry.realEntry, entry.plannedExit, entry.realExit,
-        Number.isFinite(Number(entry.pnl)) ? Number(entry.pnl) : null, entry.mentalState, entry.lesson]
+        Number.isFinite(Number(entry.pnl)) ? Number(entry.pnl) : null, entry.mentalState, entry.lesson,
+        Number.isFinite(Number(entry.mae)) ? Number(entry.mae) : null, Number.isFinite(Number(entry.mfe)) ? Number(entry.mfe) : null,
+        entry.error, entry.ruleViolated, entry.ruleRespected, entry.signalOriginal]
     );
     return result.rows[0];
   }

@@ -15,6 +15,8 @@ import {
 import { scoreSetup } from './scoring.js';
 import { createDailyAssistant, createExecutionPlan } from './guidance.js';
 import { buildDataHealth } from './data-health.js';
+import { calculateProbabilityEdge } from './probability-edge.js';
+import { evaluateRiskGovernor } from './risk-governor.js';
 
 const DEFAULT_SYMBOLS = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
 const SHORT_DTE_SYMBOLS = new Set(['SPY', 'SPX', 'QQQ', 'IWM', 'DIA']);
@@ -246,6 +248,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   const base = {
     asOf: new Date().toISOString(),
     refreshSeconds: settings.refreshSeconds,
+    marketDataMode: settings.marketDataMode || 'live',
     providers: providerStatus(),
     providerGates,
     watchlist,
@@ -307,19 +310,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     const setup = candidate.setup;
     const flowBias = flowAlignment(flow, setup);
     const riskAllowed = setup.maxRisk <= profile.accountSize * profile.riskPct / 100;
-    const scored = scoreSetup({
-      setup,
-      ivRank: candidate.ivRank,
-      trend: candidate.technicals.trend,
-      macroBlocked: globalBlocks.length > 0,
-      gamma: candidate.gamma,
-      flowBias,
-      regime: market.regime,
-      technicals: candidate.technicals,
-      riskAllowed
-    });
-    const blocks = individualBlocks({ setup, ivRank: candidate.ivRank, gamma: candidate.gamma, earningsRisk: candidate.earningsRisk, policy, profile, flowBias });
-    return {
+    const enriched = {
       ...setup,
       dte: candidate.dte,
       expectedMove: candidate.metrics.expectedMove,
@@ -332,13 +323,40 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
       gammaProxy: candidate.gamma,
       technicals: candidate.technicals,
       trend: candidate.technicals.trend,
+      flowBias
+    };
+    const edge = calculateProbabilityEdge(enriched, base.asOf);
+    const scored = scoreSetup({
+      setup,
+      ivRank: candidate.ivRank,
+      trend: candidate.technicals.trend,
+      macroBlocked: globalBlocks.length > 0,
+      gamma: candidate.gamma,
       flowBias,
+      regime: market.regime,
+      technicals: candidate.technicals,
+      riskAllowed,
+      edge
+    });
+    const blocks = individualBlocks({ setup, ivRank: candidate.ivRank, gamma: candidate.gamma, earningsRisk: candidate.earningsRisk, policy, profile, flowBias });
+    const riskGovernor = evaluateRiskGovernor({
+      setup: { ...enriched, blocks, tradeQualityScore: scored.score, confidenceScore: scored.score },
+      profile,
+      globalBlocks,
+      dataHealthy: edge.available
+    });
+    return {
+      ...enriched,
+      edge,
       score: scored.score,
+      tradeQualityScore: scored.score,
       confidenceScore: scored.confidenceScore,
       scoreFactors: scored.factors,
       scoreWeights: scored.weights,
-      confidence: blocks.length ? 'blocked' : scored.score >= policy.minScore ? 'high' : 'below threshold',
-      blocks,
+      confidence: riskGovernor.allowedReal ? 'high' : 'conditional/paper',
+      classification: riskGovernor.classification,
+      riskGovernor,
+      blocks: riskGovernor.blocks,
       reasoning: [
         `Regimen ${market.regime}`,
         `Tendencia tecnica ${candidate.technicals.trend}`,
@@ -350,13 +368,13 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     };
   };
   const allSetups = results.flatMap((result) => (result.candidates || []).map(formatCandidate));
-  const eligible = globalBlocks.length ? [] : allSetups.filter((setup) => !setup.blocks.length && setup.confidenceScore >= policy.minScore)
+  const eligible = globalBlocks.length ? [] : allSetups.filter((setup) => setup.riskGovernor.allowedReal && setup.confidenceScore >= 80)
     .sort((a, b) => b.confidenceScore - a.confidenceScore || b.pop - a.pop || a.maxRisk - b.maxRisk);
   const opportunities = eligible.slice(0, 5).map((setup) => ({
     ...setup,
     executionPlan: createExecutionPlan(setup, profile)
   }));
-  const rejected = allSetups.filter((setup) => setup.blocks.length || setup.confidenceScore < policy.minScore)
+  const rejected = allSetups.filter((setup) => !setup.riskGovernor.allowedReal || setup.confidenceScore < 80)
     .sort((a, b) => b.confidenceScore - a.confidenceScore).slice(0, 30);
   const conditionalPool = results.flatMap((result) => (result.conditionalCandidates || []).map((candidate) => ({
     ...formatCandidate(candidate),
@@ -380,7 +398,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     return {
       ...setup,
       status: 'conditional',
-      classification: 'PAPER / CONDICIONAL - NO ES ORDEN APROBADA',
+      classification: setup.classification === 'Trade Validado' ? 'Trade Condicional' : setup.classification,
       activationRules: [
         technicalTrigger,
         'Reescanear y exigir que liquidez, IV, gamma, noticias, earnings y riesgo pasen sin bloqueos.',
@@ -414,16 +432,11 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   };
   scan.assistant = createDailyAssistant(scan);
   scan.summary = deterministicSummary(scan);
-  if (providers.openai.configured) {
-    try {
-      scan.summary = await providers.openai.summarize(scan) || scan.summary;
-      scan.summarySource = 'OpenAI';
-    } catch (error) {
-      scan.summaryWarning = error.message;
-      scan.summarySource = 'Motor de reglas';
-    }
-  } else {
-    scan.summarySource = 'Motor de reglas';
-  }
+  scan.summarySource = 'Motor deterministico';
+  scan.aiStatus = typeof providers.openai.status === 'function' ? providers.openai.status() : {
+    configured: providers.openai.configured,
+    enabled: false,
+    automaticCalls: false
+  };
   return scan;
 }

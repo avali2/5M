@@ -219,7 +219,7 @@ function longDebitTarget(contracts, type, spot) {
   ).sort((a, b) => Math.abs(Math.abs(a.delta) - 0.52) - Math.abs(Math.abs(b.delta) - 0.52))[0] || null;
 }
 
-export function generateVolatilityDebitSpread({ symbol, spot, expiration, chain, trend, policy }) {
+export function generateVolatilityDebitSpread({ symbol, spot, expiration, chain, trend }) {
   if (!['bullish', 'bearish'].includes(trend)) return [];
   const type = trend === 'bullish' ? 'call' : 'put';
   const long = longDebitTarget(chain, type, spot);

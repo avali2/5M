@@ -15,7 +15,7 @@ export function createApp(settings = config, customProviders = null, options = {
   const app = express();
   const providers = customProviders || createProviders(settings);
   const scheduler = new ScanScheduler({ providers, settings });
-  const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, riskMode: 'CONSERVADOR', tradingPaused: false };
+  const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, consecutiveDailyLosses: 0, riskMode: 'CONSERVADOR', tradingPaused: false };
   const defaultWatchlist = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
 
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -117,6 +117,27 @@ export function createApp(settings = config, customProviders = null, options = {
   });
 
   app.get('/api/explainers', (_req, res) => res.json(explainers));
+
+  app.get('/api/ai/status', (_req, res) => {
+    res.json(typeof providers.openai.status === 'function' ? providers.openai.status() : {
+      configured: Boolean(providers.openai.configured),
+      enabled: false,
+      automaticCalls: false
+    });
+  });
+
+  app.post('/api/ai/explain', async (_req, res, next) => {
+    try {
+      if (!settings.openai?.enabled) {
+        return res.status(409).json({ error: 'Asistente IA desactivado', detail: 'Configura ENABLE_AI_ASSISTANT=true para pedir explicaciones manualmente.' });
+      }
+      const scan = await scheduler.snapshot();
+      const narrative = await providers.openai.summarize(scan);
+      return res.json({ narrative, source: 'OpenAI - explicacion solicitada por el usuario', status: providers.openai.status() });
+    } catch (error) {
+      return next(error);
+    }
+  });
 
   app.get('/api/collection', async (_req, res, next) => {
     try {

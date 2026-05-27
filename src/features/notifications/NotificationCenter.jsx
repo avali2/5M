@@ -26,7 +26,7 @@ export default function NotificationCenter({ enabled, onEnabled }) {
   }
 
   return (
-    <section id="settings" className="panel scroll-mt-24 p-4">
+    <section id="notification-status" className="panel scroll-mt-24 p-4">
       <p className="eyebrow">Estado de notificaciones</p>
       <h3 className="mt-1 text-lg font-semibold">Alertas moviles seguras</h3>
       <p className="mt-2 text-xs leading-5 text-slate-400">Las alertas se envian mediante Service Worker, compatible con el flujo PWA movil.</p>

@@ -52,6 +52,10 @@ export function normalizeRiskProfile(profile, defaults) {
     collateralUsedPct: Math.min(100, Math.max(0, Number(profile.collateralUsedPct || 0))),
     riskMode: ['CONSERVADOR', 'NORMAL', 'AGRESIVO EDUCATIVO'].includes(profile.riskMode) ? profile.riskMode : (defaults.riskMode || 'CONSERVADOR'),
     allow1DteApproval: Boolean(profile.allow1DteApproval ?? defaults.allow1DteApproval),
+    allow0Dte: Boolean(profile.allow0Dte ?? defaults.allow0Dte),
+    allowEarnings: Boolean(profile.allowEarnings ?? defaults.allowEarnings),
+    allowMargin: Boolean(profile.allowMargin ?? defaults.allowMargin),
+    consecutiveDailyLosses: Math.min(20, Math.max(0, Number(profile.consecutiveDailyLosses || 0))),
     tradingPaused: Boolean(profile.tradingPaused),
     holdings: typeof profile.holdings === 'object' && profile.holdings ? profile.holdings : {},
     activeSymbols: Array.isArray(profile.activeSymbols) ? profile.activeSymbols.map((item) => String(item).toUpperCase()).slice(0, 20) : [],
@@ -131,6 +135,12 @@ export async function addTradeJournal(entry) {
     pnl: Number.isFinite(Number(entry.pnl)) ? Number(entry.pnl) : null,
     mentalState: String(entry.mentalState || ''),
     lesson: String(entry.lesson || ''),
+    mae: Number.isFinite(Number(entry.mae)) ? Number(entry.mae) : null,
+    mfe: Number.isFinite(Number(entry.mfe)) ? Number(entry.mfe) : null,
+    error: String(entry.error || ''),
+    ruleViolated: String(entry.ruleViolated || ''),
+    ruleRespected: String(entry.ruleRespected || ''),
+    signalOriginal: String(entry.signalOriginal || ''),
     createdAt: new Date().toISOString()
   };
   journal.unshift(item);
