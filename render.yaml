@@ -16,6 +16,8 @@ services:
         sync: false
       - key: APP_ACCESS_KEY
         sync: false
+      - key: REQUIRE_ACCESS_KEY
+        value: "true"
       - key: DATABASE_URL
         sync: false
       - key: DATABASE_SSL

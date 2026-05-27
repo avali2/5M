@@ -73,6 +73,7 @@ Recommended zero-cost starter deployment:
 Render free web services spin down after inactivity. This is suitable for secure remote access and testing, but it is not reliable continuous background monitoring. An always-on service is required for genuinely uninterrupted scanning and alerts.
 
 Never commit `.env` or paste broker/database keys in issues or chat. Rotate any credential immediately if it is exposed.
+The Render Blueprint enables `REQUIRE_ACCESS_KEY=true`; a public deployment without `APP_ACCESS_KEY` blocks all dashboard API data until the password is configured.
 
 ## API Endpoints
 

@@ -24,7 +24,14 @@ export function createApp(settings = config, customProviders = null, options = {
   app.use(express.json({ limit: '64kb' }));
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
-    if (req.path === '/health' || !settings.security?.accessKey) return next();
+    if (req.path === '/health') return next();
+    if (settings.security?.requireAccessKey && !settings.security?.accessKey) {
+      return res.status(503).json({
+        error: 'Private access is not configured',
+        detail: 'Set APP_ACCESS_KEY in the hosting environment before using Valido 1M.'
+      });
+    }
+    if (!settings.security?.accessKey) return next();
     const expected = Buffer.from(settings.security.accessKey);
     const supplied = Buffer.from(req.get('x-valido-key') || '');
     if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
@@ -36,12 +43,16 @@ export function createApp(settings = config, customProviders = null, options = {
   if (options.startBackground) scheduler.start();
 
   app.get('/api/health', (_req, res) => {
+    const accessRequired = Boolean(settings.security?.requireAccessKey);
+    const protectedAccess = Boolean(settings.security?.accessKey);
     res.json({
       status: 'ok',
       mode: 'fail-closed',
       timestamp: new Date().toISOString(),
-      providers: settings.security?.accessKey ? undefined : providerStatus(),
-      protected: Boolean(settings.security?.accessKey),
+      providers: accessRequired || protectedAccess ? undefined : providerStatus(),
+      protected: protectedAccess,
+      accessRequired,
+      securityStatus: accessRequired && !protectedAccess ? 'configuration_required' : 'ready',
       refreshSeconds: settings.refreshSeconds,
       scheduler: {
         running: Boolean(scheduler.running),

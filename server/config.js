@@ -19,7 +19,10 @@ export const config = {
   host: process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1'),
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://127.0.0.1:5173',
   security: {
-    accessKey: process.env.APP_ACCESS_KEY || ''
+    accessKey: process.env.APP_ACCESS_KEY || '',
+    requireAccessKey: String(process.env.REQUIRE_ACCESS_KEY || '').toLowerCase() === 'true' ||
+      String(process.env.RENDER || '').toLowerCase() === 'true' ||
+      Boolean(process.env.RENDER_SERVICE_ID)
   },
   tradier: {
     token: process.env.TRADIER_TOKEN || '',

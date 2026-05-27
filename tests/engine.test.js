@@ -112,6 +112,19 @@ test('protects public dashboard APIs when an access key is configured', async ()
   await request(app).get('/api/explainers').set('X-Valido-Key', 'long-private-mobile-key').expect(200);
 });
 
+test('fails closed in public hosting when the required access key is missing', async () => {
+  const app = createApp({
+    clientOrigin: 'https://valido.example',
+    security: { accessKey: '', requireAccessKey: true },
+    refreshSeconds: 60,
+    policy
+  }, {}, { startBackground: false });
+  const health = await request(app).get('/api/health').expect(200);
+  assert.equal(health.body.securityStatus, 'configuration_required');
+  assert.equal(health.body.providers, undefined);
+  await request(app).get('/api/explainers').expect(503);
+});
+
 test('ranks a live sourced credit spread when all work-mode gates pass', async () => {
   const quote = (symbol) => ({ symbol, price: symbol === 'VIX' ? 18 : 100, changePercent: 0.2, source: 'fixture' });
   const history = Array.from({ length: 60 }, (_, index) => {
