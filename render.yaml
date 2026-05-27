@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: valido-1m
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: APP_ACCESS_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: "true"
+      - key: TRADIER_TOKEN
+        sync: false
+      - key: TRADIER_BASE_URL
+        value: https://api.tradier.com/v1
+      - key: POLYGON_API_KEY
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: FMP_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
+      - key: BENZINGA_API_KEY
+        sync: false
+      - key: AUTO_REFRESH_SECONDS
+        value: "60"
+      - key: SNAPSHOT_INTERVAL_MINUTES
+        value: "60"
+      - key: MAX_SNAPSHOT_CONTRACTS
+        value: "80"
+      - key: SNAPSHOT_RETENTION_DAYS
+        value: "45"

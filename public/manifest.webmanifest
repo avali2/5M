@@ -1,0 +1,17 @@
+{
+  "name": "Valido 1M",
+  "short_name": "Valido 1M",
+  "description": "Asistente institucional de decisiones para opciones con riesgo definido.",
+  "start_url": "/institutional-os.html",
+  "display": "standalone",
+  "background_color": "#070c17",
+  "theme_color": "#070c17",
+  "icons": [
+    {
+      "src": "/valido-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

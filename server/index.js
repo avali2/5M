@@ -1,0 +1,168 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { timingSafeEqual } from 'node:crypto';
+import path from 'node:path';
+import { access } from 'node:fs/promises';
+import { config, providerStatus, UNIVERSE } from './config.js';
+import { cache } from './lib/cache.js';
+import { getRiskProfile, getWatchlist, saveRiskProfile, saveWatchlist } from './lib/store.js';
+import { createProviders } from './providers/index.js';
+import { explainers } from './explainers.js';
+import { ScanScheduler } from './services/scheduler.js';
+import { repository } from './db/repository.js';
+
+export function createApp(settings = config, customProviders = null, options = { startBackground: true }) {
+  const app = express();
+  const providers = customProviders || createProviders(settings);
+  const scheduler = new ScanScheduler({ providers, settings });
+  const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], tradingPaused: false };
+  const defaultWatchlist = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
+
+  app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(cors({ origin: settings.clientOrigin }));
+  app.use(express.json({ limit: '64kb' }));
+  app.use('/api', (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    if (req.path === '/health' || !settings.security?.accessKey) return next();
+    const expected = Buffer.from(settings.security.accessKey);
+    const supplied = Buffer.from(req.get('x-valido-key') || '');
+    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+      return res.status(401).json({ error: 'Access key required' });
+    }
+    return next();
+  });
+  app.locals.scheduler = scheduler;
+  if (options.startBackground) scheduler.start();
+
+  app.get('/api/health', (_req, res) => {
+    res.json({
+      status: 'ok',
+      mode: 'fail-closed',
+      timestamp: new Date().toISOString(),
+      providers: settings.security?.accessKey ? undefined : providerStatus(),
+      protected: Boolean(settings.security?.accessKey),
+      refreshSeconds: settings.refreshSeconds,
+      scheduler: {
+        running: Boolean(scheduler.running),
+        lastScan: scheduler.latest?.asOf || null,
+        lastError: scheduler.lastError
+      }
+    });
+  });
+
+  app.get('/api/scan', async (_req, res, next) => {
+    try {
+      res.json(await scheduler.snapshot());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/scan/refresh', async (_req, res, next) => {
+    try {
+      res.json(await scheduler.run(true));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/watchlist', async (_req, res, next) => {
+    try {
+      res.json(await getWatchlist(defaultWatchlist));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put('/api/watchlist', async (req, res, next) => {
+    try {
+      if (!Array.isArray(req.body.symbols)) return res.status(400).json({ error: 'symbols array required' });
+      cache.clear();
+      const watchlist = await saveWatchlist(req.body.symbols);
+      scheduler.run(true).catch(() => {});
+      return res.json(watchlist);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get('/api/profile', async (_req, res, next) => {
+    try {
+      res.json(await getRiskProfile(defaults));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put('/api/profile', async (req, res, next) => {
+    try {
+      cache.clear();
+      const profile = await saveRiskProfile(req.body || {}, defaults);
+      scheduler.run(true).catch(() => {});
+      res.json(profile);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/explainers', (_req, res) => res.json(explainers));
+
+  app.get('/api/collection', async (_req, res, next) => {
+    try {
+      res.json(await repository.collectionStats());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/journal', async (_req, res, next) => {
+    try {
+      res.json(await repository.listJournal());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/journal', async (req, res, next) => {
+    try {
+      if (!req.body?.symbol || !req.body?.strategy) return res.status(400).json({ error: 'symbol and strategy required' });
+      return res.status(201).json(await repository.addJournal(req.body));
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.use((error, _req, res, _next) => {
+    const status = error.status && error.status >= 400 ? error.status : 503;
+    res.status(status).json({
+      error: 'Market intelligence request failed',
+      detail: error.message,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  return app;
+}
+
+export async function startServer() {
+  const app = createApp();
+  const dist = path.resolve('dist');
+  try {
+    await access(path.join(dist, 'institutional-os.html'));
+    app.use(express.static(dist));
+    app.get('/', (_req, res) => res.redirect('/institutional-os.html'));
+  } catch {
+    app.get('/', (_req, res) => res.json({
+      service: 'Valido 1M API',
+      message: 'Run npm run dev for the React client or npm run build before production start.'
+    }));
+  }
+  return app.listen(config.port, config.host, () => {
+    console.log(`Valido 1M API listening on http://${config.host}:${config.port}`);
+  });
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))) {
+  startServer();
+}
