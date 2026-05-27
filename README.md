@@ -14,8 +14,11 @@ Valido 1M is a semiautonomous scanner and learning assistant for defined-risk, h
 - `src/features/options-paper-trading/` and `practice-replay/` provide offline/manual practice and post-plan review without sending broker orders.
 - `src/features/pro-data-map/`, `greeks-volatility-academy/`, `gex-dealer-positioning-lab/`, `moving-average-options-playbook/`, `options-strategy-library/`, `tape-reading-lab/`, `options-flow-lite/`, `algorithmic-strategy-lab/` and `pro-trading-plan/` form the learning desk.
 - `src/services/notifications.js` and `public/sw.js` implement mobile-safe PWA notifications.
+- `src/features/options-guardian-agent/` contains Options Guardian Agent Pro: deterministic event rules, learning coach, visible-tab scheduler, Web Push client and operational panel.
+- `server/guardianScheduler.js`, `server/guardianRoutes.js`, `server/push.js` and `server/pushStore.js` run protected Guardian scans and optional VAPID Web Push from the backend.
 - `data/` is a local development fallback for watchlists, snapshots, journal, alerts, risk mandate, and IV observations.
 - The Express scheduler continues rescanning on the configured interval while the server is running, even when the browser tab is closed.
+- The Guardian scheduler adds Work Mode throttles: no more than three noncritical pushes per hour, symbol/type cooldowns and no live Guardian scans while the market is closed.
 - The default watchlist includes `SPY`, `SPX`, `QQQ`, `IWM`, `DIA`, Magnificent 7 and the focused equity `SOFI`.
 - `XSP`, `NDX` and `RUT` can be added to the watchlist when the selected broker/data plan supports their chains.
 
@@ -63,6 +66,18 @@ Probability and EV are displayed only when required inputs exist. Manual templat
 
 OpenAI remains supported but is not required. Keep `ENABLE_AI_ASSISTANT=false` to run the complete scanner, simulator, paper desk, journal, tutorials and notifications without AI. If enabled, the backend calls it only after the user chooses `Explicar con IA`, caches repeated explanations and enforces `AI_DAILY_CALL_LIMIT`. It never calculates prices, Greeks, payoff, risk or score.
 
+## Options Guardian Agent Pro
+
+`Guardian` is a new dashboard tab and mobile shortcut. It turns sourced scanner results into auditable events:
+
+- `SIGNAL_VALIDATED`, `SIGNAL_CONDITIONAL` and `SIGNAL_PAPER_ONLY` follow Trade Quality Score and Risk Governor output.
+- `RISK_BLOCKED`, `CHAIN_WARNING`, `LIQUIDITY_WARNING`, `GAMMA_RISK` and `MACRO_RISK` explain why a real review is unsafe.
+- When markets are closed, Guardian does not issue live signal claims; it suggests labeled paper practice and journal review.
+- The Learning Coach computes FOMO, revenge, liquidity and gamma-study recommendations from journal/feedback data without AI calls.
+- A Guardian alert can open the existing simulator or Paper Trading desk; no route transmits brokerage orders.
+
+With PostgreSQL configured, the application creates `guardian_settings`, `guardian_events`, `guardian_alert_cooldowns`, `guardian_learning_profile`, `guardian_push_subscriptions`, `guardian_scan_runs`, `guardian_user_feedback` and `guardian_market_snapshots`. Without PostgreSQL, equivalent JSON records are written under ignored local `data/` files.
+
 ## Setup
 
 ```powershell
@@ -85,7 +100,7 @@ npm.cmd start
 
 Open `http://127.0.0.1:8787/institutional-os.html`.
 
-For PostgreSQL persistence, set `DATABASE_URL` in `.env`; the application creates `iv_history`, `options_snapshots`, `trade_journal`, and `app_settings` (watchlist/risk mandate) from `server/db/schema.sql` on first use. Without it, the dashboard identifies the local fallback explicitly. PostgreSQL snapshots are throttled, retain liquid contracts, and remove intraday snapshot history older than 45 days by default to conserve storage; live decisions continue to use the complete current chain.
+For PostgreSQL persistence, set `DATABASE_URL` in `.env`; the application creates `iv_history`, `options_snapshots`, `trade_journal`, `app_settings` and all `guardian_*` tables from `server/db/schema.sql` on first use. Without it, the dashboard identifies the local fallback explicitly. PostgreSQL snapshots are throttled, retain liquid contracts, and remove intraday snapshot history older than 45 days by default to conserve storage; live decisions continue to use the complete current chain.
 
 ## Mobile Deployment
 
@@ -114,7 +129,31 @@ Notifications no longer use `new Notification(...)` from page JavaScript. The cl
 
 The status panel reports HTTPS, permission, registered Service Worker, readiness, last error and a recommended correction. HTTP addresses outside localhost intentionally report that HTTPS is required.
 
-Current notifications are local Service Worker notifications initiated by a live dashboard refresh or the test button. Receiving alerts while the app is completely closed is a separate Web Push feature and requires server-side subscriptions and VAPID secrets; it is intentionally not presented as active yet.
+Local Service Worker notifications are initiated by a live dashboard refresh or the test button. Guardian Web Push can deliver alerts with the app cerrada when it is explicitly configured with VAPID, the device is subscribed and the backend scheduler is running.
+
+### Web Push For Locked Phones
+
+Options Guardian includes Web Push support; it is disabled until you configure its free VAPID keys on the backend:
+
+```powershell
+npx web-push generate-vapid-keys
+```
+
+Put the generated values only in Render/environment secrets:
+
+```text
+GUARDIAN_ENABLED=true
+ENABLE_WEB_PUSH=true
+VAPID_PUBLIC_KEY=<public key>
+VAPID_PRIVATE_KEY=<private key>
+VAPID_SUBJECT=mailto:your-email@example.com
+```
+
+Then redeploy, open `Guardian` from the installed/HTTPS app, tap `Activar alertas con movil bloqueado` and tap `Probar Web Push`. The browser subscription is stored server-side in PostgreSQL when available; it is never bundled into frontend source.
+
+Android Chrome/Samsung Internet support Web Push through the registered service worker after permission is granted. On iPhone use iOS/iPadOS 16.4 or newer, add the website to Home Screen, open that installed PWA and grant notification permission there. Delivery is not guaranteed: Focus Mode, battery restrictions, revoked permissions and hosting availability can delay or prevent notifications.
+
+Render free services can sleep after inactivity. When sleeping, the backend cannot run scheduled scans or initiate pushes until awakened. For continuous locked-phone alert monitoring, use an always-on backend plan or an external scheduler that wakes the protected service.
 
 ## Verification
 
@@ -137,10 +176,13 @@ The test suite asserts that page code contains no unsafe `new Notification(...)`
 - `GET /api/explainers` returns plain-language and institutional metric explanations.
 - `GET /api/ai/status` reports optional AI availability and usage without exposing keys.
 - `POST /api/ai/explain` requests a narrative only after user action and only when `ENABLE_AI_ASSISTANT=true`.
+- `GET|PUT /api/guardian/settings`, `GET /api/guardian/status`, `GET /api/guardian/events`, `GET /api/guardian/learning` and `POST /api/guardian/run` expose Guardian through the same private access middleware.
+- `POST /api/guardian/events/:id/feedback` stores review feedback for deterministic learning.
+- `GET /api/push/public-key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe` and `POST /api/push/test` configure or validate protected Web Push delivery.
 
 ## Known Limits
 
-- Browser-open alert refresh is implemented; closed-app push subscriptions/VAPID are not yet implemented.
+- VAPID Web Push is implemented, but requires backend VAPID secrets, HTTPS, permission and an awake backend scheduler; FCM remains an optional disabled placeholder.
 - Tape Reading is Lite until a time-and-sales/Level 2 source is connected.
 - Options Flow Lite and GEX are educational chain-derived context, not confirmed institutional flow or dealer books.
 - Replay accepts manual checkpoints until intraday historical replay endpoints are added.

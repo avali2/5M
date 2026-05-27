@@ -3,16 +3,31 @@ import path from 'node:path';
 import { Pool } from 'pg';
 import { config } from '../config.js';
 import {
+  addGuardianFeedback as addLocalGuardianFeedback,
   addTradeJournal as addLocalJournal,
+  getGuardianLearningProfile as getLocalGuardianLearning,
+  getGuardianSettings as getLocalGuardianSettings,
   getCollectionStats as getLocalStats,
   getRiskProfile as getLocalRiskProfile,
   getWatchlist as getLocalWatchlist,
+  listGuardianEvents as listLocalGuardianEvents,
+  listGuardianFeedback as listLocalGuardianFeedback,
+  listGuardianPushSubscriptions as listLocalGuardianSubscriptions,
   listTradeJournal as listLocalJournal,
   normalizeRiskProfile,
   recordIvObservation as recordLocalIv,
+  saveGuardianCooldown as saveLocalGuardianCooldown,
+  saveGuardianEvents as saveLocalGuardianEvents,
+  saveGuardianLearningProfile as saveLocalGuardianLearning,
+  saveGuardianMarketSnapshot as saveLocalGuardianMarketSnapshot,
+  saveGuardianPushSubscription as saveLocalGuardianSubscription,
+  saveGuardianScanRun as saveLocalGuardianScanRun,
+  saveGuardianSettings as saveLocalGuardianSettings,
   saveRiskProfile as saveLocalRiskProfile,
   saveWatchlist as saveLocalWatchlist,
-  saveLatestOptionsSnapshot
+  saveLatestOptionsSnapshot,
+  updateGuardianEvent as updateLocalGuardianEvent,
+  updateGuardianPushSubscription as updateLocalGuardianSubscription
 } from '../lib/store.js';
 import { ivStatistics } from '../lib/math.js';
 
@@ -237,6 +252,205 @@ class InstitutionalRepository {
         entry.error, entry.ruleViolated, entry.ruleRespected, entry.signalOriginal]
     );
     return result.rows[0];
+  }
+
+  async getGuardianSettings(defaults) {
+    if (!this.pool) return getLocalGuardianSettings(defaults);
+    await this.initialize();
+    const result = await this.pool.query("SELECT settings_json FROM guardian_settings WHERE id = 'default'");
+    return result.rows[0]?.settings_json || defaults;
+  }
+
+  async saveGuardianSettings(settings) {
+    if (!this.pool) return saveLocalGuardianSettings(settings);
+    await this.initialize();
+    const value = { ...settings, updatedAt: new Date().toISOString() };
+    await this.pool.query(
+      `INSERT INTO guardian_settings
+        (id, settings_json, enabled, work_mode_enabled, min_score_to_notify, max_alerts_per_hour, only_critical, include_conditional, include_paper_practice, silence_during_macro, updated_at)
+       VALUES ('default',$1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+       ON CONFLICT (id) DO UPDATE SET settings_json=EXCLUDED.settings_json, enabled=EXCLUDED.enabled,
+         work_mode_enabled=EXCLUDED.work_mode_enabled, min_score_to_notify=EXCLUDED.min_score_to_notify,
+         max_alerts_per_hour=EXCLUDED.max_alerts_per_hour, only_critical=EXCLUDED.only_critical,
+         include_conditional=EXCLUDED.include_conditional, include_paper_practice=EXCLUDED.include_paper_practice,
+         silence_during_macro=EXCLUDED.silence_during_macro, updated_at=NOW()`,
+      [value, Boolean(value.enabled), Boolean(value.workMode?.enabled), Number(value.workMode?.minScoreToNotify || 75),
+        Number(value.workMode?.maxAlertsPerHour || 3), Boolean(value.workMode?.onlyCritical),
+        Boolean(value.workMode?.includeConditional), Boolean(value.workMode?.includePaperPractice),
+        Boolean(value.workMode?.silenceDuringHighImpactMacro)]
+    );
+    return value;
+  }
+
+  async listGuardianEvents(limit = 100) {
+    if (!this.pool) return listLocalGuardianEvents(limit);
+    await this.initialize();
+    const result = await this.pool.query(
+      `SELECT id, event_type AS type, severity, symbol, title, message, recommendation, source,
+       data_json AS data, status, notification_sent AS "notificationSent",
+       notification_channel AS "notificationChannel", notification_error AS "notificationError",
+       created_at AS "createdAt", reviewed_at AS "reviewedAt"
+       FROM guardian_events ORDER BY created_at DESC LIMIT $1`,
+      [Math.min(500, Math.max(1, Number(limit)))]
+    );
+    return result.rows;
+  }
+
+  async saveGuardianEvents(events) {
+    if (!this.pool) return saveLocalGuardianEvents(events);
+    await this.initialize();
+    for (const event of events) {
+      await this.pool.query(
+        `INSERT INTO guardian_events
+          (id, event_type, severity, symbol, title, message, recommendation, source, data_json, status,
+           notification_sent, notification_channel, notification_error, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, notification_sent=EXCLUDED.notification_sent,
+           notification_channel=EXCLUDED.notification_channel, notification_error=EXCLUDED.notification_error`,
+        [event.id, event.type, event.severity, event.symbol, event.title, event.message, event.recommendation,
+          event.source, event.data || {}, event.status || 'new', Boolean(event.notificationSent),
+          event.notificationChannel, event.notificationError, event.createdAt]
+      );
+    }
+    return events;
+  }
+
+  async updateGuardianEvent(id, patch) {
+    if (!this.pool) return updateLocalGuardianEvent(id, patch);
+    await this.initialize();
+    const result = await this.pool.query(
+      `UPDATE guardian_events SET status=COALESCE($2,status),
+       notification_sent=COALESCE($3,notification_sent), notification_channel=COALESCE($4,notification_channel),
+       notification_error=COALESCE($5,notification_error), reviewed_at=CASE WHEN $2 = 'reviewed' THEN NOW() ELSE reviewed_at END
+       WHERE id=$1 RETURNING id, event_type AS type, status`,
+      [id, patch.status || null, patch.notificationSent ?? null, patch.notificationChannel || null, patch.notificationError || null]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getGuardianLearningProfile() {
+    if (!this.pool) return getLocalGuardianLearning();
+    await this.initialize();
+    const result = await this.pool.query("SELECT profile_json FROM guardian_learning_profile WHERE id = 'default'");
+    return result.rows[0]?.profile_json || null;
+  }
+
+  async saveGuardianLearningProfile(profile) {
+    if (!this.pool) return saveLocalGuardianLearning(profile);
+    await this.initialize();
+    await this.pool.query(
+      `INSERT INTO guardian_learning_profile
+        (id, preferred_strategies_json, weak_concepts_json, repeated_mistakes_json, best_setups_json, worst_setups_json,
+         best_symbols_json, worst_symbols_json, notification_fatigue_score, discipline_score, fomo_risk_score,
+         revenge_risk_score, last_learning_recommendation, coach_json, profile_json, updated_at)
+       VALUES ('default',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+       ON CONFLICT (id) DO UPDATE SET preferred_strategies_json=EXCLUDED.preferred_strategies_json,
+         weak_concepts_json=EXCLUDED.weak_concepts_json, repeated_mistakes_json=EXCLUDED.repeated_mistakes_json,
+         best_setups_json=EXCLUDED.best_setups_json, worst_setups_json=EXCLUDED.worst_setups_json,
+         best_symbols_json=EXCLUDED.best_symbols_json, worst_symbols_json=EXCLUDED.worst_symbols_json,
+         notification_fatigue_score=EXCLUDED.notification_fatigue_score, discipline_score=EXCLUDED.discipline_score,
+         fomo_risk_score=EXCLUDED.fomo_risk_score, revenge_risk_score=EXCLUDED.revenge_risk_score,
+         last_learning_recommendation=EXCLUDED.last_learning_recommendation, coach_json=EXCLUDED.coach_json,
+         profile_json=EXCLUDED.profile_json, updated_at=NOW()`,
+      [profile.preferredStrategies || [], profile.weakConcepts || [], profile.repeatedMistakes || {},
+        profile.bestSetups || [], profile.worstSetups || [], profile.bestSymbols || [], profile.worstSymbols || [],
+        Number(profile.notificationFatigueScore || 0), Number(profile.disciplineScore || 0), Number(profile.fomoRiskScore || 0),
+        Number(profile.revengeRiskScore || 0), profile.lastLearningRecommendation || '', profile.coach || {}, profile]
+    );
+    return profile;
+  }
+
+  async listGuardianFeedback(limit = 200) {
+    if (!this.pool) return listLocalGuardianFeedback(limit);
+    await this.initialize();
+    const result = await this.pool.query(
+      `SELECT id, event_id AS "eventId", event_type AS "eventType", symbol, action, feedback,
+       created_at AS "createdAt" FROM guardian_user_feedback ORDER BY created_at DESC LIMIT $1`,
+      [limit]
+    );
+    return result.rows;
+  }
+
+  async addGuardianFeedback(entry) {
+    if (!this.pool) return addLocalGuardianFeedback(entry);
+    await this.initialize();
+    const id = entry.id || `feedback-${Date.now()}`;
+    const result = await this.pool.query(
+      `INSERT INTO guardian_user_feedback(id, event_id, action, feedback, event_type, symbol)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, event_id AS "eventId", action, feedback, created_at AS "createdAt"`,
+      [id, entry.eventId, entry.action, entry.feedback, entry.eventType, entry.symbol]
+    );
+    return result.rows[0];
+  }
+
+  async listGuardianPushSubscriptions() {
+    if (!this.pool) return listLocalGuardianSubscriptions();
+    await this.initialize();
+    const result = await this.pool.query(
+      `SELECT endpoint_hash AS "endpointHash", subscription_json AS subscription, user_agent AS "userAgent",
+       platform, device_label AS "deviceLabel", is_active AS "isActive", last_success_at AS "lastSuccessAt",
+       last_error AS "lastError" FROM guardian_push_subscriptions WHERE is_active = TRUE`
+    );
+    return result.rows;
+  }
+
+  async saveGuardianPushSubscription(subscription) {
+    if (!this.pool) return saveLocalGuardianSubscription(subscription);
+    await this.initialize();
+    const result = await this.pool.query(
+      `INSERT INTO guardian_push_subscriptions(endpoint_hash, subscription_json, user_agent, platform, device_label, is_active, updated_at)
+       VALUES ($1,$2,$3,$4,$5,TRUE,NOW())
+       ON CONFLICT (endpoint_hash) DO UPDATE SET subscription_json=EXCLUDED.subscription_json, user_agent=EXCLUDED.user_agent,
+       platform=EXCLUDED.platform, device_label=EXCLUDED.device_label, is_active=TRUE, last_error=NULL, updated_at=NOW()
+       RETURNING endpoint_hash AS "endpointHash", is_active AS "isActive"`,
+      [subscription.endpointHash, subscription.subscription, subscription.userAgent, subscription.platform, subscription.deviceLabel]
+    );
+    return result.rows[0];
+  }
+
+  async updateGuardianPushSubscription(endpointHash, patch) {
+    if (!this.pool) return updateLocalGuardianSubscription(endpointHash, patch);
+    await this.initialize();
+    const result = await this.pool.query(
+      `UPDATE guardian_push_subscriptions SET is_active=COALESCE($2,is_active), last_success_at=COALESCE($3,last_success_at),
+       last_error=$4, updated_at=NOW() WHERE endpoint_hash=$1 RETURNING endpoint_hash AS "endpointHash", is_active AS "isActive"`,
+      [endpointHash, patch.isActive ?? null, patch.lastSuccessAt || null, patch.lastError || null]
+    );
+    return result.rows[0] || null;
+  }
+
+  async saveGuardianCooldown(item) {
+    if (!this.pool) return saveLocalGuardianCooldown(item);
+    await this.initialize();
+    await this.pool.query(
+      `INSERT INTO guardian_alert_cooldowns(id, symbol, event_type, cooldown_until, reason)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET cooldown_until=EXCLUDED.cooldown_until, reason=EXCLUDED.reason`,
+      [item.id, item.symbol, item.eventType, item.cooldownUntil, item.reason]
+    );
+    return item;
+  }
+
+  async saveGuardianScanRun(run) {
+    if (!this.pool) return saveLocalGuardianScanRun(run);
+    await this.initialize();
+    await this.pool.query(
+      `INSERT INTO guardian_scan_runs(id, mode, market_status, symbols_scanned, signals_found, events_created,
+       notifications_sent, errors_json, started_at, completed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [run.id, run.mode, run.marketStatus, run.symbolsScanned, run.signalsFound, run.eventsCreated,
+        run.notificationsSent, run.errors || [], run.startedAt, run.completedAt]
+    );
+    return run;
+  }
+
+  async saveGuardianMarketSnapshot(snapshot) {
+    if (!this.pool) return saveLocalGuardianMarketSnapshot(snapshot);
+    await this.initialize();
+    await this.pool.query(
+      `INSERT INTO guardian_market_snapshots(id, symbol, snapshot_type, data_json, source, is_live, is_delayed)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [snapshot.id, snapshot.symbol, snapshot.snapshotType, snapshot.data, snapshot.source, Boolean(snapshot.isLive), Boolean(snapshot.isDelayed)]
+    );
+    return snapshot;
   }
 }
 

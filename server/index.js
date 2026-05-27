@@ -10,11 +10,22 @@ import { createProviders } from './providers/index.js';
 import { explainers } from './explainers.js';
 import { ScanScheduler } from './services/scheduler.js';
 import { repository } from './db/repository.js';
+import { GuardianPushStore } from './pushStore.js';
+import { GuardianPushService } from './push.js';
+import { GuardianScheduler } from './guardianScheduler.js';
+import { createGuardianRouter, createPushRouter } from './guardianRoutes.js';
 
 export function createApp(settings = config, customProviders = null, options = { startBackground: true }) {
   const app = express();
   const providers = customProviders || createProviders(settings);
   const scheduler = new ScanScheduler({ providers, settings });
+  const pushService = new GuardianPushService(settings.webPush || {}, new GuardianPushStore(repository));
+  const guardianScheduler = new GuardianScheduler({
+    scanScheduler: scheduler,
+    repository,
+    pushService,
+    enabled: settings.guardian?.enabled !== false
+  });
   const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, consecutiveDailyLosses: 0, riskMode: 'CONSERVADOR', tradingPaused: false };
   const defaultWatchlist = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
 
@@ -39,7 +50,12 @@ export function createApp(settings = config, customProviders = null, options = {
     return next();
   });
   app.locals.scheduler = scheduler;
-  if (options.startBackground) scheduler.start();
+  app.locals.guardianScheduler = guardianScheduler;
+  app.locals.pushService = pushService;
+  if (options.startBackground) {
+    scheduler.start();
+    guardianScheduler.start();
+  }
 
   app.get('/api/health', (_req, res) => {
     const accessRequired = Boolean(settings.security?.requireAccessKey);
@@ -57,7 +73,9 @@ export function createApp(settings = config, customProviders = null, options = {
         running: Boolean(scheduler.running),
         lastScan: scheduler.latest?.asOf || null,
         lastError: scheduler.lastError
-      }
+      },
+      guardian: guardianScheduler.status(repository.mode),
+      webPush: { enabled: pushService.status().enabled, configured: pushService.status().configured }
     });
   });
 
@@ -163,6 +181,9 @@ export function createApp(settings = config, customProviders = null, options = {
       return next(error);
     }
   });
+
+  app.use('/api/guardian', createGuardianRouter({ guardianScheduler, repository }));
+  app.use('/api/push', createPushRouter({ pushService }));
 
   app.use((error, _req, res, _next) => {
     const status = error.status && error.status >= 400 ? error.status : 503;

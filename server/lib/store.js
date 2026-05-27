@@ -147,3 +147,107 @@ export async function addTradeJournal(entry) {
   await writeJson('trade-journal.json', journal.slice(0, 250));
   return item;
 }
+
+export async function getGuardianSettings(defaults) {
+  const stored = await readJson('guardian-settings.json', null);
+  return stored ? { ...defaults, ...stored, workMode: { ...defaults.workMode, ...(stored.workMode || {}) } } : defaults;
+}
+
+export async function saveGuardianSettings(settings) {
+  const value = { ...settings, updatedAt: new Date().toISOString() };
+  await writeJson('guardian-settings.json', value);
+  return value;
+}
+
+export async function listGuardianEvents(limit = 100) {
+  return (await readJson('guardian-events.json', [])).slice(0, limit);
+}
+
+export async function saveGuardianEvents(events) {
+  const stored = await readJson('guardian-events.json', []);
+  const existing = new Map(stored.map((item) => [item.id, item]));
+  for (const event of events) existing.set(event.id, { ...(existing.get(event.id) || {}), ...event });
+  const values = [...existing.values()].sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt)).slice(0, 500);
+  await writeJson('guardian-events.json', values);
+  return events;
+}
+
+export async function updateGuardianEvent(id, patch) {
+  const events = await readJson('guardian-events.json', []);
+  const value = events.find((item) => item.id === id);
+  if (!value) return null;
+  Object.assign(value, patch);
+  await writeJson('guardian-events.json', events);
+  return value;
+}
+
+export async function getGuardianLearningProfile() {
+  return readJson('guardian-learning-profile.json', null);
+}
+
+export async function saveGuardianLearningProfile(profile) {
+  await writeJson('guardian-learning-profile.json', profile);
+  return profile;
+}
+
+export async function listGuardianFeedback(limit = 200) {
+  return (await readJson('guardian-feedback.json', [])).slice(0, limit);
+}
+
+export async function addGuardianFeedback(entry) {
+  const values = await readJson('guardian-feedback.json', []);
+  const item = { id: entry.id || `feedback-${Date.now()}`, ...entry, createdAt: entry.createdAt || new Date().toISOString() };
+  values.unshift(item);
+  await writeJson('guardian-feedback.json', values.slice(0, 500));
+  return item;
+}
+
+export async function listGuardianPushSubscriptions() {
+  return (await readJson('guardian-push-subscriptions.json', [])).filter((item) => item.isActive !== false);
+}
+
+export async function saveGuardianPushSubscription(subscription) {
+  const values = await readJson('guardian-push-subscriptions.json', []);
+  const existing = values.find((item) => item.endpointHash === subscription.endpointHash);
+  const item = {
+    ...existing,
+    ...subscription,
+    isActive: true,
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  if (existing) Object.assign(existing, item);
+  else values.push(item);
+  await writeJson('guardian-push-subscriptions.json', values);
+  return item;
+}
+
+export async function updateGuardianPushSubscription(endpointHash, patch) {
+  const values = await readJson('guardian-push-subscriptions.json', []);
+  const item = values.find((value) => value.endpointHash === endpointHash);
+  if (!item) return null;
+  Object.assign(item, patch, { updatedAt: new Date().toISOString() });
+  await writeJson('guardian-push-subscriptions.json', values);
+  return item;
+}
+
+export async function saveGuardianCooldown(item) {
+  const values = await readJson('guardian-cooldowns.json', []);
+  values.unshift(item);
+  await writeJson('guardian-cooldowns.json', values.filter((value) => new Date(value.cooldownUntil) > new Date()).slice(0, 300));
+  return item;
+}
+
+export async function saveGuardianScanRun(run) {
+  const values = await readJson('guardian-scan-runs.json', []);
+  values.unshift(run);
+  await writeJson('guardian-scan-runs.json', values.slice(0, 300));
+  return run;
+}
+
+export async function saveGuardianMarketSnapshot(snapshot) {
+  const values = await readJson('guardian-market-snapshots.json', []);
+  values.unshift(snapshot);
+  await writeJson('guardian-market-snapshots.json', values.slice(0, 300));
+  return snapshot;
+}

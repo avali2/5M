@@ -1,4 +1,4 @@
-const CACHE_NAME = 'valido-1m-shell-v1';
+const CACHE_NAME = 'valido-1m-shell-v2';
 const SHELL = ['/institutional-os.html', '/manifest.webmanifest', '/valido-mark.svg'];
 
 self.addEventListener('install', (event) => {
@@ -29,6 +29,25 @@ self.addEventListener('message', (event) => {
   }));
 });
 
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : '' };
+  }
+  const data = payload.data || { url: '/institutional-os.html?tab=guardian#guardian' };
+  event.waitUntil(self.registration.showNotification(payload.title || 'Options Guardian', {
+    body: payload.body || 'Nueva alerta Guardian disponible.',
+    icon: payload.icon || '/valido-mark.svg',
+    badge: payload.badge || '/valido-mark.svg',
+    tag: payload.tag || 'guardian-web-push',
+    data,
+    actions: payload.actions || [],
+    requireInteraction: payload.severity === 'critical'
+  }));
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = event.notification.data?.url || '/institutional-os.html';
@@ -42,6 +61,14 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
       if (self.clients.openWindow) await self.clients.openWindow(target);
+    })
+  );
+});
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((client) => client.postMessage({ type: 'GUARDIAN_PUSH_SUBSCRIPTION_CHANGED' }));
     })
   );
 });

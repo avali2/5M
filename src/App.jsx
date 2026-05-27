@@ -23,6 +23,7 @@ import AlgorithmicStrategyLab from './features/algorithmic-strategy-lab/Algorith
 import PracticeReplay from './features/practice-replay/PracticeReplay.jsx';
 import SourceFormulaAudit from './features/source-formula-audit/SourceFormulaAudit.jsx';
 import DailyLearningCards from './features/dashboard-education/DailyLearningCards.jsx';
+import GuardianPanel from './features/options-guardian-agent/GuardianPanel.jsx';
 
 const cash = (value) => Number.isFinite(value) ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : '--';
 const decimal = (value, digits = 1) => Number.isFinite(value) ? Number(value).toFixed(digits) : '--';
@@ -75,7 +76,7 @@ function AccessGate({ error, onUnlock }) {
 function MobileQuickNav() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-sigma-line bg-sigma-bg/95 px-1 py-2 backdrop-blur md:hidden">
-      {[['decision', 'Dashboard'], ['pro-signals', 'Senales'], ['lab', 'Simulador'], ['paper', 'Paper'], ['journal', 'Journal']].map(([target, label]) => (
+      {[['decision', 'Inicio'], ['guardian', 'Guardian'], ['pro-signals', 'Senales'], ['lab', 'Simular'], ['paper', 'Paper'], ['journal', 'Journal']].map(([target, label]) => (
         <a className="rounded-lg px-2 py-2 text-[11px] font-semibold text-slate-300" href={`#${target}`} key={target}>{label}</a>
       ))}
     </nav>
@@ -84,7 +85,7 @@ function MobileQuickNav() {
 
 function DesktopTabs() {
   const tabs = [
-    ['decision', 'Dashboard'], ['pro-signals', 'Senales Pro'], ['signals', 'Scanner'], ['lab', 'Simulador'],
+    ['decision', 'Dashboard'], ['guardian', 'Guardian'], ['pro-signals', 'Senales Pro'], ['signals', 'Scanner'], ['lab', 'Simulador'],
     ['paper', 'Paper Trading'], ['data-map', 'Fuentes Pro'], ['greeks', 'Greeks'], ['gex-lab', 'GEX Lab'],
     ['moving-averages', 'Medias'], ['trading-plan', 'Plan'], ['library', 'Biblioteca'], ['tape-lab', 'Tape'],
     ['options-flow', 'Flow'], ['algo-lab', 'Algo'], ['replay', 'Replay'], ['journal', 'Journal'], ['notification-status', 'Alertas'], ['settings', 'Config']
@@ -1120,6 +1121,15 @@ export default function App() {
         <DecisionHero scan={scan} />
         <DailyAssistant scan={scan} />
         <DailyLearningCards scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+        <GuardianPanel
+          scan={scan}
+          onSimulate={simulateSetup}
+          onPaper={paperSetupTrade}
+          onRefresh={() => load(true)}
+          onOpenChecklist={() => document.getElementById('paper')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          onOpenJournal={() => document.getElementById('journal')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          onAiExplain={openAiPanel}
+        />
         <DataCollectionPanel scan={scan} />
         <DataHealthPanel scan={scan} />
         <div className="grid gap-5 xl:grid-cols-[315px_minmax(0,1fr)]">

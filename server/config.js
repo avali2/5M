@@ -51,6 +51,17 @@ export const config = {
     enabled: String(process.env.ENABLE_AI_ASSISTANT || '').toLowerCase() === 'true',
     dailyLimit: asNumber(process.env.AI_DAILY_CALL_LIMIT, 10)
   },
+  guardian: {
+    enabled: String(process.env.GUARDIAN_ENABLED || 'true').toLowerCase() !== 'false'
+  },
+  webPush: {
+    enabled: String(process.env.ENABLE_WEB_PUSH || '').toLowerCase() === 'true',
+    publicKey: process.env.VAPID_PUBLIC_KEY || '',
+    privateKey: process.env.VAPID_PRIVATE_KEY || '',
+    subject: process.env.VAPID_SUBJECT || 'mailto:your-email@example.com',
+    enableFcm: String(process.env.ENABLE_FCM || '').toLowerCase() === 'true',
+    fcmServerKey: process.env.FCM_SERVER_KEY || ''
+  },
   marketDataMode: process.env.MARKET_DATA_MODE || 'live',
   database: {
     url: process.env.DATABASE_URL || '',
