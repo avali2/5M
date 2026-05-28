@@ -22,7 +22,7 @@ export function createProviders(settings = config) {
   const gemini = new GeminiProvider(settings.gemini);
   const yahoo = new YahooProvider(settings.yahoo);
   const aiBudget = new AiBudgetManager({ ...(settings.ai || {}), autoTutor: settings.ai?.autoTutor });
-  const ai = new AiProviderRouter({ settings: settings.ai || {}, gemini, openai, budgetManager: aiBudget });
+  const ai = new AiProviderRouter({ settings: settings.ai || {}, agentSettings: settings.agent || {}, gemini, openai, budgetManager: aiBudget });
 
   return {
     tradier,

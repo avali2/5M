@@ -71,7 +71,7 @@ services:
       - key: AI_AUTO_TUTOR
         value: "true"
       - key: AI_AUTO_SIGNAL_DECISION
-        value: "false"
+        value: "true"
       - key: AI_AUTO_NARRATIVE
         value: "false"
       - key: AI_MANUAL_EXPLAIN
@@ -122,6 +122,8 @@ services:
         value: "true"
       - key: AGENT_NAME
         value: Gemini Guardian
+      - key: AGENT_MODE
+        value: gatekeeper
       - key: AGENT_REFRESH_INTERVAL_MINUTES
         value: "5"
       - key: AGENT_MANUAL_SCAN_ENABLED
@@ -130,6 +132,10 @@ services:
         value: "true"
       - key: AGENT_VERIFY_MIN_SCORE
         value: "82"
+      - key: AGENT_REVIEW_TOP_N
+        value: "3"
+      - key: AGENT_CACHE_TTL_MINUTES
+        value: "180"
       - key: AGENT_MAX_AI_VERIFICATIONS_PER_DAY
         value: "8"
       - key: AGENT_MINUTES_BETWEEN_AI_CALLS
@@ -137,6 +143,8 @@ services:
       - key: AGENT_DISABLE_AI_AT_USAGE_PERCENT
         value: "75"
       - key: AGENT_FAILSAFE_DETERMINISTIC
+        value: "true"
+      - key: AGENT_REQUIRE_STRUCTURED_JSON
         value: "true"
       - key: PUSH_ENABLED
         value: "true"

@@ -1,16 +1,92 @@
 import { ProviderError } from '../lib/http.js';
 import { buildAiTutorPrompt, createCompactScanPayload, deterministicTutorFallback } from './deterministic-tutor.js';
+import { createHash } from 'node:crypto';
 
 function isRateLimit(error) {
   return error instanceof ProviderError && error.status === 429 || /HTTP 429|rate limit|quota/i.test(error.message);
 }
 
+function cleanJsonText(text = '') {
+  return String(text)
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```$/i, '')
+    .trim();
+}
+
+function normalizeReview(raw, fallbackSummary = 'Gemini Guardian no entrego una aprobacion operable.') {
+  const decision = ['APPROVE', 'CAUTION', 'BLOCK'].includes(raw?.decision) ? raw.decision : 'CAUTION';
+  return {
+    decision,
+    confidence: Number.isFinite(Number(raw?.confidence)) ? Math.max(0, Math.min(100, Number(raw.confidence))) : 50,
+    summary: String(raw?.summary || fallbackSummary).slice(0, 500),
+    why: Array.isArray(raw?.why) ? raw.why.map(String).slice(0, 5) : [],
+    risks: Array.isArray(raw?.risks) ? raw.risks.map(String).slice(0, 5) : [],
+    entry_ok: Boolean(raw?.entry_ok) && decision === 'APPROVE',
+    invalidation: String(raw?.invalidation || 'Revalidar precio, bid/ask, macro/news y soporte/resistencia antes de entrar.'),
+    position_management: String(raw?.position_management || 'Usar tamano pequeno, take profit definido y stop segun plan.'),
+    news_warning: Boolean(raw?.news_warning),
+    macro_warning: Boolean(raw?.macro_warning),
+    requires_manual_review: raw?.requires_manual_review !== undefined ? Boolean(raw.requires_manual_review) : decision !== 'APPROVE'
+  };
+}
+
+function extractReviewJson(text) {
+  const cleaned = cleanJsonText(text);
+  try {
+    return normalizeReview(JSON.parse(cleaned));
+  } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) return normalizeReview(null, 'Gemini devolvio texto no JSON; se requiere revision manual.');
+    try {
+      return normalizeReview(JSON.parse(match[0]));
+    } catch {
+      return normalizeReview(null, 'Gemini devolvio JSON invalido; se requiere revision manual.');
+    }
+  }
+}
+
+function compactSignalPayload(signal = {}, scan = {}) {
+  const macro = scan.macro || {};
+  return {
+    symbol: signal.symbol || signal.ticker,
+    price: signal.underlyingPrice ?? signal.currentPrice ?? null,
+    strategy: signal.strategy,
+    strikes: signal.strikes,
+    expiration: signal.expiration,
+    creditDebit: signal.creditDebit || { type: signal.netCredit ? 'credit' : signal.netDebit ? 'debit' : 'unknown', value: signal.netCredit ?? signal.netDebit ?? null },
+    pop: signal.pop ?? signal.popEstimated ?? signal.edge?.probabilityOfProfit ?? null,
+    delta: signal.legs?.map((leg) => ({ side: leg.side, type: leg.type, strike: leg.strike, delta: leg.delta })),
+    ivRank: signal.ivRank,
+    score: signal.confidenceScore ?? signal.score,
+    maxRisk: signal.maxRisk,
+    maxProfit: signal.maxProfit,
+    collateral: signal.collateralRequired,
+    eventsMacro: (macro.highImpactEvents || []).slice(0, 5).map((event) => event.title || event.event || event.name || event.date),
+    macroWarnings: (macro.softImpactEvents || []).slice(0, 5).map((event) => event.title || event.event || event.name || event.date),
+    newsDetected: [...(macro.newsBlocks || []), ...(macro.breakingRisk || []).filter((item) => item.caution)].slice(0, 5).map((item) => ({
+      title: item.title,
+      source: item.source,
+      riskScore: item.riskScore,
+      riskType: item.riskType
+    })),
+    earnings: (macro.earnings || []).filter((item) => item.symbol === signal.symbol).slice(0, 3).map((item) => ({ symbol: item.symbol, date: item.date })),
+    scannerReason: signal.reasoning || signal.reason || [],
+    riskBlocks: signal.blocks || signal.riskGovernor?.blocks || [],
+    timestamp: scan.asOf
+  };
+}
+
 export class AiProviderRouter {
-  constructor({ settings = {}, gemini, openai, budgetManager }) {
+  constructor({ settings = {}, agentSettings = {}, gemini, openai, budgetManager }) {
     this.settings = settings;
+    this.agentSettings = agentSettings;
     this.gemini = gemini;
     this.openai = openai;
     this.budgetManager = budgetManager;
+    this.reviewCache = new Map();
+    this.lastReviewAt = null;
+    this.lastReviewCycle = null;
   }
 
   providerOrder() {
@@ -29,15 +105,124 @@ export class AiProviderRouter {
     return {
       primaryProvider: this.settings.primaryProvider || 'gemini',
       activeProvider: this.gemini?.configured && this.gemini?.enabled ? 'gemini' : this.openai?.configured && this.openai?.settings?.enabled ? 'openai' : 'deterministic',
-      manualOnly: true,
-      automaticSignalDecision: false,
-      automaticNarrative: false,
+      manualOnly: !this.settings.autoSignalDecision && !this.settings.autoNarrative,
+      automaticSignalDecision: Boolean(this.settings.autoSignalDecision),
+      automaticNarrative: Boolean(this.settings.autoNarrative),
       fallbackToDeterministic: this.settings.fallbackToDeterministic !== false,
+      gatekeeper: {
+        mode: this.agentSettings.mode || 'gatekeeper',
+        autoVerifySignals: Boolean(this.agentSettings.autoVerifySignals && this.settings.autoSignalDecision),
+        verifyMinScore: this.agentSettings.verifyMinScore || 82,
+        reviewTopN: this.agentSettings.reviewTopN || 3,
+        cacheTtlMinutes: this.agentSettings.cacheTtlMinutes || 180,
+        requireStructuredJson: this.agentSettings.requireStructuredJson !== false,
+        lastReviewAt: this.lastReviewAt
+      },
       gemini: this.providerStatus('gemini'),
       openai: this.providerStatus('openai'),
       budget: this.budgetManager.status(),
       note: 'La IA solo explica. POP, EV, strikes, Greeks y riesgo vienen del motor deterministico.'
     };
+  }
+
+  reviewHash(signal, scan) {
+    const payload = compactSignalPayload(signal, scan);
+    return createHash('sha256').update(JSON.stringify({
+      symbol: payload.symbol,
+      strategy: payload.strategy,
+      expiration: payload.expiration,
+      strikes: payload.strikes,
+      price: payload.price,
+      score: payload.score,
+      pop: payload.pop,
+      macro: payload.eventsMacro,
+      news: payload.newsDetected,
+      earnings: payload.earnings
+    })).digest('hex').slice(0, 24);
+  }
+
+  async reviewSignal(signal, scan, { automatic = true, cycleKey = null } = {}) {
+    const score = Number(signal?.confidenceScore ?? signal?.score ?? 0);
+    const hash = this.reviewHash(signal, scan);
+    const cached = this.reviewCache.get(hash);
+    if (cached && cached.expiresAt > Date.now()) return { ...cached.value, cacheHit: true };
+
+    const unavailable = (summary) => ({
+      provider: 'deterministic',
+      decision: 'CAUTION',
+      confidence: 40,
+      summary,
+      why: ['La revision IA no aprobo automaticamente este candidato.'],
+      risks: ['No enviar push ni marcar como operable hasta revision manual.'],
+      entry_ok: false,
+      invalidation: signal?.invalidation || 'Revalidar cadena, precio y eventos antes de considerar entrada.',
+      position_management: 'Mantener en candidatos; usar paper/simulador hasta aprobacion manual.',
+      news_warning: false,
+      macro_warning: false,
+      requires_manual_review: true,
+      status: 'requires_manual_review',
+      reviewHash: hash,
+      cacheHit: false
+    });
+
+    if (!this.settings.autoSignalDecision || !this.agentSettings.autoVerifySignals) {
+      return unavailable('Gemini Guardian automatico esta desactivado; requiere revision manual.');
+    }
+    if (score < (this.agentSettings.verifyMinScore || 82)) {
+      return unavailable(`Score ${score} debajo del minimo de revision Gemini ${this.agentSettings.verifyMinScore || 82}.`);
+    }
+    if (!this.gemini?.configured || !this.gemini?.enabled) {
+      return unavailable('Gemini no configurado o desactivado; fallback deterministico activo.');
+    }
+    const budgetStatus = this.budgetManager.status();
+    if (budgetStatus.requestsUsed >= (this.agentSettings.maxAiVerificationsPerDay || this.settings.dailyRequestBudget || 8)) {
+      return unavailable('Limite diario de revisiones Gemini Guardian alcanzado.');
+    }
+    if (automatic && this.lastReviewAt && this.lastReviewCycle !== cycleKey) {
+      const minGap = (this.agentSettings.minutesBetweenAiCalls || this.settings.minAutomaticCallIntervalMinutes || 45) * 60000;
+      if (Date.now() - new Date(this.lastReviewAt).getTime() < minGap) {
+        return unavailable('Cooldown entre revisiones Gemini Guardian aun activo.');
+      }
+    }
+
+    const payload = compactSignalPayload(signal, scan);
+    const estimatedTokens = Math.min(this.settings.maxTotalTokensPerCall || 3000, JSON.stringify(payload).length / 3 + 500);
+    const allowed = this.budgetManager.canCall({ provider: 'gemini', estimatedTokens, automatic });
+    if (!allowed.allowed) return unavailable(allowed.reason || 'Presupuesto/cooldown de Gemini impide revision automatica.');
+
+    const prompt = [
+      'Eres Gemini Guardian, auditor final de una plataforma de opciones.',
+      'NO calcules precios, Greeks, POP, EV, strikes ni riesgo. Solo audita los datos calculados.',
+      'No prometas ganancias. Si faltan datos, si hay macro/news/earnings/geopolitica seria, o el trade no es limpio, usa CAUTION o BLOCK.',
+      'Responde SOLO JSON valido con exactamente estas claves:',
+      '{"decision":"APPROVE|CAUTION|BLOCK","confidence":0-100,"summary":"breve","why":["razon 1","razon 2","razon 3"],"risks":["riesgo 1","riesgo 2"],"entry_ok":true/false,"invalidation":"condicion","position_management":"plan","news_warning":true/false,"macro_warning":true/false,"requires_manual_review":true/false}'
+    ].join('\n');
+
+    try {
+      const result = await this.gemini.explain({
+        payload,
+        prompt,
+        maxOutputTokens: Math.min(this.settings.maxOutputTokensPerCall || 650, 500)
+      });
+      const review = extractReviewJson(result.text);
+      const value = {
+        ...review,
+        provider: 'gemini',
+        status: review.decision === 'APPROVE' && review.entry_ok && !review.requires_manual_review ? 'approved' : review.decision.toLowerCase(),
+        reviewHash: hash,
+        cacheHit: false,
+        rawUsage: result.usage || null
+      };
+      this.budgetManager.recordUsage({ tokens: result.usage?.totalTokens || estimatedTokens, automatic });
+      this.lastReviewAt = new Date().toISOString();
+      this.lastReviewCycle = cycleKey;
+      this.reviewCache.set(hash, { value, expiresAt: Date.now() + (this.agentSettings.cacheTtlMinutes || 180) * 60000 });
+      return value;
+    } catch (error) {
+      if (isRateLimit(error)) this.budgetManager.pause('gemini', this.settings.cooldownAfter429Minutes || 120, 'Gemini 429; requiere revision manual.');
+      else this.budgetManager.recordError(error.message);
+      return unavailable(`Gemini error: ${error.message}`);
+    }
   }
 
   async explainScan(scan, { manual = true, automatic = false, purpose = 'manual_explain' } = {}) {

@@ -127,14 +127,18 @@ export const config = {
   agent: {
     enabled: asBool(process.env.AGENT_ENABLED, asBool(process.env.GUARDIAN_ENABLED, true)),
     name: process.env.AGENT_NAME || 'Gemini Guardian',
+    mode: process.env.AGENT_MODE || 'gatekeeper',
     refreshIntervalMinutes: asNumber(process.env.AGENT_REFRESH_INTERVAL_MINUTES, 5),
     manualScanEnabled: asBool(process.env.AGENT_MANUAL_SCAN_ENABLED, true),
     autoVerifySignals: asBool(process.env.AGENT_AUTO_VERIFY_SIGNALS, true),
     verifyMinScore: asNumber(process.env.AGENT_VERIFY_MIN_SCORE, 82),
+    reviewTopN: asNumber(process.env.AGENT_REVIEW_TOP_N, 3),
+    cacheTtlMinutes: asNumber(process.env.AGENT_CACHE_TTL_MINUTES, 180),
     maxAiVerificationsPerDay: asNumber(process.env.AGENT_MAX_AI_VERIFICATIONS_PER_DAY, 8),
     minutesBetweenAiCalls: asNumber(process.env.AGENT_MINUTES_BETWEEN_AI_CALLS, 45),
     disableAiAtUsagePercent: asNumber(process.env.AGENT_DISABLE_AI_AT_USAGE_PERCENT, 75),
-    failsafeDeterministic: asBool(process.env.AGENT_FAILSAFE_DETERMINISTIC, true)
+    failsafeDeterministic: asBool(process.env.AGENT_FAILSAFE_DETERMINISTIC, true),
+    requireStructuredJson: asBool(process.env.AGENT_REQUIRE_STRUCTURED_JSON, true)
   },
   signals: {
     realSignalsOnly: asBool(process.env.REAL_SIGNALS_ONLY, true),

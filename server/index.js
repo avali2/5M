@@ -52,7 +52,9 @@ function providerHealth(settings, providers) {
     openaiEnabled: Boolean(openaiStatus.enabled),
     openaiAutomaticCalls: false,
     aiPrimaryProvider: aiStatus?.primaryProvider || settings.ai?.primaryProvider || 'gemini',
-    aiMode: 'manual_explain_only',
+    aiMode: aiStatus?.automaticSignalDecision ? 'gemini_guardian_gatekeeper' : 'manual_explain_only',
+    aiDecisionEnabled: Boolean(aiStatus?.automaticSignalDecision),
+    agentMode: settings.agent?.mode || 'gatekeeper',
     aiBudget: aiStatus?.budget || null,
     activeMarketProvider: providers.market?.name || 'none',
     activeOptionsProvider: providers.options?.name || 'none',
@@ -131,6 +133,13 @@ function normalizeSignal(setup, scan) {
       ...(scan?.macro?.earnings || []).filter((event) => event.symbol === setup.symbol).slice(0, 2).map((event) => `Earnings ${event.date}`)
     ],
     aiStatus: setup.aiVerificationStatus || 'manual only',
+    geminiGuardian: setup.geminiReview ? {
+      decision: setup.geminiReview.decision,
+      confidence: setup.geminiReview.confidence,
+      summary: setup.geminiReview.summary,
+      risks: setup.geminiReview.risks,
+      requiresManualReview: setup.geminiReview.requires_manual_review
+    } : null,
     dataSource: scan?.marketDataMode || 'live',
     source: {
       quote: scan?.providers?.find((provider) => provider.id === 'tradier' && provider.configured) ? 'Tradier' : 'Yahoo/fallback',
@@ -211,11 +220,13 @@ function buildAgentPayload({ scan, settings, providers, guardianScheduler }) {
     newsWarnings: scan?.macro?.breakingRisk || [],
     guardStatus: guards,
     aiVerificationStatus: {
-      mode: 'manual_only',
+      mode: aiStatus?.automaticSignalDecision ? 'gemini_guardian_gatekeeper' : 'manual_only',
       requireAiConfirmation: Boolean(settings.signals?.requireAiConfirmation),
-      autoDecision: false,
-      autoNarrative: false
-    }
+      autoDecision: Boolean(aiStatus?.automaticSignalDecision),
+      autoNarrative: Boolean(aiStatus?.automaticNarrative),
+      guardian: scan?.aiGuardian || null
+    },
+    aiGuardian: scan?.aiGuardian || null
   };
 }
 
@@ -295,6 +306,31 @@ export function createApp(settings = config, customProviders = null, options = {
         lastError: scheduler.lastError
       },
       guardian: guardianScheduler.status(repository.mode),
+      agent: {
+        enabled: settings.agent?.enabled !== false,
+        name: settings.agent?.name || 'Gemini Guardian',
+        mode: settings.agent?.mode || 'gatekeeper',
+        autoVerifySignals: Boolean(settings.agent?.autoVerifySignals),
+        aiDecisionEnabled: Boolean(typeof providers.ai?.status === 'function' ? providers.ai.status()?.automaticSignalDecision : false),
+        dailyAiBudget: settings.ai?.dailyTokenBudget,
+        aiUsedToday: typeof providers.ai?.status === 'function' ? providers.ai.status()?.budget?.tokensUsed : null,
+        requestsUsedToday: typeof providers.ai?.status === 'function' ? providers.ai.status()?.budget?.requestsUsed : null,
+        lastReviewAt: typeof providers.ai?.status === 'function' ? providers.ai.status()?.gatekeeper?.lastReviewAt : null,
+        nextReviewAt: guardianScheduler.status(repository.mode).nextScan
+      },
+      guards: {
+        macro: enabledLabel(settings.guards?.macroEnabled !== false),
+        news: enabledLabel(settings.guards?.newsEnabled !== false),
+        fed: enabledLabel(settings.guards?.fedEnabled !== false),
+        geopolitical: enabledLabel(settings.guards?.geopoliticalEnabled !== false),
+        earnings: enabledLabel(settings.guards?.earningsEnabled !== false)
+      },
+      signals: {
+        realSignalsOnly: Boolean(settings.signals?.realSignalsOnly),
+        requireAiConfirmation: Boolean(settings.signals?.requireAiConfirmation),
+        minScore: settings.signals?.minScore,
+        minPop: settings.signals?.minPop
+      },
       webPush: { enabled: pushService.status().enabled, configured: pushService.status().configured }
     });
   });

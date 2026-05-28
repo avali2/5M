@@ -1,5 +1,6 @@
 import { cache } from '../lib/cache.js';
 import { runAutonomousScan } from '../engine/scanner.js';
+import { applyGeminiGuardianGate } from '../ai/gemini-guardian-gate.js';
 
 export class ScanScheduler {
   constructor({ providers, settings }) {
@@ -15,6 +16,7 @@ export class ScanScheduler {
     if (this.running) return this.running;
     if (force) cache.clear();
     this.running = runAutonomousScan({ providers: this.providers, settings: this.settings, force })
+      .then((scan) => applyGeminiGuardianGate(scan, { providers: this.providers, settings: this.settings }))
       .then((scan) => {
         this.latest = scan;
         this.lastError = null;

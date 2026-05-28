@@ -49,6 +49,7 @@ function GuardPill({ label, guard }) {
 }
 
 function SignalTicket({ signal, onSimulate, onAiExplain }) {
+  const guardian = signal.geminiGuardian;
   return (
     <article className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -70,8 +71,18 @@ function SignalTicket({ signal, onSimulate, onAiExplain }) {
         <Mini label="Collateral" value={money(signal.collateralRequired)} />
         <Mini label="Riesgo" value={signal.riskClass || 'moderado'} />
         <Mini label="Fuente" value={signal.source?.quote || signal.dataSource || 'server-side'} />
-        <Mini label="AI" value={signal.aiStatus || 'manual only'} />
+        <Mini label="Gemini Guardian" value={guardian ? `${guardian.decision} (${num(guardian.confidence)})` : signal.aiStatus || 'manual only'} />
       </div>
+      {guardian && (
+        <div className={`mt-3 rounded-xl border p-3 text-sm ${
+          guardian.decision === 'APPROVE' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' :
+            guardian.decision === 'BLOCK' ? 'border-red-200 bg-red-50 text-red-800' :
+              'border-amber-200 bg-amber-50 text-amber-800'
+        }`}>
+          <strong>Veredicto Gemini Guardian:</strong> {guardian.summary}
+          {guardian.risks?.length ? <p className="mt-1 text-xs">Riesgos: {guardian.risks.join(' | ')}</p> : null}
+        </div>
+      )}
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-sm text-amber-800">
           <strong>Invalidacion:</strong> {signal.invalidation}
@@ -102,6 +113,8 @@ function Mini({ label, value }) {
 
 export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, onAiExplain, onSimulate }) {
   const agent = scan?.agent || {};
+  const budget = agent.tokenBudget || {};
+  const aiGuardian = agent.aiGuardian || agent.aiVerificationStatus?.guardian || {};
   const signals = agent.approvedSignals || [];
   const rejected = agent.rejectedCandidates || [];
   const state = agent.state || 'SLEEPING';
@@ -113,12 +126,12 @@ export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, 
         <div>
           <p className="text-[11px] font-black uppercase tracking-[.18em] text-blue-700">Copiloto de riesgo y senales</p>
           <h2 className="mt-2 text-3xl font-black text-slate-950 md:text-4xl">Gemini Guardian</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Senales reales arriba, candidatos rechazados abajo. Gemini explica bajo demanda; el motor cuantitativo calcula precios, riesgo, POP y filtros.</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Senales reales arriba, candidatos rechazados abajo. Gemini audita candidatos calculados por el motor; precios, riesgo, POP y filtros siguen siendo deterministicos.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded-full border px-3 py-1 text-xs font-black ${stateTone[state] || stateTone.SLEEPING}`}>{state}</span>
           <button className="btn btn-primary" disabled={loading} onClick={onRefresh}>{loading ? 'Escaneando...' : 'Escanear ahora'}</button>
-          <button className="btn" onClick={onAiExplain}>Explicar con Gemini</button>
+          <button className="btn" onClick={onAiExplain}>Pedir revision de Gemini</button>
         </div>
       </div>
 
@@ -127,6 +140,10 @@ export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, 
         <Mini label="Ultima revision" value={time(agent.lastRunAt || scan?.asOf)} />
         <Mini label="Proxima revision" value={time(agent.nextRunAt || scan?.guardianStatus?.nextScan)} />
         <Mini label="Fuente principal" value={source} />
+        <Mini label="Tokens IA hoy" value={`${budget.tokensUsed ?? 0} / ${budget.dailyTokenBudget ?? '--'}`} />
+        <Mini label="Revisiones IA hoy" value={`${budget.requestsUsed ?? 0} / ${budget.dailyRequestBudget ?? '--'}`} />
+        <Mini label="Modo Guardian" value={agent.aiVerificationStatus?.mode || 'manual_only'} />
+        <Mini label="Motivo actual" value={aiGuardian.reason || signals[0]?.geminiGuardian?.summary || rejected[0]?.rejectionReasons?.[0] || 'Vigilando sin senal aprobada'} />
       </div>
 
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
