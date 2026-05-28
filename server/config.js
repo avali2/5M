@@ -93,7 +93,8 @@ export const config = {
   ai: {
     primaryProvider: process.env.AI_PRIMARY_PROVIDER || 'gemini',
     autoTutor: String(process.env.AI_AUTO_TUTOR || 'true').toLowerCase() === 'true',
-    autoSignalDecision: String(process.env.AI_AUTO_SIGNAL_DECISION || 'false').toLowerCase() === 'true',
+    autoSignalDecision: asBool(process.env.AI_AUTO_SIGNAL_DECISION, asBool(process.env.AGENT_AUTO_VERIFY_SIGNALS, false)) ||
+      asBool(process.env.AGENT_AUTO_VERIFY_SIGNALS, false),
     autoNarrative: String(process.env.AI_AUTO_NARRATIVE || 'false').toLowerCase() === 'true',
     manualExplain: String(process.env.AI_MANUAL_EXPLAIN || 'true').toLowerCase() !== 'false',
     fallbackToDeterministic: String(process.env.AI_FALLBACK_TO_DETERMINISTIC || 'true').toLowerCase() !== 'false',
