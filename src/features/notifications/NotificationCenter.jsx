@@ -30,7 +30,7 @@ export default function NotificationCenter({ enabled, onEnabled }) {
       <p className="eyebrow">Estado de notificaciones</p>
       <h3 className="mt-1 text-lg font-semibold">Alertas moviles seguras</h3>
       <p className="mt-2 text-xs leading-5 text-slate-400">Las alertas se envian mediante Service Worker, compatible con el flujo PWA movil.</p>
-      <p className="mt-2 text-xs leading-5 text-slate-500">La prueba y los avisos del escaneo funcionan mientras la app esta abierta y actualizando. Alertas con la app cerrada requieren una futura suscripcion Web Push/VAPID.</p>
+      <p className="mt-2 text-xs leading-5 text-slate-500">La prueba local usa Service Worker. Las alertas con el movil bloqueado requieren Web Push/VAPID, permiso del navegador y que el telefono mantenga activa la PWA.</p>
       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
         <Diagnostic label="Navegador" value={diagnostic?.browser} />
         <Diagnostic label="Sistema" value={diagnostic?.platform} />
@@ -45,8 +45,9 @@ export default function NotificationCenter({ enabled, onEnabled }) {
       {diagnostic?.error && <p className="mt-3 rounded-lg bg-red-500/10 p-3 text-xs text-sigma-red">{diagnostic.error}</p>}
       {diagnostic?.solution && <p className="mt-3 rounded-lg bg-amber-500/10 p-3 text-xs leading-5 text-sigma-amber">{diagnostic.solution}</p>}
       <button className="btn btn-primary mt-4 w-full" onClick={testNotification} disabled={testing}>
-        {testing ? 'Probando...' : 'Probar notificacion movil'}
+        {testing ? 'Probando...' : 'Probar notificacion push'}
       </button>
+      <p className="mt-3 rounded-lg bg-blue-50 p-3 text-[11px] leading-5 text-blue-700">Si Render esta en plan free, el servicio puede dormirse. Las alertas continuas no estan garantizadas hasta usar un plan siempre activo.</p>
     </section>
   );
 }

@@ -112,9 +112,31 @@ services:
         sync: false
       - key: MARKET_DATA_MODE
         value: "live"
+      - key: WATCHLIST_CORE
+        value: SPY,QQQ,IWM,DIA,SPX,XSP,AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA,SOFI,AMD,MCD,RIVN,NU
       - key: BLOCK_IF_IV_RANK_INCOMPLETE
         value: "false"
       - key: GUARDIAN_ENABLED
+        value: "true"
+      - key: AGENT_ENABLED
+        value: "true"
+      - key: AGENT_NAME
+        value: Gemini Guardian
+      - key: AGENT_REFRESH_INTERVAL_MINUTES
+        value: "5"
+      - key: AGENT_MANUAL_SCAN_ENABLED
+        value: "true"
+      - key: AGENT_AUTO_VERIFY_SIGNALS
+        value: "true"
+      - key: AGENT_VERIFY_MIN_SCORE
+        value: "82"
+      - key: AGENT_MAX_AI_VERIFICATIONS_PER_DAY
+        value: "8"
+      - key: AGENT_MINUTES_BETWEEN_AI_CALLS
+        value: "45"
+      - key: AGENT_DISABLE_AI_AT_USAGE_PERCENT
+        value: "75"
+      - key: AGENT_FAILSAFE_DETERMINISTIC
         value: "true"
       - key: PUSH_ENABLED
         value: "true"
@@ -132,6 +154,14 @@ services:
         value: "5"
       - key: PUSH_SYMBOL_COOLDOWN_MINUTES
         value: "30"
+      - key: PUSH_REAL_SIGNALS_ONLY
+        value: "true"
+      - key: PUSH_BLOCK_ON_MACRO_CAUTION
+        value: "true"
+      - key: PUSH_BLOCK_ON_NEWS_CAUTION
+        value: "false"
+      - key: PUSH_INCLUDE_REASON_SUMMARY
+        value: "true"
       - key: SCANNER_ENABLED
         value: "true"
       - key: SCANNER_CORE_INTERVAL_MINUTES
@@ -151,13 +181,49 @@ services:
       - key: MIN_AGGRESSIVE_SCORE
         value: "65"
       - key: MAX_DAILY_SIGNALS
-        value: "5"
+        value: "3"
+      - key: REAL_SIGNALS_ONLY
+        value: "true"
+      - key: SIGNAL_MIN_SCORE
+        value: "82"
+      - key: SIGNAL_MIN_POP
+        value: "0.70"
+      - key: SIGNAL_REQUIRE_RISK_APPROVAL
+        value: "true"
+      - key: SIGNAL_REQUIRE_MACRO_CLEARANCE
+        value: "true"
+      - key: SIGNAL_REQUIRE_NEWS_CLEARANCE
+        value: "true"
+      - key: SIGNAL_REQUIRE_AI_CONFIRMATION
+        value: "true"
+      - key: SIGNAL_MAX_PER_DAY
+        value: "3"
       - key: MAX_RISK_PER_TRADE_PCT
         value: "0.02"
       - key: MAX_PORTFOLIO_RISK_PCT
         value: "0.06"
       - key: AUTO_REFRESH_SECONDS
-        value: "60"
+        value: "300"
+      - key: SHOW_MANUAL_REFRESH_BUTTON
+        value: "true"
+      - key: SHOW_AGENT_PANEL
+        value: "true"
+      - key: SHOW_UNAVAILABLE_FEEDS_AS_OPTIONAL
+        value: "true"
+      - key: HIDE_PREMIUM_FEEDS_IF_UNCONFIGURED
+        value: "true"
+      - key: HIDE_REJECTED_SIGNALS_BY_DEFAULT
+        value: "true"
+      - key: DEFAULT_HOME_VIEW
+        value: signals
+      - key: FRIENDLY_LIGHT_THEME
+        value: "true"
+      - key: OPTIONAL_PREMIUM_FEEDS
+        value: polygon,benzinga,fcm
+      - key: REQUIRED_FEEDS
+        value: tradier_or_yahoo,app_access_key
+      - key: IMPORTANT_FEEDS
+        value: gemini,database,webpush,alpha_vantage,finnhub,fmp
       - key: FAIL_CLOSED_ON_AI_ERROR
         value: "false"
       - key: FAIL_CLOSED_ON_OPENAI_ERROR
@@ -176,6 +242,34 @@ services:
         value: "true"
       - key: NEWS_RISK_OVERLAY
         value: "true"
+      - key: MACRO_GUARD_ENABLED
+        value: "true"
+      - key: NEWS_GUARD_ENABLED
+        value: "true"
+      - key: GEOPOLITICAL_GUARD_ENABLED
+        value: "true"
+      - key: FED_GUARD_ENABLED
+        value: "true"
+      - key: EARNINGS_GUARD_ENABLED
+        value: "true"
+      - key: HIGH_IMPACT_EVENT_BLACKOUT_HOURS
+        value: "24"
+      - key: MEDIUM_IMPACT_EVENT_CAUTION_HOURS
+        value: "8"
+      - key: NEWS_LOOKBACK_HOURS
+        value: "24"
+      - key: NEWS_CAUTION_SCORE
+        value: "65"
+      - key: NEWS_BLOCK_SCORE
+        value: "80"
+      - key: FED_EVENT_CAUTION_HOURS
+        value: "48"
+      - key: WAR_NEWS_BLOCK_ENABLED
+        value: "true"
+      - key: ALLOW_UNVERIFIED_MACRO_WHEN_FEEDS_MISSING
+        value: "false"
+      - key: ALLOW_UNVERIFIED_NEWS_WHEN_FEEDS_MISSING
+        value: "false"
       - key: MACRO_BLOCK_BEFORE_MINUTES
         value: "60"
       - key: MACRO_BLOCK_AFTER_MINUTES

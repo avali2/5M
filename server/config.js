@@ -5,9 +5,25 @@ const asNumber = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const asBool = (value, fallback = false) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  return ['true', '1', 'yes', 'on'].includes(String(value).toLowerCase());
+};
+
+const asList = (value, fallback = []) => {
+  const source = value || fallback.join(',');
+  return [...new Set(String(source).split(',').map((item) => item.trim()).filter(Boolean))];
+};
+
 const productionRuntime = String(process.env.NODE_ENV || '').toLowerCase() === 'production' ||
   String(process.env.RENDER || '').toLowerCase() === 'true' ||
   Boolean(process.env.RENDER_SERVICE_ID);
+
+const WATCHLIST_CORE = asList(process.env.WATCHLIST_CORE, [
+  'SPY', 'QQQ', 'IWM', 'DIA', 'SPX', 'XSP',
+  'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA',
+  'SOFI', 'AMD', 'MCD', 'RIVN', 'NU'
+]);
 
 export const UNIVERSE = {
   indices: ['SPY', 'SPX', 'QQQ', 'IWM', 'DIA'],
@@ -16,7 +32,8 @@ export const UNIVERSE = {
   optionalIndices: ['XSP', 'NDX', 'RUT'],
   liquidEtfs: ['XLF', 'XLK', 'XLE', 'XLV', 'TLT', 'GLD'],
   breadth: ['SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'XLK', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU'],
-  volatility: 'VIX'
+  volatility: 'VIX',
+  core: WATCHLIST_CORE
 };
 
 const startedAt = new Date().toISOString();
@@ -94,14 +111,73 @@ export const config = {
     enabled: String(process.env.GUARDIAN_ENABLED || 'true').toLowerCase() !== 'false'
   },
   webPush: {
-    enabled: String(process.env.PUSH_ENABLED || process.env.ENABLE_WEB_PUSH || '').toLowerCase() === 'true',
+    enabled: asBool(process.env.PUSH_ENABLED || process.env.ENABLE_WEB_PUSH, false),
     publicKey: process.env.VAPID_PUBLIC_KEY || '',
     privateKey: process.env.VAPID_PRIVATE_KEY || '',
     subject: process.env.VAPID_SUBJECT || 'mailto:your-email@example.com',
-    enableFcm: String(process.env.ENABLE_FCM || '').toLowerCase() === 'true',
+    enableFcm: asBool(process.env.ENABLE_FCM, false),
     fcmServerKey: process.env.FCM_SERVER_KEY || '',
     maxDailySignals: asNumber(process.env.PUSH_MAX_DAILY_SIGNALS, 5),
-    symbolCooldownMinutes: asNumber(process.env.PUSH_SYMBOL_COOLDOWN_MINUTES, 30)
+    symbolCooldownMinutes: asNumber(process.env.PUSH_SYMBOL_COOLDOWN_MINUTES, 30),
+    realSignalsOnly: asBool(process.env.PUSH_REAL_SIGNALS_ONLY, true),
+    blockOnMacroCaution: asBool(process.env.PUSH_BLOCK_ON_MACRO_CAUTION, true),
+    blockOnNewsCaution: asBool(process.env.PUSH_BLOCK_ON_NEWS_CAUTION, false),
+    includeReasonSummary: asBool(process.env.PUSH_INCLUDE_REASON_SUMMARY, true)
+  },
+  agent: {
+    enabled: asBool(process.env.AGENT_ENABLED, asBool(process.env.GUARDIAN_ENABLED, true)),
+    name: process.env.AGENT_NAME || 'Gemini Guardian',
+    refreshIntervalMinutes: asNumber(process.env.AGENT_REFRESH_INTERVAL_MINUTES, 5),
+    manualScanEnabled: asBool(process.env.AGENT_MANUAL_SCAN_ENABLED, true),
+    autoVerifySignals: asBool(process.env.AGENT_AUTO_VERIFY_SIGNALS, true),
+    verifyMinScore: asNumber(process.env.AGENT_VERIFY_MIN_SCORE, 82),
+    maxAiVerificationsPerDay: asNumber(process.env.AGENT_MAX_AI_VERIFICATIONS_PER_DAY, 8),
+    minutesBetweenAiCalls: asNumber(process.env.AGENT_MINUTES_BETWEEN_AI_CALLS, 45),
+    disableAiAtUsagePercent: asNumber(process.env.AGENT_DISABLE_AI_AT_USAGE_PERCENT, 75),
+    failsafeDeterministic: asBool(process.env.AGENT_FAILSAFE_DETERMINISTIC, true)
+  },
+  signals: {
+    realSignalsOnly: asBool(process.env.REAL_SIGNALS_ONLY, true),
+    minScore: asNumber(process.env.SIGNAL_MIN_SCORE, asNumber(process.env.MIN_SCORE, 82)),
+    minPop: asNumber(process.env.SIGNAL_MIN_POP, asNumber(process.env.MIN_PROBABILITY, 0.7)),
+    requireRiskApproval: asBool(process.env.SIGNAL_REQUIRE_RISK_APPROVAL, true),
+    requireMacroClearance: asBool(process.env.SIGNAL_REQUIRE_MACRO_CLEARANCE, true),
+    requireNewsClearance: asBool(process.env.SIGNAL_REQUIRE_NEWS_CLEARANCE, true),
+    requireAiConfirmation: asBool(process.env.SIGNAL_REQUIRE_AI_CONFIRMATION, true),
+    maxPerDay: asNumber(process.env.SIGNAL_MAX_PER_DAY, 3)
+  },
+  guards: {
+    macroEnabled: asBool(process.env.MACRO_GUARD_ENABLED, true),
+    newsEnabled: asBool(process.env.NEWS_GUARD_ENABLED, true),
+    geopoliticalEnabled: asBool(process.env.GEOPOLITICAL_GUARD_ENABLED, true),
+    fedEnabled: asBool(process.env.FED_GUARD_ENABLED, true),
+    earningsEnabled: asBool(process.env.EARNINGS_GUARD_ENABLED, true),
+    highImpactBlackoutHours: asNumber(process.env.HIGH_IMPACT_EVENT_BLACKOUT_HOURS, 24),
+    mediumImpactCautionHours: asNumber(process.env.MEDIUM_IMPACT_EVENT_CAUTION_HOURS, 8),
+    newsLookbackHours: asNumber(process.env.NEWS_LOOKBACK_HOURS, 24),
+    newsCautionScore: asNumber(process.env.NEWS_CAUTION_SCORE, 65),
+    newsBlockScore: asNumber(process.env.NEWS_BLOCK_SCORE, 80),
+    fedEventCautionHours: asNumber(process.env.FED_EVENT_CAUTION_HOURS, 48),
+    warNewsBlockEnabled: asBool(process.env.WAR_NEWS_BLOCK_ENABLED, true),
+    allowUnverifiedMacroWhenFeedsMissing: asBool(process.env.ALLOW_UNVERIFIED_MACRO_WHEN_FEEDS_MISSING, false),
+    allowUnverifiedNewsWhenFeedsMissing: asBool(process.env.ALLOW_UNVERIFIED_NEWS_WHEN_FEEDS_MISSING, false)
+  },
+  ui: {
+    showManualRefreshButton: asBool(process.env.SHOW_MANUAL_REFRESH_BUTTON, true),
+    showAgentPanel: asBool(process.env.SHOW_AGENT_PANEL, true),
+    showUnavailableFeedsAsOptional: asBool(process.env.SHOW_UNAVAILABLE_FEEDS_AS_OPTIONAL, true),
+    hidePremiumFeedsIfUnconfigured: asBool(process.env.HIDE_PREMIUM_FEEDS_IF_UNCONFIGURED, true),
+    hideRejectedSignalsByDefault: asBool(process.env.HIDE_REJECTED_SIGNALS_BY_DEFAULT, true),
+    defaultHomeView: process.env.DEFAULT_HOME_VIEW || 'signals',
+    friendlyLightTheme: asBool(process.env.FRIENDLY_LIGHT_THEME, true)
+  },
+  feeds: {
+    optionalPremium: asList(process.env.OPTIONAL_PREMIUM_FEEDS, ['polygon', 'benzinga', 'fcm']),
+    required: asList(process.env.REQUIRED_FEEDS, ['tradier_or_yahoo', 'app_access_key']),
+    important: asList(process.env.IMPORTANT_FEEDS, ['gemini', 'database', 'webpush', 'alpha_vantage', 'finnhub', 'fmp'])
+  },
+  watchlist: {
+    core: WATCHLIST_CORE
   },
   marketDataMode: process.env.MARKET_DATA_MODE || 'live',
   database: {
@@ -118,7 +194,7 @@ export const config = {
     maxDailyLossPct: asNumber(process.env.MAX_DAILY_LOSS_PCT, 5),
     maxWeeklyLossPct: asNumber(process.env.MAX_WEEKLY_LOSS_PCT, 8),
     maxOpenTrades: asNumber(process.env.MAX_OPEN_TRADES, 3),
-    minScore: asNumber(process.env.MIN_SCORE, 75),
+    minScore: asNumber(process.env.SIGNAL_MIN_SCORE, asNumber(process.env.MIN_SCORE, 82)),
     minDte: asNumber(process.env.MIN_DTE, 21),
     maxDte: asNumber(process.env.MAX_DTE, 45),
     minOpenInterest: 100,
@@ -136,7 +212,7 @@ export const config = {
     defaultRiskMode: process.env.DEFAULT_RISK_MODE || 'MODERATE_AGGRESSIVE',
     minPopCreditSpread: asNumber(process.env.MIN_POP_CREDIT_SPREAD, 0.7),
     maxPortfolioRiskPct: asNumber(process.env.MAX_PORTFOLIO_RISK_PCT, 0.06),
-    maxDailySignals: asNumber(process.env.MAX_DAILY_SIGNALS, 5)
+    maxDailySignals: asNumber(process.env.SIGNAL_MAX_PER_DAY, asNumber(process.env.MAX_DAILY_SIGNALS, 3))
   },
   scanner: {
     enabled: String(process.env.SCANNER_ENABLED || 'true').toLowerCase() !== 'false',
@@ -144,7 +220,7 @@ export const config = {
     stockIntervalMinutes: asNumber(process.env.SCANNER_STOCK_INTERVAL_MINUTES, 10),
     afterHoursIntervalMinutes: asNumber(process.env.SCANNER_AFTER_HOURS_INTERVAL_MINUTES, 45)
   },
-  refreshSeconds: asNumber(process.env.AUTO_REFRESH_SECONDS, 60)
+  refreshSeconds: asNumber(process.env.AUTO_REFRESH_SECONDS, 300)
 };
 
 export const buildInfo = {
@@ -161,13 +237,20 @@ export const buildInfo = {
 };
 
 export function providerStatus() {
+  const feedMeta = (group, optionalPremium = false) => ({
+    group,
+    optionalPremium,
+    required: group === 'required',
+    important: group === 'important',
+    hiddenWhenMissing: optionalPremium && config.ui.hidePremiumFeedsIfUnconfigured
+  });
   return [
     {
       id: 'tradier',
       name: 'Tradier',
       configured: Boolean(config.tradier.token),
       primary: true,
-      required: !config.polygon.apiKey,
+      ...feedMeta('required'),
       coverage: ['quotes', 'expirations', 'options chain', 'greeks', 'implied volatility']
     },
     {
@@ -175,8 +258,7 @@ export function providerStatus() {
       name: 'Polygon',
       configured: Boolean(config.polygon.apiKey),
       primary: false,
-      required: !config.tradier.token,
-      optional: true,
+      ...feedMeta('optional_premium', true),
       coverage: ['quotes', 'options snapshots', 'greeks', 'open interest']
     },
     {
@@ -184,8 +266,7 @@ export function providerStatus() {
       name: 'Yahoo Finance',
       configured: config.yahoo.enabled,
       primary: false,
-      required: false,
-      optional: true,
+      ...feedMeta('required'),
       coverage: ['delayed quotes', 'daily history', 'option chains fallback', 'market/company news fallback']
     },
     {
@@ -193,7 +274,7 @@ export function providerStatus() {
       name: 'Finnhub',
       configured: Boolean(config.finnhub.apiKey),
       primary: true,
-      required: true,
+      ...feedMeta('important'),
       coverage: ['economic calendar', 'earnings', 'news', 'insider activity']
     },
     {
@@ -201,8 +282,7 @@ export function providerStatus() {
       name: 'Financial Modeling Prep',
       configured: Boolean(config.fmp.apiKey),
       primary: false,
-      required: false,
-      optional: true,
+      ...feedMeta('important'),
       coverage: ['economic calendar', 'earnings fallback']
     },
     {
@@ -210,8 +290,7 @@ export function providerStatus() {
       name: 'Benzinga',
       configured: Boolean(config.benzinga.apiKey),
       primary: false,
-      required: false,
-      optional: true,
+      ...feedMeta('optional_premium', true),
       coverage: ['unusual options activity', 'block trades']
     },
     {
@@ -219,8 +298,7 @@ export function providerStatus() {
       name: 'Alpha Vantage',
       configured: Boolean(config.alphaVantage.apiKey),
       primary: false,
-      required: false,
-      optional: true,
+      ...feedMeta('important'),
       coverage: ['news sentiment', 'macro/market context fallback']
     },
     {
@@ -229,8 +307,7 @@ export function providerStatus() {
       configured: Boolean(config.gemini.apiKey),
       enabled: config.gemini.enabled,
       primary: config.ai.primaryProvider === 'gemini',
-      required: false,
-      optional: true,
+      ...feedMeta('important'),
       coverage: ['manual explanations', 'tutor summaries', 'risk education']
     },
     {
@@ -239,8 +316,7 @@ export function providerStatus() {
       configured: Boolean(config.openai.apiKey && config.openai.model),
       enabled: config.openai.enabled,
       primary: false,
-      required: false,
-      optional: true,
+      ...feedMeta('optional'),
       coverage: ['contextual market summary']
     },
     {
@@ -248,9 +324,26 @@ export function providerStatus() {
       name: 'PostgreSQL',
       configured: Boolean(config.database.url),
       primary: false,
-      required: false,
-      optional: true,
+      ...feedMeta('important'),
       coverage: ['iv history', 'throttled options snapshots', 'trade journal']
+    },
+    {
+      id: 'webpush',
+      name: 'Web Push / VAPID',
+      configured: Boolean(config.webPush.enabled && config.webPush.publicKey && config.webPush.privateKey),
+      enabled: config.webPush.enabled,
+      primary: false,
+      ...feedMeta('important'),
+      coverage: ['mobile push notifications', 'locked-phone alerts where supported']
+    },
+    {
+      id: 'fcm',
+      name: 'FCM',
+      configured: Boolean(config.webPush.enableFcm && config.webPush.fcmServerKey),
+      enabled: config.webPush.enableFcm,
+      primary: false,
+      ...feedMeta('optional_premium', true),
+      coverage: ['reserved optional notification transport']
     }
   ];
 }

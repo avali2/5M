@@ -3,7 +3,8 @@ import { deriveTechnicals } from './technicals.js';
 
 const HIGH_IMPACT = /(fomc|federal reserve|powell|fed .*?(speech|speaks|minutes|meeting|decision|rate)|cpi|consumer price|nonfarm|nfp|payroll|employment|jobless|pce|interest rate|ppi|producer price)/i;
 const CRITICAL_MACRO = /(fomc|cpi|consumer price|nonfarm|nfp|payroll|pce)/i;
-const BREAKING_RISK = /(war|missile|attack|invasion|tariff|sanction|emergency|fed|powell|inflation|cpi|jobs report|payroll|fomc)/i;
+const BREAKING_RISK = /(war|missile|attack|invasion|tariff|sanction|emergency|fed|powell|inflation|cpi|jobs report|payroll|fomc|iran|israel|russia|ukraine|china|taiwan|red sea|bank crisis|liquidity crisis|sec|doj|downgrade|upgrade|lawsuit|investigation|oil)/i;
+const GEOPOLITICAL_RISK = /(war|missile|attack|invasion|sanction|iran|israel|russia|ukraine|china|taiwan|red sea|oil)/i;
 
 function isHighImpactUnitedStatesEvent(event) {
   const country = String(event.country || '').toUpperCase().trim();
@@ -12,29 +13,46 @@ function isHighImpactUnitedStatesEvent(event) {
   return isUnitedStates && highImpact;
 }
 
-export function classifyEventRisk(events) {
+export function classifyEventRisk(events, options = {}) {
   const now = Date.now();
+  const blackoutMs = Number.isFinite(options.highImpactBlackoutHours) ? options.highImpactBlackoutHours * 3600000 : 90 * 60000;
   return events.filter((event) => {
     const timestamp = new Date(event.date).getTime();
-    const withinCriticalWindow = Number.isFinite(timestamp) && timestamp >= now - 2 * 3600000 && timestamp <= now + 90 * 60000;
+    const withinCriticalWindow = Number.isFinite(timestamp) && timestamp >= now - 2 * 3600000 && timestamp <= now + blackoutMs;
     return isHighImpactUnitedStatesEvent(event) && CRITICAL_MACRO.test(event.title || '') && withinCriticalWindow;
   });
 }
 
-export function classifySoftEventRisk(events) {
+export function classifySoftEventRisk(events, options = {}) {
   const now = Date.now();
+  const blackoutMs = Number.isFinite(options.highImpactBlackoutHours) ? options.highImpactBlackoutHours * 3600000 : 90 * 60000;
+  const fedMs = Number.isFinite(options.fedEventCautionHours) ? options.fedEventCautionHours * 3600000 : 48 * 3600000;
+  const cautionMs = Math.max(fedMs, Number.isFinite(options.mediumImpactCautionHours) ? options.mediumImpactCautionHours * 3600000 : 48 * 3600000);
   return events.filter((event) => {
     const timestamp = new Date(event.date).getTime();
-    const withinSoftWindow = Number.isFinite(timestamp) && timestamp > now + 90 * 60000 && timestamp <= now + 48 * 3600000;
+    const withinSoftWindow = Number.isFinite(timestamp) && timestamp > now + blackoutMs && timestamp <= now + cautionMs;
     return isHighImpactUnitedStatesEvent(event) && withinSoftWindow;
   });
 }
 
-export function classifyNewsRisk(news) {
-  const cutoff = Date.now() - 24 * 3600000;
+export function classifyNewsRisk(news, options = {}) {
+  const cutoff = Date.now() - (Number.isFinite(options.newsLookbackHours) ? options.newsLookbackHours : 24) * 3600000;
+  const blockScore = Number.isFinite(options.newsBlockScore) ? options.newsBlockScore : 80;
+  const cautionScore = Number.isFinite(options.newsCautionScore) ? options.newsCautionScore : 65;
   return news.filter((item) => {
     const time = new Date(item.datetime).getTime();
     return Number.isFinite(time) && time >= cutoff && BREAKING_RISK.test(`${item.headline || ''} ${item.summary || ''}`);
+  }).map((item) => {
+    const text = `${item.headline || ''} ${item.summary || ''}`;
+    const geopolitical = GEOPOLITICAL_RISK.test(text);
+    const riskScore = geopolitical ? Math.max(blockScore, 85) : Math.max(cautionScore, /fed|powell|cpi|fomc|payroll/i.test(text) ? 75 : cautionScore);
+    return {
+      ...item,
+      riskScore,
+      riskType: geopolitical ? 'geopolitical' : 'market_news',
+      blocksSignal: riskScore >= blockScore,
+      caution: riskScore >= cautionScore
+    };
   }).slice(0, 8);
 }
 

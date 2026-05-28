@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { access } from 'node:fs/promises';
-import { buildInfo, config, UNIVERSE } from './config.js';
+import { buildInfo, config, providerStatus, UNIVERSE } from './config.js';
 import { cache } from './lib/cache.js';
 import { createProviders } from './providers/index.js';
 import { explainers } from './explainers.js';
@@ -60,6 +60,166 @@ function providerHealth(settings, providers) {
   };
 }
 
+function feedAvailability(settings) {
+  const feeds = providerStatus().filter((provider) => !(provider.hiddenWhenMissing && !provider.configured));
+  const decorate = (provider) => ({
+    id: provider.id,
+    name: provider.name,
+    configured: Boolean(provider.configured),
+    enabled: provider.enabled ?? true,
+    group: provider.group || 'optional',
+    status: provider.configured ? 'configured' : provider.required ? 'missing_required' : provider.important ? 'missing_important' : 'optional_missing',
+    coverage: provider.coverage
+  });
+  return {
+    hidePremiumFeedsIfUnconfigured: Boolean(settings.ui?.hidePremiumFeedsIfUnconfigured),
+    required: feeds.filter((provider) => provider.group === 'required').map(decorate),
+    important: feeds.filter((provider) => provider.group === 'important').map(decorate),
+    optionalPremium: feeds.filter((provider) => provider.group === 'optional_premium').map(decorate),
+    optional: feeds.filter((provider) => !['required', 'important', 'optional_premium'].includes(provider.group)).map(decorate)
+  };
+}
+
+function normalizeSignal(setup, scan) {
+  if (!setup) return null;
+  const creditDebit = Number.isFinite(setup.credit) ? { type: 'credit', value: setup.credit } :
+    Number.isFinite(setup.debit) ? { type: 'debit', value: setup.debit } : { type: 'confirm_in_chain', value: null };
+  const legs = (setup.legs || []).map((leg) => ({
+    side: leg.side,
+    type: leg.type,
+    strike: leg.strike,
+    mid: leg.mid,
+    bid: leg.bid,
+    ask: leg.ask,
+    delta: leg.delta,
+    gamma: leg.gamma,
+    theta: leg.theta,
+    vega: leg.vega,
+    iv: leg.iv,
+    volume: leg.volume,
+    openInterest: leg.openInterest,
+    symbol: leg.symbol
+  }));
+  const id = setup.id || `${setup.symbol}-${setup.strategy}-${setup.expiration}-${(setup.strikes || legs.map((leg) => leg.strike).join('-')).replaceAll(' ', '')}`;
+  return {
+    id,
+    ticker: setup.symbol,
+    symbol: setup.symbol,
+    currentPrice: setup.underlyingPrice ?? scan?.market?.quotes?.find((quote) => quote.symbol === setup.symbol)?.price ?? null,
+    strategy: setup.strategy,
+    direction: setup.institutionalBias || setup.educationBias || 'neutral',
+    expiration: setup.expiration,
+    dte: setup.dte,
+    strikes: setup.strikes || legs.map((leg) => leg.strike).join(' / ') || 'requiere confirmar en cadena',
+    legs,
+    creditDebit,
+    entryLimit: setup.executionPlan?.entryRules?.[0] || (Number.isFinite(creditDebit.value) ? `${creditDebit.type === 'credit' ? 'Credito minimo' : 'Debito maximo'} ${creditDebit.value}` : 'Requiere confirmar bid/ask real'),
+    maxLoss: setup.maxRisk ?? null,
+    maxRisk: setup.maxRisk ?? null,
+    maxProfit: setup.maxProfit ?? null,
+    collateralRequired: setup.collateralRequired ?? setup.maxRisk ?? null,
+    popEstimated: setup.pop ?? setup.edge?.probabilityOfProfit ?? null,
+    probability: setup.pop ?? setup.edge?.probabilityOfProfit ?? null,
+    score: setup.tradeQualityScore ?? setup.confidenceScore ?? setup.score ?? null,
+    risk: setup.riskClass || setup.gammaRisk || 'moderado',
+    riskClass: setup.riskClass || setup.gammaRisk || 'moderado',
+    reason: setup.reasoning?.join(' + ') || 'Setup generado por reglas deterministicas.',
+    invalidation: setup.executionPlan?.entryRules?.find((rule) => /no entrar|invalid/i.test(rule)) || setup.activationRules?.[0] || 'Invalidar si rompe soporte/resistencia, VIX se expande o bid/ask empeora.',
+    closeAlert: setup.takeProfit ? `${setup.takeProfit}. Stop: ${setup.stopLoss || 'definir antes de entrar'}` : 'TP 40%-60%; stop 1.5x-2x credito o invalidacion tecnica.',
+    nearbyEvents: [
+      ...(scan?.macro?.highImpactEvents || []).slice(0, 2).map((event) => event.title),
+      ...(scan?.macro?.earnings || []).filter((event) => event.symbol === setup.symbol).slice(0, 2).map((event) => `Earnings ${event.date}`)
+    ],
+    aiStatus: setup.aiVerificationStatus || 'manual only',
+    dataSource: scan?.marketDataMode || 'live',
+    source: {
+      quote: scan?.providers?.find((provider) => provider.id === 'tradier' && provider.configured) ? 'Tradier' : 'Yahoo/fallback',
+      chain: 'Options chain provider server-side',
+      probability: 'probability-edge deterministic engine',
+      timestamp: scan?.asOf
+    }
+  };
+}
+
+function guardSummary(scan, settings, providers) {
+  const missingMacro = Boolean(settings.signals?.requireMacroClearance && !providers.calendar && settings.guards?.allowUnverifiedMacroWhenFeedsMissing === false);
+  const missingNews = Boolean(settings.signals?.requireNewsClearance && !(providers.news || providers.finnhub) && settings.guards?.allowUnverifiedNewsWhenFeedsMissing === false);
+  const highMacro = scan?.macro?.highImpactEvents || [];
+  const softMacro = scan?.macro?.softImpactEvents || [];
+  const newsBlocks = scan?.macro?.newsBlocks || [];
+  const newsRisk = scan?.macro?.breakingRisk || [];
+  const fedEvents = [...highMacro, ...softMacro].filter((event) => /fed|fomc|powell|rate|minutes/i.test(event.title || ''));
+  const geopolitical = newsRisk.filter((item) => item.riskType === 'geopolitical');
+  const earnings = scan?.macro?.earnings || [];
+  const liquidityBlocks = [...(scan?.rejected || []), ...(scan?.conditionalIdeas || [])]
+    .filter((item) => (item.blocks || []).some((block) => /liquidez|bid|ask|volume|open interest/i.test(block)));
+  const dataErrors = scan?.dataHealth?.endpointErrors || scan?.scanErrors || [];
+  const status = (block, caution, missing = false) => block ? 'block' : caution ? 'caution' : missing ? 'unavailable' : 'clear';
+  return {
+    macro: { status: status(highMacro.length || missingMacro, softMacro.length), count: highMacro.length + softMacro.length, detail: missingMacro ? 'Macro clearance unavailable' : highMacro[0]?.title || softMacro[0]?.title || 'clear' },
+    fed: { status: status(false, fedEvents.length), count: fedEvents.length, detail: fedEvents[0]?.title || 'clear' },
+    news: { status: status(newsBlocks.length || missingNews, newsRisk.length), count: newsRisk.length, detail: missingNews ? 'News clearance unavailable' : newsBlocks[0]?.headline || newsRisk[0]?.headline || 'clear' },
+    geopolitical: { status: status(geopolitical.some((item) => item.blocksSignal), geopolitical.length), count: geopolitical.length, detail: geopolitical[0]?.headline || 'clear' },
+    earnings: { status: status(false, earnings.length), count: earnings.length, detail: earnings[0] ? `${earnings[0].symbol} ${earnings[0].date}` : 'clear' },
+    liquidity: { status: status(false, liquidityBlocks.length), count: liquidityBlocks.length, detail: liquidityBlocks[0]?.symbol || 'clear' },
+    risk: { status: status(scan?.decision?.status === 'configuration_required', scan?.decision?.status === 'conditional_edge'), detail: scan?.decision?.label || 'clear' },
+    dataQuality: { status: status(dataErrors.length, scan?.dataHealth?.metrics?.some((metric) => !metric.available)), count: dataErrors.length, detail: dataErrors[0]?.error || dataErrors[0] || 'clear' }
+  };
+}
+
+function agentState(scan, settings, providers) {
+  if (settings.agent?.enabled === false) return 'SLEEPING';
+  const guards = guardSummary(scan, settings, providers);
+  const hardBlock = Object.values(guards).some((guard) => guard.status === 'block') || scan?.decision?.status === 'configuration_required';
+  if (hardBlock) return 'BLOCKED';
+  const caution = Object.values(guards).some((guard) => ['caution', 'unavailable'].includes(guard.status)) || scan?.decision?.status === 'conditional_edge';
+  return caution ? 'CAUTION' : 'ACTIVE';
+}
+
+function marketDecision(scan, settings, providers) {
+  const guards = guardSummary(scan, settings, providers);
+  if (guards.macro.status === 'block') return 'BLOCKED BY MACRO';
+  if (guards.news.status === 'block' || guards.geopolitical.status === 'block') return 'BLOCKED BY NEWS';
+  if (guards.earnings.status === 'block') return 'BLOCKED BY EARNINGS';
+  if (guards.dataQuality.status === 'block' || scan?.decision?.status === 'configuration_required') return 'DATA INSUFFICIENT';
+  if (Object.values(guards).some((guard) => ['caution', 'unavailable'].includes(guard.status))) return 'CAUTION';
+  return scan?.opportunities?.length ? 'MARKET CLEAR' : 'NO TRADE';
+}
+
+function buildAgentPayload({ scan, settings, providers, guardianScheduler }) {
+  const guards = guardSummary(scan, settings, providers);
+  const aiStatus = typeof providers.ai?.status === 'function' ? providers.ai.status() : null;
+  const approvedSignals = (scan?.opportunities || []).slice(0, settings.signals?.maxPerDay || 3).map((setup) => normalizeSignal(setup, scan));
+  const rejectedCandidates = [...(scan?.rejected || []), ...(scan?.conditionalIdeas || []).filter((item) => item.symbol)]
+    .slice(0, 12).map((setup) => ({
+      ...normalizeSignal(setup, scan),
+      rejectionReasons: setup.blocks || setup.missingValidation || ['No cumple score/filtros para senal real.']
+    }));
+  return {
+    enabled: settings.agent?.enabled !== false,
+    name: settings.agent?.name || 'Gemini Guardian',
+    state: agentState(scan, settings, providers),
+    lastRunAt: scan?.guardianStatus?.lastScan || guardianScheduler.status().lastScan || scan?.asOf || null,
+    nextRunAt: scan?.guardianStatus?.nextScan || guardianScheduler.status().nextScan || null,
+    marketDecision: marketDecision(scan, settings, providers),
+    tokenBudget: aiStatus?.budget || null,
+    aiAvailable: Boolean(aiStatus?.gemini?.configured || aiStatus?.openai?.configured),
+    deterministicFallback: settings.ai?.fallbackToDeterministic !== false,
+    guards,
+    approvedSignals,
+    rejectedCandidates,
+    macroWarnings: [...(scan?.macro?.highImpactEvents || []), ...(scan?.macro?.softImpactEvents || [])],
+    newsWarnings: scan?.macro?.breakingRisk || [],
+    guardStatus: guards,
+    aiVerificationStatus: {
+      mode: 'manual_only',
+      requireAiConfirmation: Boolean(settings.signals?.requireAiConfirmation),
+      autoDecision: false,
+      autoNarrative: false
+    }
+  };
+}
+
 export function createApp(settings = config, customProviders = null, options = { startBackground: true }) {
   const app = express();
   const providers = customProviders || createProviders(settings);
@@ -71,7 +231,7 @@ export function createApp(settings = config, customProviders = null, options = {
     pushService,
     enabled: settings.guardian?.enabled !== false
   });
-  const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, consecutiveDailyLosses: 0, riskMode: 'CONSERVADOR', tradingPaused: false };
+  const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, consecutiveDailyLosses: 0, riskMode: settings.policy?.defaultRiskMode || 'MODERATE_AGGRESSIVE', tradingPaused: false };
   const defaultWatchlist = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
 
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -114,10 +274,20 @@ export function createApp(settings = config, customProviders = null, options = {
       startedAt: buildInfo.startedAt,
       timestamp: new Date().toISOString(),
       providers: providerHealth(settings, providers),
+      feeds: feedAvailability(settings),
       mode: 'defined-risk-manual-review',
       protected: protectedAccess,
       accessRequired,
       securityStatus: accessRequired && !protectedAccess ? 'configuration_required' : 'ready',
+      database: {
+        configured: Boolean(settings.database?.url),
+        connected: repository.mode === 'postgresql',
+        mode: repository.mode
+      },
+      render: {
+        detected: Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID),
+        warning: process.env.RENDER ? 'Render free/low-cost services can sleep; continuous alerts depend on plan and uptime.' : null
+      },
       refreshSeconds: settings.refreshSeconds,
       scheduler: {
         running: Boolean(scheduler.running),
@@ -129,13 +299,72 @@ export function createApp(settings = config, customProviders = null, options = {
     });
   });
 
+  app.get('/api/agent/status', async (_req, res, next) => {
+    try {
+      const scan = await scheduler.snapshot();
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      res.json(buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/agent/scan', async (_req, res, next) => {
+    try {
+      const scan = await scheduler.run(true);
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      res.json({
+        ...buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }),
+        scan: enriched
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/signals', async (req, res, next) => {
+    try {
+      const includeRejected = String(req.query.includeRejected || '').toLowerCase() === 'true';
+      const scan = await scheduler.snapshot();
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
+      res.json({
+        signals: payload.approvedSignals,
+        rejectedCandidates: includeRejected ? payload.rejectedCandidates : [],
+        marketDecision: payload.marketDecision,
+        guardStatus: payload.guardStatus,
+        asOf: scan.asOf
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/signals/:id/explain', async (req, res, next) => {
+    try {
+      const scan = await scheduler.snapshot();
+      const payload = buildAgentPayload({ scan, settings, providers, guardianScheduler });
+      const signal = [...payload.approvedSignals, ...payload.rejectedCandidates].find((item) => item?.id === req.params.id);
+      if (!signal) return res.status(404).json({ error: 'Signal not found or expired' });
+      if (typeof providers.ai?.explainScan === 'function') {
+        return res.json(await providers.ai.explainScan({ ...scan, selectedSignal: signal }, { manual: true, automatic: false, purpose: 'signal_manual_explain' }));
+      }
+      return res.json({
+        provider: 'deterministic',
+        manualOnly: true,
+        summary: `${signal.ticker} ${signal.strategy}: revisa bid/ask, riesgo maximo ${signal.maxRisk ?? 'No disponible'}, POP estimada ${signal.popEstimated ?? 'No disponible'} y la invalidacion antes de copiarlo al broker.`,
+        note: 'La explicacion es deterministica porque no hay proveedor IA disponible.'
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get('/api/scan', async (_req, res, next) => {
     try {
       const scan = await scheduler.snapshot();
-      res.json({
-        ...scan,
-        guardianStatus: guardianScheduler.status(repository.mode)
-      });
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
     } catch (error) {
       next(error);
     }
@@ -144,10 +373,8 @@ export function createApp(settings = config, customProviders = null, options = {
   app.post('/api/scan/refresh', async (_req, res, next) => {
     try {
       const scan = await scheduler.run(true);
-      res.json({
-        ...scan,
-        guardianStatus: guardianScheduler.status(repository.mode)
-      });
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
     } catch (error) {
       next(error);
     }

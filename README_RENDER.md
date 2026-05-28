@@ -59,6 +59,57 @@ PUSH_ENABLED=true
 ENABLE_WEB_PUSH=true
 PUSH_MAX_DAILY_SIGNALS=5
 PUSH_SYMBOL_COOLDOWN_MINUTES=30
+PUSH_REAL_SIGNALS_ONLY=true
+PUSH_BLOCK_ON_MACRO_CAUTION=true
+PUSH_BLOCK_ON_NEWS_CAUTION=false
+PUSH_INCLUDE_REASON_SUMMARY=true
+
+AGENT_ENABLED=true
+AGENT_NAME=Gemini Guardian
+AGENT_REFRESH_INTERVAL_MINUTES=5
+AGENT_MANUAL_SCAN_ENABLED=true
+AGENT_AUTO_VERIFY_SIGNALS=true
+AGENT_VERIFY_MIN_SCORE=82
+AGENT_MAX_AI_VERIFICATIONS_PER_DAY=8
+AGENT_MINUTES_BETWEEN_AI_CALLS=45
+AGENT_DISABLE_AI_AT_USAGE_PERCENT=75
+AGENT_FAILSAFE_DETERMINISTIC=true
+
+REAL_SIGNALS_ONLY=true
+SIGNAL_MIN_SCORE=82
+SIGNAL_MIN_POP=0.70
+SIGNAL_REQUIRE_RISK_APPROVAL=true
+SIGNAL_REQUIRE_MACRO_CLEARANCE=true
+SIGNAL_REQUIRE_NEWS_CLEARANCE=true
+SIGNAL_REQUIRE_AI_CONFIRMATION=true
+SIGNAL_MAX_PER_DAY=3
+
+MACRO_GUARD_ENABLED=true
+NEWS_GUARD_ENABLED=true
+GEOPOLITICAL_GUARD_ENABLED=true
+FED_GUARD_ENABLED=true
+EARNINGS_GUARD_ENABLED=true
+HIGH_IMPACT_EVENT_BLACKOUT_HOURS=24
+MEDIUM_IMPACT_EVENT_CAUTION_HOURS=8
+NEWS_LOOKBACK_HOURS=24
+NEWS_CAUTION_SCORE=65
+NEWS_BLOCK_SCORE=80
+FED_EVENT_CAUTION_HOURS=48
+WAR_NEWS_BLOCK_ENABLED=true
+ALLOW_UNVERIFIED_MACRO_WHEN_FEEDS_MISSING=false
+ALLOW_UNVERIFIED_NEWS_WHEN_FEEDS_MISSING=false
+
+AUTO_REFRESH_SECONDS=300
+SHOW_MANUAL_REFRESH_BUTTON=true
+SHOW_AGENT_PANEL=true
+SHOW_UNAVAILABLE_FEEDS_AS_OPTIONAL=true
+HIDE_PREMIUM_FEEDS_IF_UNCONFIGURED=true
+HIDE_REJECTED_SIGNALS_BY_DEFAULT=true
+DEFAULT_HOME_VIEW=signals
+FRIENDLY_LIGHT_THEME=true
+OPTIONAL_PREMIUM_FEEDS=polygon,benzinga,fcm
+REQUIRED_FEEDS=tradier_or_yahoo,app_access_key
+IMPORTANT_FEEDS=gemini,database,webpush,alpha_vantage,finnhub,fmp
 
 SCANNER_ENABLED=true
 SCANNER_CORE_INTERVAL_MINUTES=5
@@ -67,7 +118,8 @@ SCANNER_AFTER_HOURS_INTERVAL_MINUTES=45
 
 DEFAULT_RISK_MODE=MODERATE_AGGRESSIVE
 MIN_POP_CREDIT_SPREAD=0.70
-MAX_DAILY_SIGNALS=5
+MAX_DAILY_SIGNALS=3
+WATCHLIST_CORE=SPY,QQQ,IWM,DIA,SPX,XSP,AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA,SOFI,AMD,MCD,RIVN,NU
 MAX_RISK_PER_TRADE_PCT=0.02
 MAX_PORTFOLIO_RISK_PCT=0.06
 
@@ -80,12 +132,17 @@ APP_BASE_URL=https://TU_APP_RENDER.onrender.com
 
 1. Sube el repo privado a GitHub.
 2. En Render crea un **Blueprint** desde `render.yaml` o un **Web Service** manual.
-3. Build command: `npm install && npm run build`.
+3. Build command: `npm install --include=dev && npm run build`.
 4. Start command: `npm start`.
 5. Health check path: `/api/health`.
 6. Pega las variables.
 7. Manual Deploy > **Clear build cache & deploy**.
-8. Abre `/api/health` y confirma `ok: true`, `providers.yahoo: "enabled"`, `providers.gemini` y `providers.openai: "manual_only"`.
+8. Abre `/api/health` y confirma `ok: true`, `providers.yahoo: "enabled"`, `providers.gemini`, `providers.openai: "manual_only"` y `webPush.configured`.
+9. Prueba `/api/agent/status`, `/api/agent/scan` y `/api/signals?includeRejected=true` usando `X-Valido-Key`.
+
+## Comportamiento De Feeds Opcionales
+
+`POLYGON_API_KEY`, `BENZINGA_API_KEY` y `FCM_SERVER_KEY` son premium/opcionales. Si estan vacios y `HIDE_PREMIUM_FEEDS_IF_UNCONFIGURED=true`, no deben aparecer como error rojo ni bloquear la app.
 
 ## Seguridad
 

@@ -19,7 +19,7 @@ import { calculateProbabilityEdge } from './probability-edge.js';
 import { evaluateRiskGovernor } from './risk-governor.js';
 import { buildGuardianEdgeTicketScan } from '../guardian/edge-tickets.js';
 
-const DEFAULT_SYMBOLS = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
+const DEFAULT_SYMBOLS = [...UNIVERSE.core, ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
 const SHORT_DTE_SYMBOLS = new Set(['SPY', 'SPX', 'QQQ', 'IWM', 'DIA']);
 const CORRELATED = {
   SPY: 'broad', SPX: 'broad', DIA: 'broad', IWM: 'broad',
@@ -246,10 +246,10 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     dailyLossPct: 0,
     weeklyLossPct: 0,
     collateralUsedPct: 0,
-    riskMode: 'CONSERVADOR',
+    riskMode: policy.defaultRiskMode || 'MODERATE_AGGRESSIVE',
     tradingPaused: false
   });
-  const symbols = [...new Set([...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...watchlist.symbols])];
+  const symbols = [...new Set([...(settings.watchlist?.core || UNIVERSE.core), ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...watchlist.symbols])];
   const providerGates = requiredProviderGates(providers);
   const missing = providerGates.filter((gate) => !gate.pass);
   const base = {
@@ -291,15 +291,36 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     providers.benzinga.configured && typeof providers.benzinga.getBlockTrades === 'function' ? providers.benzinga.getBlockTrades(symbols).catch(() => []) : Promise.resolve([]),
     providers.finnhub.configured && typeof providers.finnhub.getInsiderTransactions === 'function' ? providers.finnhub.getInsiderTransactions(symbols).catch(() => []) : Promise.resolve([])
   ]);
-  const highImpactEvents = classifyEventRisk(events);
-  const softImpactEvents = classifySoftEventRisk(events);
-  const breakingRisk = classifyNewsRisk(news);
-  const macro = { events, earnings, news, companyNews, highImpactEvents, softImpactEvents, breakingRisk, flow, blockTrades, insiders };
+  const guardSettings = settings.guards || {};
+  const signalSettings = settings.signals || {};
+  const highImpactEvents = guardSettings.macroEnabled === false ? [] : classifyEventRisk(events, guardSettings);
+  const softImpactEvents = guardSettings.macroEnabled === false ? [] : classifySoftEventRisk(events, guardSettings);
+  const breakingRisk = guardSettings.newsEnabled === false ? [] : classifyNewsRisk(news, guardSettings);
+  const newsBlocks = breakingRisk.filter((item) => item.blocksSignal && (item.riskType !== 'geopolitical' || guardSettings.warNewsBlockEnabled !== false));
+  const macroClearanceUnavailable = Boolean(signalSettings.requireMacroClearance && !providers.calendar && guardSettings.allowUnverifiedMacroWhenFeedsMissing === false);
+  const newsClearanceUnavailable = Boolean(signalSettings.requireNewsClearance && !newsProvider && guardSettings.allowUnverifiedNewsWhenFeedsMissing === false);
+  const macro = {
+    events,
+    earnings,
+    news,
+    companyNews,
+    highImpactEvents,
+    softImpactEvents,
+    breakingRisk,
+    newsBlocks,
+    macroClearanceUnavailable,
+    newsClearanceUnavailable,
+    flow,
+    blockTrades,
+    insiders
+  };
   const globalBlocks = [];
   if (!Number.isFinite(market.vix)) globalBlocks.push('Cotizacion de VIX no disponible');
   if (market.vix >= policy.maxVix) globalBlocks.push(`Regimen VIX extremo: ${market.vix}`);
-  if (highImpactEvents.length) globalBlocks.push('Evento macro critico de EE. UU. en ventana critica');
-  if (breakingRisk.length) globalBlocks.push('Noticias sensibles requieren revision humana');
+  if (macroClearanceUnavailable) globalBlocks.push('Macro clearance unavailable: configura Finnhub/FMP o desactiva SIGNAL_REQUIRE_MACRO_CLEARANCE');
+  if (newsClearanceUnavailable) globalBlocks.push('News clearance unavailable: configura Alpha/Finnhub/FMP/Yahoo o desactiva SIGNAL_REQUIRE_NEWS_CLEARANCE');
+  if (highImpactEvents.length) globalBlocks.push(`Evento macro critico de EE. UU. en blackout (${guardSettings.highImpactBlackoutHours || 24}h)`);
+  if (newsBlocks.length) globalBlocks.push('Noticias sensibles/geopoliticas bloquean nuevas senales');
   if (profile.tradingPaused) globalBlocks.push('Kill switch del mandato esta activo');
   if (profile.dailyLossPct >= profile.maxDailyLossPct) globalBlocks.push('Se alcanzo la perdida diaria maxima');
   if (profile.weeklyLossPct >= profile.maxWeeklyLossPct) globalBlocks.push('Se alcanzo la perdida semanal maxima');
@@ -378,11 +399,19 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     };
   };
   const allSetups = results.flatMap((result) => (result.candidates || []).map(formatCandidate));
-  const eligible = globalBlocks.length ? [] : allSetups.filter((setup) => setup.riskGovernor.allowedReal && setup.confidenceScore >= 80)
+  const minSignalScore = Number.isFinite(signalSettings.minScore) ? signalSettings.minScore : 80;
+  const minSignalPop = Number.isFinite(signalSettings.minPop) ? (signalSettings.minPop <= 1 ? signalSettings.minPop * 100 : signalSettings.minPop) : 70;
+  const maxSignals = Number.isFinite(signalSettings.maxPerDay) ? signalSettings.maxPerDay : 3;
+  const eligible = globalBlocks.length ? [] : allSetups.filter((setup) =>
+    setup.riskGovernor.allowedReal &&
+    setup.confidenceScore >= minSignalScore &&
+    setup.pop >= minSignalPop
+  )
     .sort((a, b) => b.confidenceScore - a.confidenceScore || b.pop - a.pop || a.maxRisk - b.maxRisk);
-  const opportunities = eligible.slice(0, 5).map((setup) => ({
+  const opportunities = eligible.slice(0, maxSignals).map((setup) => ({
     ...setup,
-    executionPlan: createExecutionPlan(setup, profile)
+    executionPlan: createExecutionPlan(setup, profile),
+    aiVerificationStatus: signalSettings.requireAiConfirmation ? 'manual_only_or_budget_limited' : 'skipped_not_required'
   }));
   const rejected = allSetups.filter((setup) => !setup.riskGovernor.allowedReal || setup.confidenceScore < 80)
     .sort((a, b) => b.confidenceScore - a.confidenceScore).slice(0, 30);

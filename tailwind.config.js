@@ -5,18 +5,18 @@ export default {
     extend: {
       colors: {
         sigma: {
-          bg: '#070c17',
-          soft: '#0c1425',
-          card: '#111a2d',
-          elevated: '#17233c',
-          line: '#273453',
-          gold: '#d6a434',
-          green: '#18bf86',
-          red: '#ef5961',
-          amber: '#f4aa32',
-          blue: '#4f8ff7',
-          text: '#eff3fb',
-          muted: '#91a0bc'
+          bg: '#edf4ff',
+          soft: '#f8fafc',
+          card: '#ffffff',
+          elevated: '#eef4fb',
+          line: '#d7e2ef',
+          gold: '#f5b942',
+          green: '#22c55e',
+          red: '#ef4444',
+          amber: '#f59e0b',
+          blue: '#2563eb',
+          text: '#0f172a',
+          muted: '#64748b'
         }
       },
       fontFamily: {
@@ -24,7 +24,7 @@ export default {
         mono: ['Cascadia Mono', 'Consolas', 'monospace']
       },
       boxShadow: {
-        panel: '0 18px 44px rgba(0, 0, 0, .22)'
+        panel: '0 18px 44px rgba(30, 64, 175, .08)'
       }
     }
   },

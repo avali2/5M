@@ -24,6 +24,7 @@ import PracticeReplay from './features/practice-replay/PracticeReplay.jsx';
 import SourceFormulaAudit from './features/source-formula-audit/SourceFormulaAudit.jsx';
 import DailyLearningCards from './features/dashboard-education/DailyLearningCards.jsx';
 import GuardianPanel from './features/options-guardian-agent/GuardianPanel.jsx';
+import GeminiGuardianCommandCenter from './components/GeminiGuardianCommandCenter.jsx';
 
 const cash = (value) => Number.isFinite(value) ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : '--';
 const decimal = (value, digits = 1) => Number.isFinite(value) ? Number(value).toFixed(digits) : '--';
@@ -76,13 +77,13 @@ function Empty({ children }) {
 function Header({ scan, loading, onRefresh, seconds }) {
   const engine = effectiveEngineState(scan);
   return (
-    <header className="sticky top-0 z-30 border-b border-sigma-line/80 bg-sigma-bg/90 px-4 backdrop-blur-xl md:px-8">
+    <header className="sticky top-0 z-30 border-b border-sigma-line/80 bg-white/88 px-4 backdrop-blur-xl md:px-8">
       <div className="mx-auto flex min-h-[68px] max-w-[1540px] flex-wrap items-center justify-between gap-4 py-3">
         <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-amber-200 via-sigma-gold to-amber-700 text-xl font-black text-slate-950">V</div>
           <div>
-            <h1 className="text-[15px] font-bold tracking-[.08em]">VALIDO 1M OS</h1>
-            <p className="text-[11px] text-slate-500">Options Intelligence. Risk First. Execution Ready.</p>
+            <h1 className="text-[15px] font-bold tracking-[.08em] text-slate-950">VALIDO 1M PRO</h1>
+            <p className="text-[11px] text-slate-500">Institutional OS. Signals first. Risk always.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -215,7 +216,8 @@ function HeroMetric({ name, value }) {
 }
 
 function ProviderCoverage({ scan }) {
-  const missingRequired = (scan?.providers || []).some((provider) => provider.required && !provider.configured);
+  const visibleProviders = (scan?.providers || []).filter((provider) => !(provider.hiddenWhenMissing && !provider.configured));
+  const missingRequired = visibleProviders.some((provider) => provider.required && !provider.configured);
   return (
     <section className="panel p-4">
       <div className="mb-4 flex items-end justify-between">
@@ -223,16 +225,16 @@ function ProviderCoverage({ scan }) {
         <span className="status-chip">Server-side keys</span>
       </div>
       <div className="space-y-2">
-        {(scan?.providers || []).map((provider) => {
+        {visibleProviders.map((provider) => {
           const providerMissingRequired = !provider.configured && provider.required;
-          const status = provider.configured ? 'CONNECTED' : providerMissingRequired ? 'MISSING' : 'OPTIONAL';
+          const status = provider.configured ? 'CONFIGURED' : providerMissingRequired ? 'MISSING REQUIRED' : provider.important ? 'IMPORTANT MISSING' : 'OPTIONAL';
           return (
           <div className="flex items-start gap-3 rounded-lg border border-sigma-line bg-sigma-soft p-3" key={provider.id}>
-            <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${provider.configured ? 'bg-sigma-green' : providerMissingRequired ? 'bg-sigma-red' : 'bg-sigma-amber'}`} />
+            <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${provider.configured ? 'bg-sigma-green' : providerMissingRequired ? 'bg-sigma-red' : provider.important ? 'bg-sigma-amber' : 'bg-slate-300'}`} />
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <strong className="text-sm">{provider.name}</strong>
-                <span className={`text-[10px] font-bold ${provider.configured ? 'text-sigma-green' : providerMissingRequired ? 'text-sigma-red' : 'text-sigma-amber'}`}>{status}</span>
+                <span className={`text-[10px] font-bold ${provider.configured ? 'text-sigma-green' : providerMissingRequired ? 'text-sigma-red' : provider.important ? 'text-sigma-amber' : 'text-slate-500'}`}>{status}</span>
               </div>
               <p className="mt-1 text-[11px] leading-4 text-slate-500">{provider.coverage.join(' / ')}</p>
             </div>
@@ -1081,7 +1083,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [locked, setLocked] = useState(false);
   const [accessError, setAccessError] = useState('');
-  const [seconds, setSeconds] = useState(60);
+  const [seconds, setSeconds] = useState(300);
   const [notificationEnabled, setNotificationEnabled] = useState(typeof Notification !== 'undefined' && Notification.permission === 'granted');
   const [simulationSetup, setSimulationSetup] = useState(null);
   const [paperSetup, setPaperSetup] = useState(null);
@@ -1097,7 +1099,7 @@ export default function App() {
       setLocked(false);
       setAccessError('');
       setScan(data);
-      setSeconds(data.refreshSeconds || 60);
+      setSeconds(data.refreshSeconds || 300);
       const newest = data.alerts?.[0];
       if (notificationEnabled && newest && newest.key !== latestAlert.current) {
         await showMobileSafeNotification({
@@ -1126,8 +1128,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const countdown = window.setInterval(() => setSeconds((current) => current > 1 ? current - 1 : scan?.refreshSeconds || 60), 1000);
-    const refresh = window.setInterval(() => load(), (scan?.refreshSeconds || 60) * 1000);
+    const countdown = window.setInterval(() => setSeconds((current) => current > 1 ? current - 1 : scan?.refreshSeconds || 300), 1000);
+    const refresh = window.setInterval(() => load(), (scan?.refreshSeconds || 300) * 1000);
     return () => { window.clearInterval(countdown); window.clearInterval(refresh); };
   }, [scan?.refreshSeconds, notificationEnabled]);
 
@@ -1165,9 +1167,8 @@ export default function App() {
       <main className="mx-auto max-w-[1540px] space-y-5 px-4 py-5 pb-20 md:px-8 md:pb-5">
         <DesktopTabs />
         {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-sigma-red">{error}</div>}
+        <GeminiGuardianCommandCenter scan={scan} loading={loading} onRefresh={() => load(true)} onAiExplain={openAiPanel} onSimulate={simulateSetup} />
         <DecisionHero scan={scan} />
-        <DailyAssistant scan={scan} />
-        <DailyLearningCards scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
         <GuardianPanel
           scan={scan}
           onSimulate={simulateSetup}
@@ -1177,6 +1178,8 @@ export default function App() {
           onOpenJournal={() => document.getElementById('journal')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           onAiExplain={openAiPanel}
         />
+        <DailyAssistant scan={scan} />
+        <DailyLearningCards scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
         <DataCollectionPanel scan={scan} />
         <DataHealthPanel scan={scan} />
         <div className="grid gap-5 xl:grid-cols-[315px_minmax(0,1fr)]">

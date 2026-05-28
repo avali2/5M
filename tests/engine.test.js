@@ -112,11 +112,34 @@ test('protects public dashboard APIs when an access key is configured', async ()
   const app = createApp({
     clientOrigin: 'https://valido.example',
     security: { accessKey: 'long-private-mobile-key' },
-    refreshSeconds: 60,
+    refreshSeconds: 300,
     policy
   }, {}, { startBackground: false });
   await request(app).get('/api/explainers').expect(401);
   await request(app).get('/api/explainers').set('X-Valido-Key', 'long-private-mobile-key').expect(200);
+});
+
+test('agent endpoints expose guarded status without requiring AI', async () => {
+  const app = createApp({
+    clientOrigin: 'https://valido.example',
+    security: { accessKey: 'long-private-mobile-key' },
+    refreshSeconds: 300,
+    agent: { enabled: true, name: 'Gemini Guardian' },
+    ai: { fallbackToDeterministic: true },
+    signals: { maxPerDay: 3, minScore: 82, minPop: 0.7 },
+    guards: { allowUnverifiedMacroWhenFeedsMissing: false, allowUnverifiedNewsWhenFeedsMissing: false },
+    ui: { hidePremiumFeedsIfUnconfigured: true },
+    webPush: { enabled: false },
+    database: {},
+    policy
+  }, {}, { startBackground: false });
+  const status = await request(app).get('/api/agent/status').set('X-Valido-Key', 'long-private-mobile-key').expect(200);
+  assert.equal(status.body.name, 'Gemini Guardian');
+  assert.ok(['ACTIVE', 'CAUTION', 'BLOCKED', 'SLEEPING'].includes(status.body.state));
+  assert.ok(status.body.guards.macro);
+  const signals = await request(app).get('/api/signals').set('X-Valido-Key', 'long-private-mobile-key').expect(200);
+  assert.ok(Array.isArray(signals.body.signals));
+  assert.equal(signals.body.signals.length <= 3, true);
 });
 
 test('fails closed in public hosting when the required access key is missing', async () => {
