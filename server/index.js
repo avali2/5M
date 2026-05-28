@@ -170,10 +170,9 @@ function guardSummary(scan, settings, providers) {
 function agentState(scan, settings, providers) {
   if (settings.agent?.enabled === false) return 'SLEEPING';
   const guards = guardSummary(scan, settings, providers);
-  const hardBlock = Object.values(guards).some((guard) => guard.status === 'block') || scan?.decision?.status === 'configuration_required';
+  const hardBlock = guards.dataQuality.status === 'block' || scan?.decision?.status === 'configuration_required';
   if (hardBlock) return 'BLOCKED';
-  const caution = Object.values(guards).some((guard) => ['caution', 'unavailable'].includes(guard.status)) || scan?.decision?.status === 'conditional_edge';
-  return caution ? 'CAUTION' : 'ACTIVE';
+  return 'ACTIVE';
 }
 
 function marketDecision(scan, settings, providers) {
