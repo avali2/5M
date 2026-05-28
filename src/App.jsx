@@ -153,6 +153,9 @@ function DesktopTabs() {
 function DecisionHero({ scan }) {
   const decision = effectiveEngineState(scan);
   if (!decision) return <div className="panel h-64 animate-pulse bg-sigma-elevated" />;
+  const heroSummary = decision.status === 'NO_TRADE_REAL'
+    ? decision.reasons?.join(' ') || 'No hay senal aprobada. El motor sigue vigilando candidatos, pero no hay entrada limpia.'
+    : scan?.summary || decision.reasons?.join(' ') || 'Cargando datos del engine...';
   return (
     <motion.section id="decision" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`panel scroll-mt-24 border p-5 md:p-7 ${tone(decision.status)}`}>
       <div className="grid gap-7 lg:grid-cols-[1.35fr_.95fr]">
@@ -160,7 +163,7 @@ function DecisionHero({ scan }) {
           <div className="eyebrow">Autonomous Market Intelligence Engine</div>
           <h2 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">{decision.label}</h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-            {scan?.summary || decision.reasons?.join(' ') || 'Cargando datos del engine...'}
+            {heroSummary}
           </p>
           {scan?.summaryWarning && (
             <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-sigma-amber">
