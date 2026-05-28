@@ -131,7 +131,11 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.get('/api/scan', async (_req, res, next) => {
     try {
-      res.json(await scheduler.snapshot());
+      const scan = await scheduler.snapshot();
+      res.json({
+        ...scan,
+        guardianStatus: guardianScheduler.status(repository.mode)
+      });
     } catch (error) {
       next(error);
     }
@@ -139,7 +143,11 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/scan/refresh', async (_req, res, next) => {
     try {
-      res.json(await scheduler.run(true));
+      const scan = await scheduler.run(true);
+      res.json({
+        ...scan,
+        guardianStatus: guardianScheduler.status(repository.mode)
+      });
     } catch (error) {
       next(error);
     }
