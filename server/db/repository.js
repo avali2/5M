@@ -31,6 +31,8 @@ import {
 } from '../lib/store.js';
 import { ivStatistics } from '../lib/math.js';
 
+const jsonParam = (value, fallback = {}) => JSON.stringify(value ?? fallback);
+
 class InstitutionalRepository {
   constructor(settings) {
     this.settings = settings;
@@ -215,7 +217,7 @@ class InstitutionalRepository {
     await this.pool.query(
       `INSERT INTO app_settings(key, value, updated_at) VALUES ('watchlist', $1, NOW())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-      [value]
+      [jsonParam(value)]
     );
     return value;
   }
@@ -234,7 +236,7 @@ class InstitutionalRepository {
     await this.pool.query(
       `INSERT INTO app_settings(key, value, updated_at) VALUES ('risk_profile', $1, NOW())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-      [value]
+      [jsonParam(value)]
     );
     return value;
   }
@@ -249,7 +251,7 @@ class InstitutionalRepository {
         entry.plannedEntry, entry.realEntry, entry.plannedExit, entry.realExit,
         Number.isFinite(Number(entry.pnl)) ? Number(entry.pnl) : null, entry.mentalState, entry.lesson,
         Number.isFinite(Number(entry.mae)) ? Number(entry.mae) : null, Number.isFinite(Number(entry.mfe)) ? Number(entry.mfe) : null,
-        entry.error, entry.ruleViolated, entry.ruleRespected, entry.signalOriginal]
+        entry.error, entry.ruleViolated, entry.ruleRespected, entry.signalOriginal ? jsonParam(entry.signalOriginal) : null]
     );
     return result.rows[0];
   }
@@ -274,7 +276,7 @@ class InstitutionalRepository {
          max_alerts_per_hour=EXCLUDED.max_alerts_per_hour, only_critical=EXCLUDED.only_critical,
          include_conditional=EXCLUDED.include_conditional, include_paper_practice=EXCLUDED.include_paper_practice,
          silence_during_macro=EXCLUDED.silence_during_macro, updated_at=NOW()`,
-      [value, Boolean(value.enabled), Boolean(value.workMode?.enabled), Number(value.workMode?.minScoreToNotify || 75),
+      [jsonParam(value), Boolean(value.enabled), Boolean(value.workMode?.enabled), Number(value.workMode?.minScoreToNotify || 75),
         Number(value.workMode?.maxAlertsPerHour || 3), Boolean(value.workMode?.onlyCritical),
         Boolean(value.workMode?.includeConditional), Boolean(value.workMode?.includePaperPractice),
         Boolean(value.workMode?.silenceDuringHighImpactMacro)]
@@ -308,7 +310,7 @@ class InstitutionalRepository {
          ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, notification_sent=EXCLUDED.notification_sent,
            notification_channel=EXCLUDED.notification_channel, notification_error=EXCLUDED.notification_error`,
         [event.id, event.type, event.severity, event.symbol, event.title, event.message, event.recommendation,
-          event.source, event.data || {}, event.status || 'new', Boolean(event.notificationSent),
+          event.source, jsonParam(event.data || {}), event.status || 'new', Boolean(event.notificationSent),
           event.notificationChannel, event.notificationError, event.createdAt]
       );
     }
@@ -352,10 +354,10 @@ class InstitutionalRepository {
          fomo_risk_score=EXCLUDED.fomo_risk_score, revenge_risk_score=EXCLUDED.revenge_risk_score,
          last_learning_recommendation=EXCLUDED.last_learning_recommendation, coach_json=EXCLUDED.coach_json,
          profile_json=EXCLUDED.profile_json, updated_at=NOW()`,
-      [profile.preferredStrategies || [], profile.weakConcepts || [], profile.repeatedMistakes || {},
-        profile.bestSetups || [], profile.worstSetups || [], profile.bestSymbols || [], profile.worstSymbols || [],
+      [jsonParam(profile.preferredStrategies || [], []), jsonParam(profile.weakConcepts || [], []), jsonParam(profile.repeatedMistakes || {}, {}),
+        jsonParam(profile.bestSetups || [], []), jsonParam(profile.worstSetups || [], []), jsonParam(profile.bestSymbols || [], []), jsonParam(profile.worstSymbols || [], []),
         Number(profile.notificationFatigueScore || 0), Number(profile.disciplineScore || 0), Number(profile.fomoRiskScore || 0),
-        Number(profile.revengeRiskScore || 0), profile.lastLearningRecommendation || '', profile.coach || {}, profile]
+        Number(profile.revengeRiskScore || 0), profile.lastLearningRecommendation || '', jsonParam(profile.coach || {}, {}), jsonParam(profile, {})]
     );
     return profile;
   }
@@ -403,7 +405,7 @@ class InstitutionalRepository {
        ON CONFLICT (endpoint_hash) DO UPDATE SET subscription_json=EXCLUDED.subscription_json, user_agent=EXCLUDED.user_agent,
        platform=EXCLUDED.platform, device_label=EXCLUDED.device_label, is_active=TRUE, last_error=NULL, updated_at=NOW()
        RETURNING endpoint_hash AS "endpointHash", is_active AS "isActive"`,
-      [subscription.endpointHash, subscription.subscription, subscription.userAgent, subscription.platform, subscription.deviceLabel]
+      [subscription.endpointHash, jsonParam(subscription.subscription, {}), subscription.userAgent, subscription.platform, subscription.deviceLabel]
     );
     return result.rows[0];
   }
@@ -437,7 +439,7 @@ class InstitutionalRepository {
       `INSERT INTO guardian_scan_runs(id, mode, market_status, symbols_scanned, signals_found, events_created,
        notifications_sent, errors_json, started_at, completed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [run.id, run.mode, run.marketStatus, run.symbolsScanned, run.signalsFound, run.eventsCreated,
-        run.notificationsSent, run.errors || [], run.startedAt, run.completedAt]
+        run.notificationsSent, jsonParam(run.errors || [], []), run.startedAt, run.completedAt]
     );
     return run;
   }
@@ -448,7 +450,7 @@ class InstitutionalRepository {
     await this.pool.query(
       `INSERT INTO guardian_market_snapshots(id, symbol, snapshot_type, data_json, source, is_live, is_delayed)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [snapshot.id, snapshot.symbol, snapshot.snapshotType, snapshot.data, snapshot.source, Boolean(snapshot.isLive), Boolean(snapshot.isDelayed)]
+      [snapshot.id, snapshot.symbol, snapshot.snapshotType, jsonParam(snapshot.data, {}), snapshot.source, Boolean(snapshot.isLive), Boolean(snapshot.isDelayed)]
     );
     return snapshot;
   }
