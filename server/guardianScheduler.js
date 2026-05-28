@@ -28,11 +28,21 @@ function closedMarketScan() {
 }
 
 export class GuardianScheduler {
-  constructor({ scanScheduler, repository, pushService, enabled = true, now = () => new Date(), setTimer = setTimeout, clearTimer = clearTimeout }) {
+  constructor({
+    scanScheduler,
+    repository,
+    pushService,
+    enabled = true,
+    regularMinutes = DEFAULT_GUARDIAN_SETTINGS.scanCadence.regularMinutes,
+    now = () => new Date(),
+    setTimer = setTimeout,
+    clearTimer = clearTimeout
+  }) {
     this.scanScheduler = scanScheduler;
     this.repository = repository;
     this.pushService = pushService;
     this.enabled = enabled;
+    this.regularMinutes = regularMinutes;
     this.now = now;
     this.setTimer = setTimer;
     this.clearTimer = clearTimer;
@@ -56,6 +66,7 @@ export class GuardianScheduler {
     const startedAt = this.now().toISOString();
     const marketStatus = getMarketStatus(this.now());
     const settings = mergeGuardianSettings(await this.repository.getGuardianSettings(DEFAULT_GUARDIAN_SETTINGS));
+    settings.scanCadence = { ...settings.scanCadence, regularMinutes: this.regularMinutes };
     if (!settings.enabled && mode !== 'manual') {
       const result = {
         mode,
@@ -146,7 +157,7 @@ export class GuardianScheduler {
     return this.latestResult;
   }
 
-  schedule(minutes = DEFAULT_GUARDIAN_SETTINGS.scanCadence.regularMinutes) {
+  schedule(minutes = this.regularMinutes) {
     if (!this.enabled) return;
     if (this.timer) this.clearTimer(this.timer);
     this.nextRun = new Date(this.now().getTime() + minutes * 60000).toISOString();
@@ -156,7 +167,7 @@ export class GuardianScheduler {
         this.schedule(result.nextCadenceMinutes);
       } catch (error) {
         this.lastError = error.message;
-        this.schedule(DEFAULT_GUARDIAN_SETTINGS.scanCadence.regularMinutes);
+        this.schedule(this.regularMinutes);
       }
     }, minutes * 60000);
   }
@@ -165,7 +176,7 @@ export class GuardianScheduler {
     if (!this.enabled || this.timer) return;
     this.runNow().then((result) => this.schedule(result.nextCadenceMinutes)).catch((error) => {
       this.lastError = error.message;
-      this.schedule(DEFAULT_GUARDIAN_SETTINGS.scanCadence.regularMinutes);
+      this.schedule(this.regularMinutes);
     });
   }
 

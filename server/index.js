@@ -228,7 +228,8 @@ export function createApp(settings = config, customProviders = null, options = {
     scanScheduler: scheduler,
     repository,
     pushService,
-    enabled: settings.guardian?.enabled !== false
+    enabled: settings.guardian?.enabled !== false,
+    regularMinutes: settings.agent?.refreshIntervalMinutes || 5
   });
   const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, consecutiveDailyLosses: 0, riskMode: settings.policy?.defaultRiskMode || 'MODERATE_AGGRESSIVE', tradingPaused: false };
   const defaultWatchlist = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
