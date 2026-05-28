@@ -37,6 +37,13 @@ function setupData(setup, scan) {
   };
 }
 
+function ticketSeverity(ticket) {
+  if (ticket.classification === 'EDGE_READY') return AGENT_SEVERITIES.OPPORTUNITY;
+  if (ticket.classification === 'AGGRESSIVE_EDGE' || ticket.classification === 'CAPITAL_HEAVY') return AGENT_SEVERITIES.WARNING;
+  if (ticket.classification === 'TRADE_CANDIDATE' || ticket.classification === 'WAIT_TRIGGER') return AGENT_SEVERITIES.EDUCATIONAL;
+  return AGENT_SEVERITIES.WARNING;
+}
+
 function liquidityProblems(setup, thresholds) {
   const reasons = [];
   for (const leg of list(setup.legs)) {
@@ -72,6 +79,40 @@ export function evaluateGuardianRules(context = {}) {
   const events = [];
   const dedupe = new Set();
   const setups = [...list(scan.opportunities), ...list(scan.conditionalIdeas).filter((idea) => idea.strategy)];
+  const edgeTickets = list(scan.guardianEdge?.notifyableTickets);
+
+  for (const ticket of edgeTickets) {
+    event(events, {
+      type: AGENT_EVENT_TYPES.EDGE_TICKET,
+      severity: ticketSeverity(ticket),
+      symbol: ticket.symbol,
+      title: ticket.notificationTitle || `${ticket.symbol} - ${ticket.classification}`,
+      message: ticket.notificationBody || `${ticket.strategy} | POP ${ticket.popEstimated ?? 'No disponible'}% | ${ticket.riskClass}`,
+      recommendation: 'No es orden automatica. Abre el ticket, revisa Robinhood, max loss, bid/ask, invalidacion y tu estado mental antes de decidir.',
+      source: 'Options Guardian Edge Ticket Mode',
+      data: {
+        ticket,
+        classification: ticket.classification,
+        popEstimated: ticket.popEstimated,
+        evEstimated: ticket.evEstimated,
+        edgeScore: ticket.edgeScore,
+        riskClass: ticket.riskClass,
+        timestamp: ticket.timestamp
+      },
+      channels: notifyChannels,
+      actions: [
+        AGENT_ACTIONS.OPEN_TRADE_TICKET,
+        AGENT_ACTIONS.OPEN_CHAIN_CHECKLIST,
+        AGENT_ACTIONS.OPEN_SIMULATOR,
+        AGENT_ACTIONS.CREATE_PAPER_TRADE,
+        AGENT_ACTIONS.OPEN_JOURNAL,
+        AGENT_ACTIONS.EXPLAIN_WITH_AI_MANUAL,
+        AGENT_ACTIONS.MARK_TAKEN,
+        AGENT_ACTIONS.MARK_IGNORED,
+        AGENT_ACTIONS.MARK_INVALID
+      ]
+    }, now);
+  }
 
   for (const setup of setups) {
     const key = `${setup.symbol}:${setup.strategy}:${setup.expiration}`;
@@ -208,6 +249,19 @@ export function evaluateGuardianRules(context = {}) {
       source: 'Calendario macro configurado',
       data: { events: highImpact.slice(0, 3), timestamp: scan.asOf || null },
       channels: notifyChannels,
+      actions: [AGENT_ACTIONS.OPEN_NEWS, AGENT_ACTIONS.OPEN_TRADING_PLAN]
+    }, now);
+  }
+  const softMacro = list(scan.macro?.softImpactEvents);
+  if (!highImpact.length && softMacro.length) {
+    event(events, {
+      type: AGENT_EVENT_TYPES.MACRO_RISK,
+      severity: AGENT_SEVERITIES.EDUCATIONAL,
+      title: 'Macro risk proximo - soft warning',
+      message: `Evento en las proximas 48h: ${softMacro[0].title || softMacro[0].event || 'evento macro'}. No bloquea por si solo.`,
+      recommendation: 'Reduce agresividad cerca de la ventana critica y revalida la cadena antes de entrar.',
+      source: 'Calendario macro configurado',
+      data: { events: softMacro.slice(0, 3), timestamp: scan.asOf || null, criticalWindow: false },
       actions: [AGENT_ACTIONS.OPEN_NEWS, AGENT_ACTIONS.OPEN_TRADING_PLAN]
     }, now);
   }

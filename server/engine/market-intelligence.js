@@ -1,18 +1,32 @@
 import { trendFromHistory, round } from '../lib/math.js';
 import { deriveTechnicals } from './technicals.js';
 
-const HIGH_IMPACT = /(fomc|federal reserve|powell|fed .*?(speech|speaks|minutes|meeting|decision|rate)|cpi|consumer price|nonfarm|payroll|employment|jobless|pce|interest rate)/i;
+const HIGH_IMPACT = /(fomc|federal reserve|powell|fed .*?(speech|speaks|minutes|meeting|decision|rate)|cpi|consumer price|nonfarm|nfp|payroll|employment|jobless|pce|interest rate|ppi|producer price)/i;
+const CRITICAL_MACRO = /(fomc|cpi|consumer price|nonfarm|nfp|payroll|pce)/i;
 const BREAKING_RISK = /(war|missile|attack|invasion|tariff|sanction|emergency|fed|powell|inflation|cpi|jobs report|payroll|fomc)/i;
+
+function isHighImpactUnitedStatesEvent(event) {
+  const country = String(event.country || '').toUpperCase().trim();
+  const isUnitedStates = !country || ['US', 'USA', 'USD', 'UNITED STATES'].includes(country);
+  const highImpact = String(event.impact || '').toLowerCase() === 'high' || HIGH_IMPACT.test(event.title || '');
+  return isUnitedStates && highImpact;
+}
 
 export function classifyEventRisk(events) {
   const now = Date.now();
   return events.filter((event) => {
-    const country = String(event.country || '').toUpperCase().trim();
-    const isUnitedStates = !country || ['US', 'USA', 'USD', 'UNITED STATES'].includes(country);
     const timestamp = new Date(event.date).getTime();
-    const within48Hours = Number.isFinite(timestamp) && timestamp >= now - 3600000 && timestamp <= now + 48 * 3600000;
-    const highImpact = String(event.impact || '').toLowerCase() === 'high' || HIGH_IMPACT.test(event.title || '');
-    return isUnitedStates && highImpact && within48Hours;
+    const withinCriticalWindow = Number.isFinite(timestamp) && timestamp >= now - 2 * 3600000 && timestamp <= now + 90 * 60000;
+    return isHighImpactUnitedStatesEvent(event) && CRITICAL_MACRO.test(event.title || '') && withinCriticalWindow;
+  });
+}
+
+export function classifySoftEventRisk(events) {
+  const now = Date.now();
+  return events.filter((event) => {
+    const timestamp = new Date(event.date).getTime();
+    const withinSoftWindow = Number.isFinite(timestamp) && timestamp > now + 90 * 60000 && timestamp <= now + 48 * 3600000;
+    return isHighImpactUnitedStatesEvent(event) && withinSoftWindow;
   });
 }
 

@@ -28,25 +28,65 @@ import GuardianPanel from './features/options-guardian-agent/GuardianPanel.jsx';
 const cash = (value) => Number.isFinite(value) ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : '--';
 const decimal = (value, digits = 1) => Number.isFinite(value) ? Number(value).toFixed(digits) : '--';
 const dateTime = (value) => value ? new Intl.DateTimeFormat('es-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }).format(new Date(value)) : '--';
-const tone = (status) => status === 'eligible' ? 'text-sigma-green border-sigma-green/40 bg-emerald-500/10' : status === 'configuration_required' ? 'text-sigma-amber border-sigma-amber/40 bg-amber-500/10' : 'text-sigma-red border-sigma-red/40 bg-red-500/10';
+const VALIDO_BUILD_VERSION = import.meta.env.VITE_VALIDO_BUILD_VERSION || 'local-dev';
+const VALIDO_BUILD_TIMESTAMP = import.meta.env.VITE_VALIDO_BUILD_TIMESTAMP || 'no timestamp';
+const EDGE_LABELS = {
+  EDGE_READY: 'EDGE READY',
+  AGGRESSIVE_EDGE: 'EDGE AGRESIVO DETECTADO',
+  TRADE_CANDIDATE: 'CANDIDATO DE ENTRADA',
+  WAIT_TRIGGER: 'SETUP EN ESPERA',
+  CAPITAL_HEAVY: 'CAPITAL HEAVY',
+  HIGH_POP_BAD_PAYOUT: 'HIGH POP BAD PAYOUT',
+  NO_READY: 'NO READY',
+  NO_TRADE_REAL: 'NO TRADE REAL'
+};
+const tone = (status) => ['eligible', 'EDGE_READY'].includes(status)
+  ? 'text-sigma-green border-sigma-green/40 bg-emerald-500/10'
+  : ['configuration_required', 'conditional_edge', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT', 'soft_macro'].includes(status)
+    ? 'text-sigma-amber border-sigma-amber/40 bg-amber-500/10'
+    : 'text-sigma-red border-sigma-red/40 bg-red-500/10';
+
+function effectiveEngineState(scan) {
+  const decision = scan?.decision;
+  const edgeStatus = scan?.guardianEdge?.dailyBest?.classification || scan?.guardianEdge?.status;
+  const hasActionableEdge = ['EDGE_READY', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(edgeStatus);
+  const softMacroOnly = (scan?.macro?.softImpactEvents?.length || 0) > 0 && !(scan?.macro?.highImpactEvents?.length || 0);
+  if (hasActionableEdge) {
+    return {
+      status: edgeStatus,
+      label: EDGE_LABELS[edgeStatus] || edgeStatus,
+      reasons: decision?.reasons || []
+    };
+  }
+  if (softMacroOnly && decision?.status !== 'eligible') {
+    return {
+      status: 'soft_macro',
+      label: 'RIESGO MACRO CERCANO - SOFT WARNING',
+      reasons: decision?.reasons || []
+    };
+  }
+  if (!decision) return { status: 'loading', label: 'CARGANDO ENGINE', reasons: [] };
+  return decision;
+}
 
 function Empty({ children }) {
   return <div className="rounded-xl border border-dashed border-sigma-line p-6 text-center text-sm text-slate-500">{children}</div>;
 }
 
 function Header({ scan, loading, onRefresh, seconds }) {
+  const engine = effectiveEngineState(scan);
   return (
     <header className="sticky top-0 z-30 border-b border-sigma-line/80 bg-sigma-bg/90 px-4 backdrop-blur-xl md:px-8">
       <div className="mx-auto flex min-h-[68px] max-w-[1540px] flex-wrap items-center justify-between gap-4 py-3">
         <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-amber-200 via-sigma-gold to-amber-700 text-xl font-black text-slate-950">V</div>
           <div>
-            <h1 className="text-[15px] font-bold tracking-[.08em]">VALIDO 1M</h1>
-            <p className="text-[11px] text-slate-500">ASISTENTE INSTITUCIONAL DE OPCIONES</p>
+            <h1 className="text-[15px] font-bold tracking-[.08em]">VALIDO 1M OS</h1>
+            <p className="text-[11px] text-slate-500">Options Intelligence. Risk First. Execution Ready.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="status-chip">{scan?.decision?.status === 'eligible' ? 'ENGINE ACTIVE' : 'FAIL-CLOSED'}</span>
+          <span className="status-chip">{engine.label}</span>
           <span className="status-chip font-mono">Refresh {seconds}s</span>
           <span className="hidden text-xs text-slate-500 sm:inline">{dateTime(scan?.asOf)} ET</span>
           <button className="btn" disabled={loading} onClick={onRefresh}>{loading ? 'Escaneando...' : 'Escanear ahora'}</button>
@@ -63,7 +103,7 @@ function AccessGate({ error, onUnlock }) {
       <form className="panel w-full max-w-md p-6" onSubmit={(event) => { event.preventDefault(); onUnlock(key); }}>
         <div className="grid h-12 w-12 place-items-center rounded-xl bg-sigma-gold text-2xl font-black text-slate-950">V</div>
         <p className="eyebrow mt-5">Acceso privado</p>
-        <h1 className="mt-2 text-2xl font-bold">Valido 1M</h1>
+        <h1 className="mt-2 text-2xl font-bold">VALIDO 1M OS</h1>
         <p className="mt-3 text-sm leading-6 text-slate-400">Introduce la clave privada configurada en el servidor. Tus tokens del broker nunca se guardan en el telefono.</p>
         {error && <p className="mt-3 rounded-lg bg-red-500/10 p-3 text-xs text-sigma-red">{error}</p>}
         <input className="input mt-5" type="password" autoComplete="current-password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="Clave de acceso" />
@@ -98,7 +138,7 @@ function DesktopTabs() {
 }
 
 function DecisionHero({ scan }) {
-  const decision = scan?.decision;
+  const decision = effectiveEngineState(scan);
   if (!decision) return <div className="panel h-64 animate-pulse bg-sigma-elevated" />;
   return (
     <motion.section id="decision" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`panel scroll-mt-24 border p-5 md:p-7 ${tone(decision.status)}`}>
@@ -107,11 +147,11 @@ function DecisionHero({ scan }) {
           <div className="eyebrow">Autonomous Market Intelligence Engine</div>
           <h2 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">{decision.label}</h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-            {scan.summary || decision.reasons?.join(' ')}
+            {scan?.summary || decision.reasons?.join(' ') || 'Cargando datos del engine...'}
           </p>
-          {scan.summaryWarning && (
+          {scan?.summaryWarning && (
             <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-sigma-amber">
-              Narrativa AI no disponible: {scan.summaryWarning}. Los calculos y filtros del engine siguen activos.
+              IA manual no disponible: {scan.summaryWarning}. El scanner no depende de OpenAI y sigue funcionando.
             </p>
           )}
           {decision.reasons?.length > 0 && (
@@ -123,10 +163,10 @@ function DecisionHero({ scan }) {
           )}
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <HeroMetric name="Regimen" value={scan.market?.regime || 'Blocked'} />
-          <HeroMetric name="VIX real" value={Number.isFinite(scan.market?.vix) ? decimal(scan.market.vix) : 'No feed'} />
-          <HeroMetric name="Breadth" value={Number.isFinite(scan.market?.breadth) ? `${scan.market.breadth}%` : 'No feed'} />
-          <HeroMetric name="Fuente resumen" value={scan.summarySource || 'Motor de reglas'} />
+          <HeroMetric name="Regimen" value={scan?.market?.regime || 'Blocked'} />
+          <HeroMetric name="VIX real" value={Number.isFinite(scan?.market?.vix) ? decimal(scan.market.vix) : 'No feed'} />
+          <HeroMetric name="Breadth" value={Number.isFinite(scan?.market?.breadth) ? `${scan.market.breadth}%` : 'No feed'} />
+          <HeroMetric name="Fuente resumen" value={scan?.summarySource || 'Motor de reglas'} />
         </div>
       </div>
     </motion.section>
@@ -783,20 +823,27 @@ function RisksAndEvents({ scan }) {
 }
 
 function AlertCenter({ scan }) {
+  const hasEdge = ['EDGE_READY', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(scan?.guardianEdge?.dailyBest?.classification || scan?.guardianEdge?.status);
+  const alerts = (scan?.alerts || []).filter((alert) => !(hasEdge && alert.kind === 'no_trade')).slice(0, 5);
+  const labelFor = (kind) => {
+    if (kind === 'a_setup') return 'Nuevo spread A+ detectado';
+    if (kind === 'trade_candidate') return 'Candidato Guardian detectado';
+    return 'No trade real';
+  };
   return (
     <section className="panel p-4">
       <div className="mb-3 flex items-center justify-between">
         <div><p className="eyebrow">Smart alerts</p><h3 className="mt-1 text-lg font-semibold">Centro de alertas</h3></div>
       </div>
       <div className="space-y-2">
-        {(scan?.alerts || []).slice(0, 5).map((alert) => (
+        {alerts.map((alert) => (
           <div className="rounded-lg border border-sigma-line bg-sigma-soft p-3 text-xs" key={alert.key + alert.date}>
-            <p className={`font-semibold ${alert.kind === 'a_setup' ? 'text-sigma-green' : 'text-sigma-amber'}`}>{alert.kind === 'a_setup' ? 'Nuevo spread A+ detectado' : 'Evitar operar hoy'}</p>
+            <p className={`font-semibold ${['a_setup', 'trade_candidate'].includes(alert.kind) ? 'text-sigma-green' : 'text-sigma-amber'}`}>{labelFor(alert.kind)}</p>
             <p className="mt-1 text-slate-300">{alert.message}</p>
             <p className="mt-1 text-slate-500">{dateTime(alert.createdAt)}</p>
           </div>
         ))}
-        {!scan?.alerts?.length && <Empty>Las alertas apareceran tras un escaneo real.</Empty>}
+        {!alerts.length && <Empty>Las alertas apareceran tras un escaneo real.</Empty>}
       </div>
     </section>
   );
@@ -1174,6 +1221,7 @@ export default function App() {
         </div>
         <footer className="border-t border-sigma-line py-5 text-xs leading-5 text-slate-500">
           Valido 1M es un sistema semiautonomo de filtrado y educacion. No envia ordenes ni sustituye la confirmacion del broker o asesoramiento financiero personalizado. Las opciones pueden perder el capital comprometido. Gamma mostrado es un proxy basado en OI/Greeks de cadena real, no posicionamiento dealer confirmado.
+          <span className="mt-2 block font-mono text-[11px] text-slate-600">VALIDO_BUILD_VERSION {VALIDO_BUILD_VERSION} | Build {dateTime(VALIDO_BUILD_TIMESTAMP)}</span>
         </footer>
       </main>
       <MobileQuickNav />

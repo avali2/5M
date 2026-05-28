@@ -42,6 +42,24 @@ export function createGuardianRouter({ guardianScheduler, repository }) {
       next(error);
     }
   });
+  router.get('/yahoo', async (req, res, next) => {
+    try {
+      const symbol = String(req.query.symbol || '').toUpperCase();
+      const scan = await guardianScheduler.scanScheduler.run(true);
+      const tickets = scan.guardianEdge?.tickets || [];
+      res.json({
+        source: 'Yahoo Finance fallback when primary providers are absent',
+        timestamp: scan.asOf,
+        marketDataMode: scan.marketDataMode,
+        symbol: symbol || null,
+        ticket: symbol ? tickets.find((item) => item.symbol === symbol) || null : scan.guardianEdge?.dailyBest || null,
+        guardianEdge: scan.guardianEdge,
+        dataHealth: scan.dataHealth
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
   router.post('/events/:id/feedback', async (req, res, next) => {
     try {
       const entry = await repository.addGuardianFeedback({ ...req.body, eventId: req.params.id });

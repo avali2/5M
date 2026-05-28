@@ -11,7 +11,7 @@ process.env.DATABASE_URL = '';
 process.env.DATABASE_SSL = 'false';
 const { generateDefinedRiskSetups } = await import('../server/engine/strategies.js');
 const { runAutonomousScan } = await import('../server/engine/scanner.js');
-const { classifyEventRisk } = await import('../server/engine/market-intelligence.js');
+const { classifyEventRisk, classifySoftEventRisk } = await import('../server/engine/market-intelligence.js');
 const { UNIVERSE } = await import('../server/config.js');
 const { createApp } = await import('../server/index.js');
 
@@ -91,10 +91,17 @@ test('blocks United States macro risk without treating foreign CPI as a US gate'
   const soon = new Date(Date.now() + 3600000).toISOString();
   const blocked = classifyEventRisk([
     { title: 'CPI', country: 'AU', date: soon, impact: 'high' },
-    { title: 'Fed Chair Speech', country: 'US', date: soon, impact: 'medium' }
+    { title: 'US CPI', country: 'US', date: soon, impact: 'medium' }
   ]);
   assert.equal(blocked.length, 1);
   assert.equal(blocked[0].country, 'US');
+});
+
+test('macro events outside critical window are soft warnings instead of hard blocks', () => {
+  const tomorrow = new Date(Date.now() + 24 * 3600000).toISOString();
+  const events = [{ title: 'FOMC minutes', country: 'US', date: tomorrow, impact: 'high' }];
+  assert.equal(classifyEventRisk(events).length, 0);
+  assert.equal(classifySoftEventRisk(events).length, 1);
 });
 
 test('keeps SOFI in the focused options universe', () => {
@@ -120,8 +127,10 @@ test('fails closed in public hosting when the required access key is missing', a
     policy
   }, {}, { startBackground: false });
   const health = await request(app).get('/api/health').expect(200);
+  assert.equal(health.body.ok, true);
+  assert.equal(health.body.app, 'VALIDO 1M');
+  assert.equal(health.body.providers.openai, 'manual_only');
   assert.equal(health.body.securityStatus, 'configuration_required');
-  assert.equal(health.body.providers, undefined);
   await request(app).get('/api/explainers').expect(503);
 });
 

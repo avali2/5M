@@ -1,6 +1,6 @@
 {
-  "name": "Valido 1M",
-  "short_name": "Valido 1M",
+  "name": "VALIDO 1M OS",
+  "short_name": "VALIDO 1M",
   "description": "Asistente institucional de decisiones para opciones con riesgo definido.",
   "start_url": "/institutional-os.html",
   "display": "standalone",
@@ -8,9 +8,21 @@
   "theme_color": "#070c17",
   "icons": [
     {
-      "src": "/valido-mark.svg",
+      "src": "/icons/validov.svg",
       "sizes": "any",
       "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

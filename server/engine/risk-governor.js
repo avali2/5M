@@ -13,8 +13,8 @@ export function evaluateRiskGovernor({ setup, profile, globalBlocks = [], dataHe
   const score = setup.tradeQualityScore ?? setup.confidenceScore ?? setup.score ?? 0;
   const uniqueBlocks = [...new Set(blocks)];
   const classification = uniqueBlocks.length || score < 60 ? 'Paper Trade / solo estudio' :
-    score >= 80 ? 'Trade Validado' :
-      score >= 70 ? 'Trade Condicional' : 'Agresivo / tamano reducido';
+    score >= 70 ? 'Trade Validado' :
+      score >= 65 ? 'Trade Condicional' : 'Agresivo / tamano reducido';
   return {
     allowedReal: classification === 'Trade Validado' && !uniqueBlocks.length,
     classification,

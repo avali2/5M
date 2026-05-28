@@ -24,6 +24,8 @@ export class OpenAiProvider {
       enabled: Boolean(this.settings.enabled),
       model: this.configured ? this.settings.model : null,
       automaticCalls: false,
+      manualOnly: true,
+      cooldownUntil: this.blockedUntil > Date.now() ? new Date(this.blockedUntil).toISOString() : null,
       lastUsedAt: this.lastUsedAt,
       callsToday: this.callsDate === today ? this.callsToday : 0,
       dailyLimit: this.settings.dailyLimit,
@@ -94,7 +96,7 @@ export class OpenAiProvider {
     } catch (error) {
       if (/HTTP 429/i.test(error.message)) {
         this.blockedUntil = Date.now() + 30 * 60 * 1000;
-        this.lastFailure = 'OpenAI: HTTP 429; narrativa pausada 30 minutos mientras el analisis cuantitativo continua';
+        this.lastFailure = 'OpenAI rate limit: explicacion manual pausada 30 minutos mientras el analisis cuantitativo continua';
         throw new Error(this.lastFailure);
       }
       this.lastFailure = error.message;

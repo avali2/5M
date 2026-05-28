@@ -1,13 +1,14 @@
-# Valido 1M - Institutional Options Decision Assistant
+# VALIDO 1M OS - Institutional Options Intelligence Platform
 
-Valido 1M is a semiautonomous scanner and learning assistant for defined-risk, high-probability option income structures. It is designed for a trader who cannot monitor positions continuously: the engine filters first and displays a complete reviewable plan only after mandatory data and risk gates pass.
+VALIDO 1M OS is a semiautonomous scanner, trade-ticket desk and learning assistant for defined-risk options structures. It is designed for a trader who cannot monitor positions continuously: the engine filters first, produces reviewable trade tickets only from sourced data, and keeps AI in an explanation/tutor role.
 
 ## Architecture
 
 - `institutional-os.html` is the Vite entry for the React dashboard.
 - `src/` contains the React/Tailwind/Recharts client.
 - `server/engine/` contains regime, technical, GEX, strategy, score, and approval logic.
-- `server/providers/` contains Tradier, Finnhub, Polygon, FMP, Benzinga, and OpenAI adapters.
+- `server/providers/` contains Tradier, Yahoo Finance, Finnhub, Polygon, FMP, Benzinga, Gemini and OpenAI adapters.
+- `server/ai/` contains the manual-only AI router, Gemini/OpenAI budget manager and deterministic tutor fallback.
 - `server/db/` contains the PostgreSQL repository and production schema.
 - `src/features/options-simulator/` contains pure payoff/Greek/scenario calculations and the embedded Options Strategy Lab.
 - `src/features/pro-signals/`, `probability-edge-engine/` and `risk-governor/` present deterministic scored signals with source/formula auditing.
@@ -30,7 +31,7 @@ Valido 1M is a semiautonomous scanner and learning assistant for defined-risk, h
 | Macro calendar and earnings | Finnhub or FMP | Yes |
 | Breaking market news | Finnhub | Yes |
 | Unusual options activity and block trades | Benzinga | Optional; adds flow confidence |
-| User-requested contextual explanation | OpenAI | Optional and off by default; never creates prices or trades |
+| User-requested contextual explanation | Gemini first, OpenAI optional | Optional/manual; never creates prices or trades |
 | IV history, option snapshots, trade journal | PostgreSQL | Optional in development; recommended in production |
 
 `Gamma Exposure` is intentionally labeled as an OI-weighted gamma proxy computed from the real chain. It is not presented as verified dealer positioning without a licensed positioning feed.
@@ -62,9 +63,11 @@ Naked calls and unprotected short puts are blocked by validation unless the put 
 
 Probability and EV are displayed only when required inputs exist. Manual templates with no numeric Greeks show `No disponible`; the system does not replace missing Delta/IV with a favorable probability. For real-chain setups, `Probability & Edge Engine` labels POP, EV, ROC and slippage as modeled estimates and exposes the formula audit.
 
-## Optional AI
+## Optional AI Tutor
 
-OpenAI remains supported but is not required. Keep `ENABLE_AI_ASSISTANT=false` to run the complete scanner, simulator, paper desk, journal, tutorials and notifications without AI. If enabled, the backend calls it only after the user chooses `Explicar con IA`, caches repeated explanations and enforces `AI_DAILY_CALL_LIMIT`. It never calculates prices, Greeks, payoff, risk or score.
+Gemini is the preferred low-cost tutor provider, OpenAI remains supported as a manual optional fallback, and the app also includes a deterministic tutor when no AI key exists. Keep `ENABLE_OPENAI=false` unless you intentionally want OpenAI explanations. The backend only calls AI after the user chooses `Explicar con IA` or `Probar Gemini`; scans, notifications and trade-ticket math never depend on AI.
+
+The AI router enforces daily request/token budgets, cooldown after 429, compact payloads and cache. AI never calculates prices, strikes, POP, EV, Greeks, payoff, collateral, score or risk classification.
 
 ## Options Guardian Agent Pro
 
@@ -84,7 +87,7 @@ With PostgreSQL configured, the application creates `guardian_settings`, `guardi
 Copy-Item .env.example .env
 # Add server-side provider credentials and optionally DATABASE_URL to .env.
 # For a public deployment also add a long APP_ACCESS_KEY.
-# Leave ENABLE_AI_ASSISTANT=false unless you explicitly want paid explanations.
+# Gemini/OpenAI are optional. Scanner, Guardian, simulator and paper trading work without AI.
 npm.cmd install
 npm.cmd run dev
 ```
@@ -174,8 +177,9 @@ The test suite asserts that page code contains no unsafe `new Notification(...)`
 - `GET /api/collection` reports snapshot and IV-history collection independent of trade approval.
 - `GET|POST /api/journal` reads and records the audited decision journal.
 - `GET /api/explainers` returns plain-language and institutional metric explanations.
-- `GET /api/ai/status` reports optional AI availability and usage without exposing keys.
-- `POST /api/ai/explain` requests a narrative only after user action and only when `ENABLE_AI_ASSISTANT=true`.
+- `GET /api/ai/status` reports optional AI availability, Gemini/OpenAI state and token budget without exposing keys.
+- `POST /api/ai/explain` requests a manual explanation; if Gemini/OpenAI are missing or rate-limited, it returns deterministic tutor guidance instead of blocking.
+- `POST /api/ai/test-gemini` validates the Gemini connection without exposing `GEMINI_API_KEY`.
 - `GET|PUT /api/guardian/settings`, `GET /api/guardian/status`, `GET /api/guardian/events`, `GET /api/guardian/learning` and `POST /api/guardian/run` expose Guardian through the same private access middleware.
 - `POST /api/guardian/events/:id/feedback` stores review feedback for deterministic learning.
 - `GET /api/push/public-key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe` and `POST /api/push/test` configure or validate protected Web Push delivery.

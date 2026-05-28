@@ -16,5 +16,7 @@ test('service worker accepts Web Push and displays it with showNotification', as
   assert.match(worker, /addEventListener\('push'/);
   assert.match(worker, /self\.registration\.showNotification/);
   assert.match(worker, /pushsubscriptionchange/);
+  assert.match(worker, /\/icons\/icon-192\.png/);
+  assert.match(worker, /\/icons\/badge-72\.png/);
   assert.doesNotMatch(worker, /new\s+Notification\s*\(/);
 });

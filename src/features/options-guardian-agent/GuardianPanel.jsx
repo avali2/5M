@@ -12,6 +12,8 @@ import {
 } from './webPushClient.js';
 
 const dateTime = (value) => value ? new Intl.DateTimeFormat('es-US', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/New_York' }).format(new Date(value)) : '--';
+const money = (value) => Number.isFinite(Number(value)) ? `$${Number(value).toFixed(2)}` : 'No disponible';
+const percent = (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : 'No disponible';
 const severityColor = {
   critical: 'border-red-500/40 bg-red-500/10 text-sigma-red',
   warning: 'border-amber-500/40 bg-amber-500/10 text-sigma-amber',
@@ -29,7 +31,66 @@ function Status({ label, value, good }) {
   );
 }
 
-function TimelineEvent({ event, onAction, onReviewed, onIgnored, onSilence }) {
+function TicketDetails({ ticket, onAction }) {
+  if (!ticket) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-emerald-400/20 bg-slate-950/50 p-3 text-[11px] text-slate-300">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-mono text-sigma-green">{ticket.classification} | {ticket.riskClass}</p>
+          <h5 className="mt-1 text-sm font-semibold text-white">{ticket.symbol} {ticket.strategy}</h5>
+        </div>
+        <span className="rounded-full border border-sigma-line px-2 py-1 text-slate-400">Score {ticket.edgeScore ?? '--'}/100</span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <p><strong>Action Robinhood:</strong><br />{ticket.robinhoodAction}</p>
+        <p><strong>Expiracion:</strong><br />{ticket.expiration || 'No disponible'} ({ticket.dte ?? '--'} DTE)</p>
+        <p><strong>Legs:</strong><br />{ticket.legsText || 'No disponible'}</p>
+        <p><strong>Orden:</strong><br />{ticket.orderType} | {ticket.entryLimit}</p>
+        <p><strong>Max risk:</strong><br />{money(ticket.maxRisk)}</p>
+        <p><strong>Max profit:</strong><br />{money(ticket.maxProfit)}</p>
+        <p><strong>Break-even:</strong><br />{ticket.breakEven || 'No disponible'}</p>
+        <p><strong>POP / EV:</strong><br />{percent(ticket.popEstimated)} | {ticket.evEstimated === null ? 'EV no disponible' : money(ticket.evEstimated)}</p>
+        <p><strong>ROC:</strong><br />{ticket.roc === null ? 'No disponible' : percent(ticket.roc)}</p>
+        <p><strong>Modelo POP:</strong><br />{ticket.popModel || 'No disponible'}</p>
+        <p><strong>Fuente:</strong><br />{ticket.dataSource || 'No disponible'}</p>
+        <p><strong>Timestamp:</strong><br />{dateTime(ticket.timestamp)}</p>
+      </div>
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        <div className="rounded-lg border border-sigma-line p-2"><strong>Take profit</strong><br />{ticket.takeProfit}</div>
+        <div className="rounded-lg border border-sigma-line p-2"><strong>Stop loss</strong><br />{ticket.stopLoss}</div>
+        <div className="rounded-lg border border-sigma-line p-2"><strong>Invalidacion</strong><br />{ticket.invalidation}</div>
+      </div>
+      <details className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-2">
+        <summary className="cursor-pointer font-semibold text-sigma-amber">Do not enter if / seguridad</summary>
+        <ul className="mt-2 list-inside list-disc space-y-1 text-slate-300">
+          {(ticket.doNotEnterIf || []).map((rule) => <li key={rule}>{rule}</li>)}
+          <li>POP estimada no garantiza ganancia. Revisa precio real, max loss e invalidacion en Robinhood.</li>
+        </ul>
+      </details>
+      <details className="mt-3 rounded-lg border border-blue-400/20 bg-blue-400/5 p-2">
+        <summary className="cursor-pointer font-semibold text-sigma-blue">Como ponerlo en Robinhood</summary>
+        <ol className="mt-2 list-inside list-decimal space-y-1 text-slate-300">
+          <li>Busca {ticket.symbol} y abre Options.</li>
+          <li>Selecciona expiracion {ticket.expiration || 'indicada'}.</li>
+          <li>Agrega exactamente estas legs: {ticket.legsText || 'ver ticket'}.</li>
+          <li>Usa limit order. No uses market order en opciones.</li>
+          <li>Verifica que el credito/debito, max loss y break-even sigan alineados.</li>
+          <li>Si el precio rompio invalidacion o la cadena empeoro, no persigas la entrada.</li>
+        </ol>
+      </details>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button className="btn text-[11px]" onClick={() => onAction('simulate', ticket.sourceSetup || ticket)}>Simular esta estrategia</button>
+        <button className="btn text-[11px]" onClick={() => onAction('paper', ticket.sourceSetup || ticket)}>Crear paper manual</button>
+        <button className="btn text-[11px]" onClick={() => onAction('chain', ticket)}>Checklist cadena</button>
+        <button className="btn text-[11px]" onClick={() => onAction('journal', ticket)}>Guardar journal</button>
+      </div>
+    </div>
+  );
+}
+
+function TimelineEvent({ event, onAction, onReviewed, onIgnored, onSilence, onTaken, onInvalid }) {
+  const ticket = event.data?.ticket;
   return (
     <article className={`rounded-xl border p-3 text-xs ${severityColor[event.severity] || severityColor.info}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -46,11 +107,14 @@ function TimelineEvent({ event, onAction, onReviewed, onIgnored, onSilence }) {
       {(event.data?.score || event.data?.dataMode) && (
         <p className="mt-1 text-[11px] text-slate-500">Score: {event.data.score ?? '--'} | Modo dato: {event.data.dataMode || 'No disponible'} | Timestamp: {dateTime(event.data.timestamp)}</p>
       )}
+      <TicketDetails ticket={ticket} onAction={onAction} />
       <div className="mt-3 flex flex-wrap gap-2">
-        {event.data?.setup && <button className="btn text-[11px]" onClick={() => onAction('simulate', event.data.setup)}>Simular</button>}
-        {event.data?.setup && <button className="btn text-[11px]" onClick={() => onAction('paper', event.data.setup)}>Paper trade</button>}
+        {(event.data?.setup || ticket) && <button className="btn text-[11px]" onClick={() => onAction('simulate', event.data.setup || ticket.sourceSetup || ticket)}>Simular</button>}
+        {(event.data?.setup || ticket) && <button className="btn text-[11px]" onClick={() => onAction('paper', event.data.setup || ticket.sourceSetup || ticket)}>Paper trade</button>}
         <button className="btn text-[11px]" onClick={() => onReviewed(event)}>Marcar revisada</button>
+        {ticket && <button className="btn text-[11px]" onClick={() => onTaken(event)}>Marcar como tomada</button>}
         <button className="btn text-[11px]" onClick={() => onIgnored(event)}>Ignorar / feedback</button>
+        {ticket && <button className="btn text-[11px]" onClick={() => onInvalid(event)}>Marcar no valida</button>}
         {event.symbol && <button className="btn text-[11px]" onClick={() => onSilence(event)}>Silenciar {event.symbol}</button>}
       </div>
     </article>
@@ -193,6 +257,16 @@ export default function GuardianPanel({
     setEvents((current) => current.map((item) => item.id === event.id ? { ...item, status: 'ignored' } : item));
   }
 
+  async function markTaken(event) {
+    await recordGuardianFeedback(event, 'taken_manual_review', 'El usuario marco el ticket como tomado/revisado manualmente. No fue ejecucion automatica.');
+    setEvents((current) => current.map((item) => item.id === event.id ? { ...item, status: 'taken_manual_review' } : item));
+  }
+
+  async function markInvalid(event) {
+    await recordGuardianFeedback(event, 'invalid', 'Ticket marcado como no valido por cambio de precio, cadena o invalidacion.');
+    setEvents((current) => current.map((item) => item.id === event.id ? { ...item, status: 'invalid' } : item));
+  }
+
   async function silenceSymbol(event) {
     const mutedSymbols = [...new Set([...(settings.mutedSymbols || []), event.symbol])];
     await saveSettings({ ...settings, mutedSymbols });
@@ -203,6 +277,8 @@ export default function GuardianPanel({
   function action(type, setup) {
     if (type === 'simulate') onSimulate?.(setup);
     if (type === 'paper') onPaper?.(setup);
+    if (type === 'chain') onOpenChecklist?.();
+    if (type === 'journal') onOpenJournal?.();
   }
 
   const coach = learning?.coach || {
@@ -214,6 +290,11 @@ export default function GuardianPanel({
     notificationAdjustment: 'Work Mode protege tu atencion.'
   };
   const bestSetup = scan?.opportunities?.[0] || scan?.conditionalIdeas?.find((idea) => idea.strategy);
+  const macroRiskLabel = scan?.macro?.highImpactEvents?.length
+    ? 'CRITICO'
+    : scan?.macro?.softImpactEvents?.length ? 'Soft warning' : 'Normal';
+  const dataSource = scan?.market?.quotes?.find((quote) => quote.source)?.source || scan?.marketDataMode || 'No disponible';
+  const edgeStates = ['EDGE_READY', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT', 'NO_READY', 'NO_TRADE_REAL'];
 
   return (
     <section id="guardian" className="panel scroll-mt-24 overflow-hidden">
@@ -229,15 +310,24 @@ export default function GuardianPanel({
       </div>
 
       <div className="space-y-5 p-4 md:p-5">
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-12">
           <Status label="Mercado" value={status.marketStatus || 'Consultando'} />
+          <Status label="Regime" value={scan?.market?.regime || 'No disponible'} />
+          <Status label="VIX" value={scan?.market?.vix ?? 'No disponible'} />
+          <Status label="Breadth" value={scan?.market?.breadth === null || scan?.market?.breadth === undefined ? 'No disponible' : `${scan.market.breadth}%`} />
+          <Status label="Macro Risk" value={macroRiskLabel} good={macroRiskLabel === 'Normal'} />
           <Status label="Ultimo scan" value={dateTime(status.lastScan)} />
+          <Status label="Data Source" value={dataSource} />
           <Status label="Proxima cadence" value={status.nextCadenceMinutes ? `${status.nextCadenceMinutes} min` : '--'} />
           <Status label="Work Mode" value={settings.workMode.enabled ? 'Activo' : 'Apagado'} good={settings.workMode.enabled} />
           <Status label="Persistencia" value={status.persistence || 'Consultando'} good={status.persistence === 'postgresql'} />
           <Status label="Scheduler backend" value={status.backendScheduler === false ? 'Inactivo' : 'Activo'} good={status.backendScheduler !== false} />
           <Status label="Web Push" value={notification?.subscribed ? 'Suscrito' : 'No suscrito'} good={notification?.subscribed} />
           <Status label="IA manual" value={scan?.aiStatus?.enabled ? 'Disponible' : 'Opcional / apagada'} good={scan?.aiStatus?.enabled} />
+        </div>
+        <div className="flex flex-wrap gap-2 rounded-xl border border-sigma-line bg-sigma-soft p-3 text-[11px]">
+          <span className="font-semibold text-slate-300">Estados Guardian:</span>
+          {edgeStates.map((state) => <span className="rounded-full border border-sigma-line px-2 py-1 font-mono text-slate-400" key={state}>{state}</span>)}
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -255,6 +345,12 @@ export default function GuardianPanel({
           <button className="btn" onClick={onAiExplain}>Explicar con IA manual</button>
         </div>
         {message && <p className="rounded-lg border border-sigma-line bg-sigma-soft p-3 text-xs text-slate-300">{message}</p>}
+        {scan?.guardianEdge?.dailyBest && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs">
+            <p className="eyebrow text-sigma-green">Daily Edge Ticket</p>
+            <TicketDetails ticket={scan.guardianEdge.dailyBest} onAction={action} />
+          </div>
+        )}
 
         <div className="grid gap-4 xl:grid-cols-[1.2fr_.9fr]">
           <div>
@@ -263,7 +359,7 @@ export default function GuardianPanel({
               <span className="status-chip">{events.length} eventos</span>
             </div>
             <div className="mt-3 max-h-[520px] space-y-2 overflow-auto scrollbar">
-              {events.length ? events.slice(0, 20).map((event) => <TimelineEvent event={event} onAction={action} onReviewed={markReviewed} onIgnored={ignoreEvent} onSilence={silenceSymbol} key={event.id} />) : (
+              {events.length ? events.slice(0, 20).map((event) => <TimelineEvent event={event} onAction={action} onReviewed={markReviewed} onIgnored={ignoreEvent} onSilence={silenceSymbol} onTaken={markTaken} onInvalid={markInvalid} key={event.id} />) : (
                 <p className="rounded-lg border border-dashed border-sigma-line p-5 text-center text-xs text-slate-500">Aun no hay eventos Guardian. Ejecuta un scan o practica paper.</p>
               )}
             </div>

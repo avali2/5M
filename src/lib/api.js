@@ -1,6 +1,8 @@
+const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+
 async function request(path, options) {
   const accessKey = window.localStorage.getItem('valido-access-key') || '';
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: { 'Content-Type': 'application/json', ...(accessKey ? { 'X-Valido-Key': accessKey } : {}) },
     ...options
   });
@@ -22,6 +24,7 @@ export const api = {
   explainers: () => request('/api/explainers'),
   aiStatus: () => request('/api/ai/status'),
   explainWithAi: () => request('/api/ai/explain', { method: 'POST' }),
+  testGemini: () => request('/api/ai/test-gemini', { method: 'POST' }),
   journal: () => request('/api/journal'),
   addJournal: (entry) => request('/api/journal', { method: 'POST', body: JSON.stringify(entry) }),
   saveWatchlist: (symbols) => request('/api/watchlist', { method: 'PUT', body: JSON.stringify({ symbols }) }),

@@ -29,7 +29,9 @@ export function suggestedNotificationSolution(diagnostic) {
 
 export async function registerNotificationServiceWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
-  return navigator.serviceWorker.register(SERVICE_WORKER_URL, { scope: '/' });
+  const registration = await navigator.serviceWorker.register(SERVICE_WORKER_URL, { scope: '/', updateViaCache: 'none' });
+  registration.update().catch(() => {});
+  return registration;
 }
 
 export async function getNotificationDiagnostic() {
@@ -64,8 +66,8 @@ export async function getNotificationDiagnostic() {
 export async function showMobileSafeNotification({
   title,
   body,
-  icon = '/valido-mark.svg',
-  badge = '/valido-mark.svg',
+  icon = '/icons/icon-192.png',
+  badge = '/icons/badge-72.png',
   tag = 'valido-alert',
   data = { url: '/institutional-os.html' },
   actions = [],

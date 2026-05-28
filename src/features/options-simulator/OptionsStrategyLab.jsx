@@ -92,6 +92,23 @@ export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJourna
     };
   }, [legs, spot, commissions, atr, dte, strategy, accountSize, riskPercent, gammaRisk]);
 
+  const brokerTicket = useMemo(() => {
+    const net = legs.reduce((sum, leg) => {
+      const signed = String(leg.side).toUpperCase() === 'SELL' ? 1 : -1;
+      return sum + signed * Number(leg.price || 0) * Number(leg.quantity || 1);
+    }, 0);
+    const orderType = net >= 0 ? 'Limit Credit' : 'Limit Debit';
+    const limit = Math.abs(net);
+    const takeProfit = net >= 0 ? limit * 0.5 : limit * 1.6;
+    const stopLoss = net >= 0 ? limit * 2 : limit * 0.5;
+    const action = /Bull Put/i.test(strategy) ? 'Open Put Credit Spread' :
+      /Bear Call/i.test(strategy) ? 'Open Call Credit Spread' :
+        /Call Debit/i.test(strategy) ? 'Open Call Debit Spread' :
+          /Put Debit/i.test(strategy) ? 'Open Put Debit Spread' :
+            /Iron Condor/i.test(strategy) ? 'Open Iron Condor' : 'Open defined-risk strategy';
+    return { net, orderType, limit, action, takeProfit, stopLoss };
+  }, [legs, strategy]);
+
   async function saveSimulation() {
     if (!onSaveJournal) return;
     await onSaveJournal({
@@ -119,6 +136,22 @@ export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJourna
         </div>
       </div>
       {saved && <p className="mt-3 rounded-lg bg-emerald-500/10 p-3 text-xs text-sigma-green">{saved}</p>}
+      <div className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 text-xs">
+        <p className="eyebrow text-sigma-green">Broker-style order ticket</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <p><strong>Action:</strong><br />{brokerTicket.action}</p>
+          <p><strong>Order type:</strong><br />{brokerTicket.orderType}</p>
+          <p><strong>Expiration:</strong><br />{expiration}</p>
+          <p><strong>Suggested limit:</strong><br />{money(brokerTicket.limit)} {brokerTicket.net >= 0 ? 'credit min.' : 'debit max.'}</p>
+          <p><strong>Credit/Debit:</strong><br />{brokerTicket.net >= 0 ? 'Net credit' : 'Net debit'}</p>
+          <p><strong>Max loss check:</strong><br />{money(analytics.maxRisk)}</p>
+          <p><strong>Max profit:</strong><br />{money(analytics.maxProfit)}</p>
+          <p><strong>Break-even:</strong><br />{analytics.breakEvens.join(' / ') || 'No disponible'}</p>
+          <p><strong>TP / SL:</strong><br />{money(brokerTicket.takeProfit)} / {money(brokerTicket.stopLoss)}</p>
+          <p><strong>Payoff:</strong><br />Ver grafico de payoff aproximado abajo.</p>
+          <p><strong>Manual review:</strong><br />No market order. Verifica max loss y bid/ask antes de enviar.</p>
+        </div>
+      </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-4">
         <Field label="Simbolo"><input className="input" value={symbol} onChange={(event) => setSymbol(event.target.value.toUpperCase())} /></Field>
         <Field label="Precio actual"><input className="input" type="number" step="0.01" value={spot} onChange={(event) => setSpot(Number(event.target.value))} /></Field>

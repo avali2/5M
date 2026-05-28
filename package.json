@@ -9,7 +9,9 @@
     "build": "vite build",
     "start": "node server/index.js",
     "test": "node --test tests/*.test.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "guardian:scan:yahoo": "node scripts/guardianYahooScan.js",
+    "guardian:backtest": "node scripts/backtestGuardian.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -22,7 +24,8 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "recharts": "^3.1.2",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "yahoo-finance2": "^3.14.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.2",

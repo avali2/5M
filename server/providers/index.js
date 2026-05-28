@@ -5,6 +5,11 @@ import { FinnhubProvider } from './finnhub.js';
 import { FmpProvider } from './fmp.js';
 import { BenzingaProvider } from './benzinga.js';
 import { OpenAiProvider } from './openai.js';
+import { YahooProvider } from './yahoo.js';
+import { GeminiProvider } from './gemini.js';
+import { AlphaVantageProvider } from './alphaVantage.js';
+import { AiBudgetManager } from '../ai/ai-budget.js';
+import { AiProviderRouter } from '../ai/provider-router.js';
 
 export function createProviders(settings = config) {
   const tradier = new TradierProvider(settings.tradier);
@@ -12,7 +17,12 @@ export function createProviders(settings = config) {
   const finnhub = new FinnhubProvider(settings.finnhub);
   const fmp = new FmpProvider(settings.fmp);
   const benzinga = new BenzingaProvider(settings.benzinga);
+  const alphaVantage = new AlphaVantageProvider(settings.alphaVantage);
   const openai = new OpenAiProvider(settings.openai);
+  const gemini = new GeminiProvider(settings.gemini);
+  const yahoo = new YahooProvider(settings.yahoo);
+  const aiBudget = new AiBudgetManager({ ...(settings.ai || {}), autoTutor: settings.ai?.autoTutor });
+  const ai = new AiProviderRouter({ settings: settings.ai || {}, gemini, openai, budgetManager: aiBudget });
 
   return {
     tradier,
@@ -20,9 +30,14 @@ export function createProviders(settings = config) {
     finnhub,
     fmp,
     benzinga,
+    alphaVantage,
     openai,
-    market: tradier.configured ? tradier : polygon.configured ? polygon : null,
-    options: tradier.configured ? tradier : polygon.configured ? polygon : null,
-    calendar: finnhub.configured ? finnhub : fmp.configured ? fmp : null
+    gemini,
+    ai,
+    yahoo,
+    market: tradier.configured ? tradier : polygon.configured ? polygon : yahoo.configured ? yahoo : null,
+    options: tradier.configured ? tradier : polygon.configured ? polygon : yahoo.configured ? yahoo : null,
+    calendar: finnhub.configured ? finnhub : fmp.configured ? fmp : null,
+    news: alphaVantage.configured ? alphaVantage : finnhub.configured ? finnhub : yahoo.configured ? yahoo : null
   };
 }

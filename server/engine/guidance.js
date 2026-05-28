@@ -54,12 +54,15 @@ export function createExecutionPlan(setup, profile) {
 export function createDailyAssistant(scan) {
   const events = (scan.macro?.highImpactEvents || []).slice().sort((left, right) => new Date(left.date) - new Date(right.date));
   const approved = scan.opportunities?.[0] || null;
-  const blocked = scan.decision.status !== 'eligible';
+  const conditionalTicket = scan.guardianEdge?.dailyBest || null;
+  const blocked = scan.decision.status !== 'eligible' && scan.decision.status !== 'conditional_edge';
   return {
     marketSession: sessionStatus(new Date(scan.asOf)),
-    action: approved ? 'REVISAR PLAN APROBADO' : 'ESPERAR / NO ABRIR POSICION NUEVA',
+    action: approved ? 'REVISAR PLAN APROBADO' : conditionalTicket ? 'REVISAR EDGE CONDICIONAL' : 'ESPERAR / NO ABRIR POSICION NUEVA',
     actionReason: approved
       ? `${approved.symbol} ${approved.strategy} supero score, riesgo, gamma, liquidez y eventos.`
+      : conditionalTicket
+        ? `${conditionalTicket.symbol} ${conditionalTicket.strategy} esta clasificado como ${conditionalTicket.classification}; requiere gatillo y revision manual.`
       : scan.decision.reasons.join(' '),
     volatility: volatilityReading(scan.market?.vix),
     nextEvent: events[0] || null,

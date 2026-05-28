@@ -67,13 +67,16 @@ export class GuardianPushService {
   }
 
   async sendGuardianEvent(event) {
+    const ticket = event.data?.ticket;
     return this.send({
-      title: event.symbol ? `${event.symbol} - Options Guardian` : 'Options Guardian',
-      body: event.message,
-      tag: `guardian-${event.type}-${event.symbol || 'market'}`,
+      title: ticket?.notificationTitle || (event.symbol ? `${event.symbol} - Options Guardian` : 'Options Guardian'),
+      body: ticket?.notificationBody || event.message,
+      tag: ticket ? `guardian-ticket-${ticket.symbol}-${ticket.classification}` : `guardian-${event.type}-${event.symbol || 'market'}`,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge-72.png',
       type: event.type,
       severity: event.severity,
-      data: { url: '/institutional-os.html?tab=guardian#guardian', eventId: event.id }
+      data: { url: `/institutional-os.html?tab=guardian#${encodeURIComponent(event.id)}`, eventId: event.id, ticketId: ticket?.id || null }
     });
   }
 
@@ -82,6 +85,8 @@ export class GuardianPushService {
       title: 'Options Guardian Web Push',
       body: 'La suscripcion para alertas con el movil bloqueado esta funcionando.',
       tag: 'guardian-web-push-test',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge-72.png',
       data: { url: '/institutional-os.html?tab=guardian#guardian' }
     });
   }

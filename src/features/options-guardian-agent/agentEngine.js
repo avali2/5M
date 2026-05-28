@@ -24,7 +24,7 @@ export function guardianCadenceMinutes({ marketStatus, events = [], settings: in
   const settings = mergeGuardianSettings(inputSettings);
   if (events.some((item) => item.severity === AGENT_SEVERITIES.CRITICAL)) return settings.scanCadence.criticalRiskMinutes;
   if (hasOpenPaperTrade) return settings.scanCadence.paperTradeMonitorMinutes;
-  if (events.some((item) => item.type === AGENT_EVENT_TYPES.SIGNAL_VALIDATED || item.type === AGENT_EVENT_TYPES.SIGNAL_CONDITIONAL)) {
+  if (events.some((item) => item.type === AGENT_EVENT_TYPES.SIGNAL_VALIDATED || item.type === AGENT_EVENT_TYPES.SIGNAL_CONDITIONAL || item.type === AGENT_EVENT_TYPES.EDGE_TICKET)) {
     return settings.scanCadence.activeCandidateMinutes;
   }
   if (marketStatus === 'regular') return settings.scanCadence.regularMinutes;
@@ -33,7 +33,7 @@ export function guardianCadenceMinutes({ marketStatus, events = [], settings: in
 }
 
 export function eventFingerprint(item) {
-  return [item.type, item.symbol || 'market', item.data?.strategy || '', item.data?.expiration || ''].join(':');
+  return [item.type, item.symbol || 'market', item.data?.ticket?.id || item.data?.strategy || '', item.data?.expiration || ''].join(':');
 }
 
 export function filterGuardianNotifications(events, priorEvents = [], inputSettings = {}, now = new Date()) {
@@ -50,11 +50,12 @@ export function filterGuardianNotifications(events, priorEvents = [], inputSetti
     const critical = item.severity === AGENT_SEVERITIES.CRITICAL;
     if (settings.silencedUntil && new Date(settings.silencedUntil).getTime() > nowTime && !critical) continue;
     if (settings.workMode.onlyCritical && !critical) continue;
-    if (silenceSignalsForMacro && item.type.startsWith('SIGNAL_') && !critical) continue;
+    if (silenceSignalsForMacro && (item.type.startsWith('SIGNAL_') || item.type === AGENT_EVENT_TYPES.EDGE_TICKET) && !critical) continue;
     if (settings.mutedSymbols.includes(String(item.symbol || '').toUpperCase()) && !critical) continue;
     if (item.type === AGENT_EVENT_TYPES.NO_TRADE_PROFESSIONAL) continue;
-    const score = Number(item.data?.score);
+    const score = Number(item.data?.score ?? item.data?.edgeScore);
     if (item.type.includes('SIGNAL_') && Number.isFinite(score) && score < settings.workMode.minScoreToNotify) continue;
+    if (item.type === AGENT_EVENT_TYPES.EDGE_TICKET && Number.isFinite(score) && score < settings.edgeMode.minScoreCandidate) continue;
     if (!item.channels?.some((channel) => channel === AGENT_CHANNELS.PWA_NOTIFICATION || channel === AGENT_CHANNELS.WEB_PUSH)) continue;
     const duplicate = priorEvents.find((prior) =>
       eventFingerprint(prior) === eventFingerprint(item) &&

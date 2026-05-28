@@ -1,5 +1,8 @@
-const CACHE_NAME = 'valido-1m-shell-v2';
-const SHELL = ['/institutional-os.html', '/manifest.webmanifest', '/valido-mark.svg'];
+const CACHE_PREFIX = 'valido-1m-';
+const CACHE_NAME = `${CACHE_PREFIX}shell-v4`;
+const DEFAULT_ICON = '/icons/icon-192.png';
+const DEFAULT_BADGE = '/icons/badge-72.png';
+const SHELL = ['/manifest.webmanifest', DEFAULT_ICON, DEFAULT_BADGE, '/icons/validov.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -10,18 +13,20 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+    caches.keys().then((keys) => Promise.all(keys
+      .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+      .map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('message', (event) => {
-  if (event.data?.type !== 'SHOW_NOTIFICATION') return;
+  if (!['SHOW_NOTIFICATION', 'VALIDO_LOCAL_NOTIFICATION'].includes(event.data?.type)) return;
   const payload = event.data.payload || {};
   event.waitUntil(self.registration.showNotification(payload.title || 'Valido 1M', {
     body: payload.body || '',
-    icon: payload.icon || '/valido-mark.svg',
-    badge: payload.badge || '/valido-mark.svg',
+    icon: payload.icon || DEFAULT_ICON,
+    badge: payload.badge || DEFAULT_BADGE,
     tag: payload.tag || 'valido-alert',
     data: payload.data || { url: '/institutional-os.html' },
     actions: payload.actions || [],
@@ -39,8 +44,8 @@ self.addEventListener('push', (event) => {
   const data = payload.data || { url: '/institutional-os.html?tab=guardian#guardian' };
   event.waitUntil(self.registration.showNotification(payload.title || 'Options Guardian', {
     body: payload.body || 'Nueva alerta Guardian disponible.',
-    icon: payload.icon || '/valido-mark.svg',
-    badge: payload.badge || '/valido-mark.svg',
+    icon: payload.icon || DEFAULT_ICON,
+    badge: payload.badge || DEFAULT_BADGE,
     tag: payload.tag || 'guardian-web-push',
     data,
     actions: payload.actions || [],

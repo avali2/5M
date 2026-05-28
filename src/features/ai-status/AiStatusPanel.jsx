@@ -34,6 +34,24 @@ export default function AiStatusPanel({ scan }) {
     }
   }
 
+  async function testGemini() {
+    if (disabledLocally) {
+      setError('IA desactivada en este dispositivo. Activa el boton antes de probar Gemini.');
+      return;
+    }
+    setWorking(true);
+    setError('');
+    try {
+      const result = await api.testGemini();
+      setNarrative(result.narrative || 'Gemini no devolvio narrativa. Se mantiene fallback deterministico.');
+      setStatus(result.status);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
   function toggleSavings() {
     const next = !savingMode;
     setSavingMode(next);
@@ -52,16 +70,19 @@ export default function AiStatusPanel({ scan }) {
       <p className="eyebrow">Estado de IA opcional</p>
       <h3 className="mt-1 text-lg font-semibold">Explicaciones solo bajo tu solicitud</h3>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <Cell label="Habilitada" value={status?.enabled ? 'Si' : 'No'} />
-        <Cell label="Configurada" value={status?.configured ? 'Si' : 'No'} />
-        <Cell label="Modelo" value={status?.model || 'No disponible'} />
-        <Cell label="Uso hoy" value={`${status?.callsToday ?? 0} / ${status?.dailyLimit ?? '--'}`} />
-        <Cell label="Ultimo uso" value={status?.lastUsedAt ? new Date(status.lastUsedAt).toLocaleString() : 'Nunca'} />
+        <Cell label="Proveedor" value={status?.activeProvider || status?.primaryProvider || 'deterministic'} />
+        <Cell label="Gemini" value={status?.gemini?.configured ? 'Configurado' : 'No configurado'} />
+        <Cell label="OpenAI" value={status?.openai?.enabled ? 'Manual activo' : 'Manual apagado'} />
+        <Cell label="Uso hoy" value={`${status?.budget?.requestsUsed ?? 0} req / ${status?.budget?.dailyRequestBudget ?? '--'}`} />
+        <Cell label="Tokens" value={`${status?.budget?.tokensUsed ?? 0} / ${status?.budget?.dailyTokenBudget ?? '--'}`} />
+        <Cell label="Cooldown" value={Object.values(status?.budget?.cooldowns || {}).filter(Boolean)[0] || 'No'} />
         <Cell label="Costo" value={status?.costEstimate || 'No disponible'} />
+        <Cell label="Modo" value={status?.manualOnly ? 'Manual only' : 'Revisar'} />
       </div>
-      <p className="mt-3 text-xs leading-5 text-slate-400">OpenAI no calcula precios, Greeks, riesgo, payoff ni score. El scanner completo funciona con IA apagada.</p>
+      <p className="mt-3 text-xs leading-5 text-slate-400">Gemini/OpenAI no calculan precios, Greeks, riesgo, payoff, strikes, POP ni score. Si la IA falla o llega a 429, el tutor deterministico sigue explicando y el scanner no se bloquea.</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <button className="btn" onClick={explain} disabled={working || !status?.enabled || disabledLocally}>{working ? 'Consultando...' : 'Explicar mercado con IA'}</button>
+        <button className="btn" onClick={explain} disabled={working || disabledLocally}>{working ? 'Consultando...' : 'Explicar mercado con IA'}</button>
+        <button className="btn" onClick={testGemini} disabled={working || disabledLocally}>{working ? 'Probando...' : 'Probar Gemini'}</button>
         <button className="btn" onClick={toggleDisabled}>{disabledLocally ? 'Activar IA local' : 'Desactivar IA'}</button>
         <button className="btn" onClick={toggleSavings}>Modo ahorro: {savingMode ? 'Activo' : 'Inactivo'}</button>
       </div>

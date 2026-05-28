@@ -3,7 +3,7 @@ import { UNIVERSE, config, providerStatus } from '../config.js';
 import { appendAlert, getAlerts } from '../lib/store.js';
 import { daysTo, round } from '../lib/math.js';
 import { repository } from '../db/repository.js';
-import { classifyEventRisk, classifyNewsRisk, computeGammaProxy, detectMarketRegime, loadMarketOverview } from './market-intelligence.js';
+import { classifyEventRisk, classifyNewsRisk, classifySoftEventRisk, computeGammaProxy, detectMarketRegime, loadMarketOverview } from './market-intelligence.js';
 import { deriveTechnicals } from './technicals.js';
 import {
   generateBrokenWingCondor,
@@ -17,6 +17,7 @@ import { createDailyAssistant, createExecutionPlan } from './guidance.js';
 import { buildDataHealth } from './data-health.js';
 import { calculateProbabilityEdge } from './probability-edge.js';
 import { evaluateRiskGovernor } from './risk-governor.js';
+import { buildGuardianEdgeTicketScan } from '../guardian/edge-tickets.js';
 
 const DEFAULT_SYMBOLS = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
 const SHORT_DTE_SYMBOLS = new Set(['SPY', 'SPX', 'QQQ', 'IWM', 'DIA']);
@@ -27,8 +28,14 @@ const CORRELATED = {
 };
 
 function deterministicSummary(scan) {
+  if (scan.decision.status === 'conditional_edge') {
+    const best = scan.guardianEdge?.dailyBest;
+    return best
+      ? `EDGE CONDICIONAL: Guardian detecto ${best.symbol} ${best.strategy} (${best.classification}) con POP estimada ${best.popEstimated ?? 'No disponible'}%. Requiere gatillo, cadena y riesgo verificados manualmente.`
+      : 'EDGE CONDICIONAL: existen candidatos educativos/condicionales, pero ningun trade real validado.';
+  }
   if (scan.decision.status !== 'eligible') {
-    return `NO TRADE: ${scan.decision.reasons.join(' ')} La recoleccion permanece activa para construir IV Rank y snapshots.`;
+    return `NO TRADE REAL: ${scan.decision.reasons.join(' ')} La recoleccion permanece activa para construir IV Rank y snapshots.`;
   }
   const best = scan.opportunities[0];
   return `${scan.market.regime} con VIX ${scan.market.vix}. Mejor plan filtrado: ${best.symbol} ${best.strategy}, confianza ${best.confidenceScore}/100 y riesgo maximo $${best.maxRisk}.`;
@@ -222,10 +229,10 @@ async function scanSymbol({ symbol, providers, market, macro, policy, profile })
 
 function requiredProviderGates(providers) {
   return [
-    { name: 'Real-time quotes', pass: Boolean(providers.market), required: 'Tradier or Polygon' },
-    { name: 'Options chain with Greeks/IV/OI', pass: Boolean(providers.options), required: 'Tradier or Polygon' },
-    { name: 'Macro and earnings calendar', pass: Boolean(providers.calendar), required: 'Finnhub or FMP' },
-    { name: 'Breaking market news', pass: providers.finnhub.configured, required: 'Finnhub' }
+    { name: 'Quotes', pass: Boolean(providers.market), required: 'Tradier, Polygon or Yahoo Finance', hardRequired: true },
+    { name: 'Options chain with IV/OI', pass: Boolean(providers.options), required: 'Tradier, Polygon or Yahoo Finance', hardRequired: true },
+    { name: 'Macro and earnings calendar', pass: Boolean(providers.calendar), required: 'Finnhub or FMP', hardRequired: false },
+    { name: 'Breaking market news', pass: Boolean(providers.news), required: 'Finnhub or Yahoo Finance', hardRequired: false }
   ];
 }
 
@@ -254,10 +261,11 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     watchlist,
     profile
   };
-  if (missing.length) {
+  const hardMissing = missing.filter((gate) => gate.hardRequired);
+  if (hardMissing.length) {
     const scan = {
       ...base,
-      decision: { status: 'configuration_required', label: 'NO TRADE - FALTAN FUENTES REALES', reasons: missing.map((gate) => `${gate.name}: configura ${gate.required}.`) },
+      decision: { status: 'configuration_required', label: 'NO TRADE - FALTAN FUENTES REALES', reasons: hardMissing.map((gate) => `${gate.name}: configura ${gate.required}.`) },
       collection: await repository.collectionStats(),
       market: null,
       macro: null,
@@ -270,25 +278,27 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     scan.summary = deterministicSummary(scan);
     return scan;
   }
+  const newsProvider = providers.news || providers.finnhub;
   const [market, events, earnings, news, companyNews, flow, blockTrades, insiders] = await Promise.all([
     loadMarketOverview({ providers, symbols: [...new Set([...symbols, ...UNIVERSE.breadth])] }),
-    providers.calendar.getEconomicCalendar().catch(() => []),
-    providers.calendar.getEarningsCalendar(symbols).catch(() => []),
-    providers.finnhub.getMarketNews().catch(() => []),
-    providers.finnhub.configured && typeof providers.finnhub.getCompanyNews === 'function'
-      ? providers.finnhub.getCompanyNews([...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities]).catch(() => [])
+    providers.calendar ? providers.calendar.getEconomicCalendar().catch(() => []) : Promise.resolve([]),
+    providers.calendar ? providers.calendar.getEarningsCalendar(symbols).catch(() => []) : Promise.resolve([]),
+    newsProvider ? newsProvider.getMarketNews().catch(() => []) : Promise.resolve([]),
+    newsProvider && typeof newsProvider.getCompanyNews === 'function'
+      ? newsProvider.getCompanyNews([...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities]).catch(() => [])
       : Promise.resolve([]),
     providers.benzinga.configured && typeof providers.benzinga.getUnusualOptions === 'function' ? providers.benzinga.getUnusualOptions(symbols).catch(() => []) : Promise.resolve([]),
     providers.benzinga.configured && typeof providers.benzinga.getBlockTrades === 'function' ? providers.benzinga.getBlockTrades(symbols).catch(() => []) : Promise.resolve([]),
     providers.finnhub.configured && typeof providers.finnhub.getInsiderTransactions === 'function' ? providers.finnhub.getInsiderTransactions(symbols).catch(() => []) : Promise.resolve([])
   ]);
   const highImpactEvents = classifyEventRisk(events);
+  const softImpactEvents = classifySoftEventRisk(events);
   const breakingRisk = classifyNewsRisk(news);
-  const macro = { events, earnings, news, companyNews, highImpactEvents, breakingRisk, flow, blockTrades, insiders };
+  const macro = { events, earnings, news, companyNews, highImpactEvents, softImpactEvents, breakingRisk, flow, blockTrades, insiders };
   const globalBlocks = [];
   if (!Number.isFinite(market.vix)) globalBlocks.push('Cotizacion de VIX no disponible');
   if (market.vix >= policy.maxVix) globalBlocks.push(`Regimen VIX extremo: ${market.vix}`);
-  if (highImpactEvents.length) globalBlocks.push('Evento macro de EE. UU. de impacto dentro de 48 horas');
+  if (highImpactEvents.length) globalBlocks.push('Evento macro critico de EE. UU. en ventana critica');
   if (breakingRisk.length) globalBlocks.push('Noticias sensibles requieren revision humana');
   if (profile.tradingPaused) globalBlocks.push('Kill switch del mandato esta activo');
   if (profile.dailyLossPct >= profile.maxDailyLossPct) globalBlocks.push('Se alcanzo la perdida diaria maxima');
@@ -408,9 +418,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     };
   });
   const reasons = globalBlocks.length ? globalBlocks : opportunities.length ? [] : ['Ninguna estructura paso regimen, liquidez, riesgo, historial IV, gamma y probabilidad.'];
-  const decision = opportunities.length ? { status: 'eligible', label: 'PLANES INSTITUCIONALES APROBADOS', reasons: [] } : { status: 'no_trade', label: 'HOY NO HAY VENTAJAS', reasons };
-  if (!opportunities.length) await appendAlert({ kind: 'no_trade', message: reasons.join(' ') });
-  if (opportunities[0]) await appendAlert({ kind: 'a_setup', symbol: opportunities[0].symbol, message: `Detectado ${opportunities[0].strategy} con confianza ${opportunities[0].confidenceScore}/100.` });
+  const decision = opportunities.length ? { status: 'eligible', label: 'PLANES INSTITUCIONALES APROBADOS', reasons: [] } : { status: 'no_trade', label: 'NO TRADE REAL', reasons };
   const scan = {
     ...base,
     decision,
@@ -428,13 +436,39 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     dataHealth: buildDataHealth({ providerStates: base.providers, market, macro, results }),
     gammaSurfaces: results.filter((result) => result.gamma).map((result) => ({ symbol: result.symbol, ...result.gamma })),
     scanErrors: results.filter((result) => result.error),
-    alerts: await getAlerts()
+    alerts: []
   };
+  scan.guardianEdge = buildGuardianEdgeTicketScan(scan, settings);
+  const hasConditionalEdge = scan.guardianEdge?.actionableTickets?.some((ticket) =>
+    ['AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(ticket.classification)
+  );
+  if (!opportunities.length && hasConditionalEdge && scan.decision.status === 'no_trade') {
+    scan.decision = {
+      status: 'conditional_edge',
+      label: 'EDGE CONDICIONAL - REVISAR TICKET',
+      reasons: [
+        'No hay trade real completamente validado, pero Guardian encontro candidato accionable/condicional con riesgo definido para revision manual.',
+        'No entrar sin gatillo, cadena actualizada, max loss confirmado e invalidacion vigente.'
+      ]
+    };
+  }
+  if (opportunities[0]) {
+    await appendAlert({ kind: 'a_setup', symbol: opportunities[0].symbol, message: `Detectado ${opportunities[0].strategy} con confianza ${opportunities[0].confidenceScore}/100.` });
+  } else if (scan.guardianEdge?.dailyBest) {
+    await appendAlert({
+      kind: 'trade_candidate',
+      symbol: scan.guardianEdge.dailyBest.symbol,
+      message: `${scan.guardianEdge.dailyBest.classification}: ${scan.guardianEdge.dailyBest.symbol} ${scan.guardianEdge.dailyBest.strategy} con POP estimada ${scan.guardianEdge.dailyBest.popEstimated ?? 'No disponible'}%.`
+    });
+  } else {
+    await appendAlert({ kind: 'no_trade', message: reasons.join(' ') });
+  }
+  scan.alerts = await getAlerts();
   scan.assistant = createDailyAssistant(scan);
   scan.summary = deterministicSummary(scan);
   scan.summarySource = 'Motor deterministico';
-  scan.aiStatus = typeof providers.openai.status === 'function' ? providers.openai.status() : {
-    configured: providers.openai.configured,
+  scan.aiStatus = typeof providers.ai?.status === 'function' ? providers.ai.status() : {
+    configured: providers.openai?.configured,
     enabled: false,
     automaticCalls: false
   };

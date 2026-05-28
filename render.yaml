@@ -10,10 +10,28 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: APP_ENV
+        value: production
       - key: HOST
         value: "0.0.0.0"
+      - key: SESSION_SECRET
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: VITE_API_BASE_URL
+        sync: false
       - key: CLIENT_ORIGIN
         sync: false
+      - key: VALIDO_BUILD_VERSION
+        value: "2.0.0"
+      - key: VALIDO_BUILD_TIMESTAMP
+        sync: false
+      - key: ENABLE_YAHOO_PROVIDER
+        value: "true"
       - key: APP_ACCESS_KEY
         sync: false
       - key: REQUIRE_ACCESS_KEY
@@ -24,24 +42,82 @@ services:
         value: "true"
       - key: TRADIER_TOKEN
         sync: false
+      - key: TRADIER_ACCESS_TOKEN
+        sync: false
       - key: TRADIER_BASE_URL
         value: https://api.tradier.com/v1
+      - key: TRADIER_ACCOUNT_ID
+        sync: false
+      - key: TRADIER_SANDBOX
+        value: "false"
       - key: POLYGON_API_KEY
+        sync: false
+      - key: ALPHA_VANTAGE_API_KEY
         sync: false
       - key: FINNHUB_API_KEY
         sync: false
       - key: FMP_API_KEY
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash-lite
+      - key: AI_PRIMARY_PROVIDER
+        value: gemini
+      - key: AI_AUTO_TUTOR
+        value: "true"
+      - key: AI_AUTO_SIGNAL_DECISION
+        value: "false"
+      - key: AI_AUTO_NARRATIVE
+        value: "false"
+      - key: AI_MANUAL_EXPLAIN
+        value: "true"
+      - key: AI_DAILY_TOKEN_BUDGET
+        value: "20000"
+      - key: AI_DAILY_REQUEST_BUDGET
+        value: "6"
+      - key: AI_MAX_INPUT_TOKENS_PER_CALL
+        value: "1800"
+      - key: AI_MAX_OUTPUT_TOKENS_PER_CALL
+        value: "500"
+      - key: AI_MAX_TOTAL_TOKENS_PER_CALL
+        value: "2500"
+      - key: AI_FALLBACK_TO_DETERMINISTIC
+        value: "true"
+      - key: AI_MIN_AUTOMATIC_CALL_INTERVAL_MINUTES
+        value: "90"
+      - key: AI_COOLDOWN_AFTER_429_MINUTES
+        value: "180"
+      - key: AI_DISABLE_AUTO_AT_USAGE_PERCENT
+        value: "65"
+      - key: AI_DISABLE_ALL_AT_USAGE_PERCENT
+        value: "90"
+      - key: ENABLE_OPENAI
+        value: "false"
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
         sync: false
+      - key: OPENAI_MANUAL_ONLY
+        value: "true"
+      - key: ENABLE_AI_ASSISTANT
+        value: "false"
+      - key: AI_DAILY_CALL_LIMIT
+        value: "10"
       - key: BENZINGA_API_KEY
         sync: false
+      - key: MARKET_DATA_MODE
+        value: "live"
+      - key: BLOCK_IF_IV_RANK_INCOMPLETE
+        value: "false"
       - key: GUARDIAN_ENABLED
         value: "true"
+      - key: PUSH_ENABLED
+        value: "true"
       - key: ENABLE_WEB_PUSH
-        value: "false"
+        value: "true"
       - key: VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY
@@ -50,8 +126,58 @@ services:
         sync: false
       - key: ENABLE_FCM
         value: "false"
+      - key: PUSH_MAX_DAILY_SIGNALS
+        value: "5"
+      - key: PUSH_SYMBOL_COOLDOWN_MINUTES
+        value: "30"
+      - key: SCANNER_ENABLED
+        value: "true"
+      - key: SCANNER_CORE_INTERVAL_MINUTES
+        value: "5"
+      - key: SCANNER_STOCK_INTERVAL_MINUTES
+        value: "10"
+      - key: SCANNER_AFTER_HOURS_INTERVAL_MINUTES
+        value: "45"
+      - key: DEFAULT_RISK_MODE
+        value: MODERATE_AGGRESSIVE
+      - key: MIN_POP_CREDIT_SPREAD
+        value: "0.70"
+      - key: MIN_POP_TO_NOTIFY
+        value: "0.70"
+      - key: MIN_EDGE_SCORE
+        value: "70"
+      - key: MIN_AGGRESSIVE_SCORE
+        value: "65"
+      - key: MAX_DAILY_SIGNALS
+        value: "5"
+      - key: MAX_RISK_PER_TRADE_PCT
+        value: "0.02"
+      - key: MAX_PORTFOLIO_RISK_PCT
+        value: "0.06"
       - key: AUTO_REFRESH_SECONDS
         value: "60"
+      - key: FAIL_CLOSED_ON_AI_ERROR
+        value: "false"
+      - key: FAIL_CLOSED_ON_OPENAI_ERROR
+        value: "false"
+      - key: FAIL_CLOSED_ON_GEMINI_ERROR
+        value: "false"
+      - key: FAIL_CLOSED_ON_MACRO_48H
+        value: "false"
+      - key: FAIL_CLOSED_ON_IV_RANK_BUILDING
+        value: "false"
+      - key: FAIL_CLOSED_ON_NEWS_REVIEW
+        value: "false"
+      - key: FAIL_CLOSED_ON_MACRO_OVERLAY
+        value: "false"
+      - key: MACRO_RISK_OVERLAY
+        value: "true"
+      - key: NEWS_RISK_OVERLAY
+        value: "true"
+      - key: MACRO_BLOCK_BEFORE_MINUTES
+        value: "60"
+      - key: MACRO_BLOCK_AFTER_MINUTES
+        value: "30"
       - key: SNAPSHOT_INTERVAL_MINUTES
         value: "60"
       - key: MAX_SNAPSHOT_CONTRACTS

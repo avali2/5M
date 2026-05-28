@@ -66,3 +66,40 @@ test('closed market produces paper practice rather than a live trade signal', ()
   assert.ok(events.some((item) => item.type === AGENT_EVENT_TYPES.PAPER_PRACTICE_SUGGESTED));
   assert.ok(events.some((item) => item.type === AGENT_EVENT_TYPES.NO_TRADE_PROFESSIONAL));
 });
+
+test('guardian emits actionable edge ticket events with trade ticket details', () => {
+  const ticket = {
+    id: 'SPY-edge-ticket',
+    symbol: 'SPY',
+    classification: 'EDGE_READY',
+    riskClass: 'Defined Risk',
+    strategy: 'Bull Put Spread',
+    expiration: '2026-06-26',
+    legsText: 'Sell 585P / Buy 580P',
+    entryLimit: 'Credit >= $0.72',
+    maxRisk: 428,
+    maxProfit: 72,
+    popEstimated: 74,
+    evEstimated: 12,
+    edgeScore: 78,
+    notificationTitle: '🔥 SPY — EDGE_READY',
+    notificationBody: 'Bull Put Spread | POP 74% | Risk: Defined Risk'
+  };
+  const events = evaluateGuardianRules({
+    scan: {
+      asOf: now,
+      opportunities: [],
+      conditionalIdeas: [],
+      decision: { status: 'eligible' },
+      dataHealth: {},
+      guardianEdge: { notifyableTickets: [ticket] }
+    },
+    now,
+    marketStatus: 'regular'
+  });
+  const edgeEvent = events.find((item) => item.type === AGENT_EVENT_TYPES.EDGE_TICKET);
+  assert.ok(edgeEvent);
+  assert.equal(edgeEvent.data.ticket.popEstimated, 74);
+  assert.equal(edgeEvent.data.ticket.riskClass, 'Defined Risk');
+  assert.equal(edgeEvent.channels.includes('webPush'), true);
+});

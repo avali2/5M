@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { access } from 'node:fs/promises';
-import { config, providerStatus, UNIVERSE } from './config.js';
+import { buildInfo, config, UNIVERSE } from './config.js';
 import { cache } from './lib/cache.js';
 import { createProviders } from './providers/index.js';
 import { explainers } from './explainers.js';
@@ -14,6 +14,51 @@ import { GuardianPushStore } from './pushStore.js';
 import { GuardianPushService } from './push.js';
 import { GuardianScheduler } from './guardianScheduler.js';
 import { createGuardianRouter, createPushRouter } from './guardianRoutes.js';
+
+function enabledLabel(value) {
+  return value ? 'enabled' : 'disabled';
+}
+
+function configuredLabel(value) {
+  return value ? 'configured' : 'missing';
+}
+
+function providerHealth(settings, providers) {
+  const openaiStatus = typeof providers.openai?.status === 'function' ? providers.openai.status() : {
+    configured: Boolean(providers.openai?.configured),
+    enabled: false,
+    automaticCalls: false,
+    manualOnly: true,
+    cooldownUntil: null
+  };
+  const geminiStatus = typeof providers.gemini?.status === 'function' ? providers.gemini.status() : {
+    configured: Boolean(providers.gemini?.configured),
+    enabled: false
+  };
+  const aiStatus = typeof providers.ai?.status === 'function' ? providers.ai.status() : null;
+  return {
+    yahoo: enabledLabel(settings.yahoo?.enabled !== false),
+    tradier: configuredLabel(Boolean(settings.tradier?.token)),
+    polygon: configuredLabel(Boolean(settings.polygon?.apiKey)),
+    finnhub: configuredLabel(Boolean(settings.finnhub?.apiKey)),
+    fmp: configuredLabel(Boolean(settings.fmp?.apiKey)),
+    benzinga: configuredLabel(Boolean(settings.benzinga?.apiKey)),
+    alphaVantage: configuredLabel(Boolean(settings.alphaVantage?.apiKey)),
+    gemini: geminiStatus.configured && geminiStatus.enabled ? 'manual_only' : configuredLabel(Boolean(geminiStatus.configured)),
+    geminiConfigured: Boolean(geminiStatus.configured),
+    geminiEnabled: Boolean(geminiStatus.enabled),
+    openai: openaiStatus.cooldownUntil ? 'manual_only_cooldown' : 'manual_only',
+    openaiConfigured: Boolean(openaiStatus.configured),
+    openaiEnabled: Boolean(openaiStatus.enabled),
+    openaiAutomaticCalls: false,
+    aiPrimaryProvider: aiStatus?.primaryProvider || settings.ai?.primaryProvider || 'gemini',
+    aiMode: 'manual_explain_only',
+    aiBudget: aiStatus?.budget || null,
+    activeMarketProvider: providers.market?.name || 'none',
+    activeOptionsProvider: providers.options?.name || 'none',
+    activeNewsProvider: providers.news?.name || 'none'
+  };
+}
 
 export function createApp(settings = config, customProviders = null, options = { startBackground: true }) {
   const app = express();
@@ -61,10 +106,15 @@ export function createApp(settings = config, customProviders = null, options = {
     const accessRequired = Boolean(settings.security?.requireAccessKey);
     const protectedAccess = Boolean(settings.security?.accessKey);
     res.json({
-      status: 'ok',
-      mode: 'fail-closed',
+      ok: true,
+      app: 'VALIDO 1M',
+      env: process.env.NODE_ENV || 'development',
+      version: buildInfo.version,
+      buildTimestamp: buildInfo.timestamp,
+      startedAt: buildInfo.startedAt,
       timestamp: new Date().toISOString(),
-      providers: accessRequired || protectedAccess ? undefined : providerStatus(),
+      providers: providerHealth(settings, providers),
+      mode: 'defined-risk-manual-review',
       protected: protectedAccess,
       accessRequired,
       securityStatus: accessRequired && !protectedAccess ? 'configuration_required' : 'ready',
@@ -137,8 +187,8 @@ export function createApp(settings = config, customProviders = null, options = {
   app.get('/api/explainers', (_req, res) => res.json(explainers));
 
   app.get('/api/ai/status', (_req, res) => {
-    res.json(typeof providers.openai.status === 'function' ? providers.openai.status() : {
-      configured: Boolean(providers.openai.configured),
+    res.json(typeof providers.ai?.status === 'function' ? providers.ai.status() : {
+      configured: Boolean(providers.openai?.configured),
       enabled: false,
       automaticCalls: false
     });
@@ -146,12 +196,21 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/ai/explain', async (_req, res, next) => {
     try {
-      if (!settings.openai?.enabled) {
-        return res.status(409).json({ error: 'Asistente IA desactivado', detail: 'Configura ENABLE_AI_ASSISTANT=true para pedir explicaciones manualmente.' });
-      }
       const scan = await scheduler.snapshot();
-      const narrative = await providers.openai.summarize(scan);
-      return res.json({ narrative, source: 'OpenAI - explicacion solicitada por el usuario', status: providers.openai.status() });
+      if (typeof providers.ai?.explainScan === 'function') {
+        return res.json(await providers.ai.explainScan(scan, { manual: true, automatic: false, purpose: 'manual_explain' }));
+      }
+      return res.status(503).json({ error: 'AI router unavailable' });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.post('/api/ai/test-gemini', async (_req, res, next) => {
+    try {
+      const scan = await scheduler.snapshot();
+      if (typeof providers.ai?.testGemini === 'function') return res.json(await providers.ai.testGemini(scan));
+      return res.status(503).json({ error: 'AI router unavailable' });
     } catch (error) {
       return next(error);
     }
@@ -202,7 +261,15 @@ export async function startServer() {
   const dist = path.resolve('dist');
   try {
     await access(path.join(dist, 'institutional-os.html'));
-    app.use(express.static(dist));
+    app.use(express.static(dist, {
+      setHeaders(res, filePath) {
+        if (/(institutional-os\.html|sw\.js|manifest\.webmanifest)$/.test(filePath)) {
+          res.setHeader('Cache-Control', 'no-store');
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      }
+    }));
     app.get('/', (_req, res) => res.redirect('/institutional-os.html'));
   } catch {
     app.get('/', (_req, res) => res.json({

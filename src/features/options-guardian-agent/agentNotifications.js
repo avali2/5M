@@ -12,11 +12,24 @@ const notificationCopy = {
 };
 
 export function guardianNotificationPayload(event) {
+  const ticket = event.data?.ticket;
+  if (ticket) {
+    return {
+      title: ticket.notificationTitle || `${ticket.symbol} - ${ticket.classification}`,
+      body: ticket.notificationBody || event.message,
+      tag: `guardian-ticket-${ticket.symbol}-${ticket.classification}`,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge-72.png',
+      data: { url: `/institutional-os.html?tab=guardian#${encodeURIComponent(event.id)}`, eventId: event.id, ticketId: ticket.id }
+    };
+  }
   const prefix = event.symbol ? `${event.symbol} - ` : '';
   return {
     title: `${prefix}Options Guardian`,
     body: notificationCopy[event.type] || event.message,
     tag: `guardian-${event.type}-${event.symbol || 'market'}`,
+    icon: '/icons/icon-192.png',
+    badge: '/icons/badge-72.png',
     data: { url: '/institutional-os.html?tab=guardian#guardian', eventId: event.id }
   };
 }
