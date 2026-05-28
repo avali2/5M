@@ -53,14 +53,15 @@ function effectiveEngineState(scan) {
   const approvedSignals = scan?.agent?.approvedSignals || [];
   const rejectedCandidate = scan?.agent?.rejectedCandidates?.[0];
   const hasActionableEdge = ['EDGE_READY', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(edgeStatus);
-  const riskOnlyEdge = ['CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(edgeStatus) && approvedSignals.length === 0;
-  if (riskOnlyEdge) {
+  const unapprovedEdge = hasActionableEdge && approvedSignals.length === 0;
+  if (unapprovedEdge) {
+    const waitingForTrigger = edgeStatus === 'WAIT_TRIGGER';
     return {
-      status: 'NO_TRADE_REAL',
-      label: 'NO TRADE REAL - CANDIDATO RECHAZADO',
+      status: waitingForTrigger ? 'WAIT_TRIGGER' : 'NO_TRADE_REAL',
+      label: waitingForTrigger ? 'SETUP EN ESPERA' : 'NO TRADE REAL - CANDIDATO EN REVISION',
       reasons: rejectedCandidate?.rejectionReasons?.length
         ? rejectedCandidate.rejectionReasons
-        : decision?.reasons || ['El mejor candidato no paso los filtros estrictos de riesgo.']
+        : decision?.reasons || ['El mejor candidato aun no paso filtros estrictos, confirmacion manual o clearance de datos.']
     };
   }
   const softMacroOnly = (scan?.macro?.softImpactEvents?.length || 0) > 0 && !(scan?.macro?.highImpactEvents?.length || 0);
