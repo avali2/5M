@@ -50,7 +50,19 @@ const tone = (status) => ['eligible', 'EDGE_READY'].includes(status)
 function effectiveEngineState(scan) {
   const decision = scan?.decision;
   const edgeStatus = scan?.guardianEdge?.dailyBest?.classification || scan?.guardianEdge?.status;
+  const approvedSignals = scan?.agent?.approvedSignals || [];
+  const rejectedCandidate = scan?.agent?.rejectedCandidates?.[0];
   const hasActionableEdge = ['EDGE_READY', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(edgeStatus);
+  const riskOnlyEdge = ['CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(edgeStatus) && approvedSignals.length === 0;
+  if (riskOnlyEdge) {
+    return {
+      status: 'NO_TRADE_REAL',
+      label: 'NO TRADE REAL - CANDIDATO RECHAZADO',
+      reasons: rejectedCandidate?.rejectionReasons?.length
+        ? rejectedCandidate.rejectionReasons
+        : decision?.reasons || ['El mejor candidato no paso los filtros estrictos de riesgo.']
+    };
+  }
   const softMacroOnly = (scan?.macro?.softImpactEvents?.length || 0) > 0 && !(scan?.macro?.highImpactEvents?.length || 0);
   if (hasActionableEdge) {
     return {
