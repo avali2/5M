@@ -278,6 +278,62 @@ function doNotEnterRules(setup, premium) {
   ].filter(Boolean);
 }
 
+function robinhoodLegText(ticket, leg) {
+  const side = optionSide(leg.side) === 'Sell' ? 'Sell to Open' : 'Buy to Open';
+  const type = optionType(leg.type) === 'P' ? 'Put' : 'Call';
+  return `${side} ${leg.quantity || 1} ${ticket.symbol} ${ticket.expiration || 'EXP'} ${leg.strike} ${type}`;
+}
+
+function buildRobinhoodTicketText(ticket) {
+  return [
+    'Robinhood Ticket:',
+    `Strategy: ${ticket.strategy}`,
+    `Symbol: ${ticket.symbol}`,
+    `Expiration: ${ticket.expiration || 'Confirmar'}`,
+    'Legs:',
+    ...(ticket.legs?.length ? ticket.legs.map((leg) => `- ${robinhoodLegText(ticket, leg)}`) : ['- Confirmar legs exactas en chain']),
+    `Order Type: ${ticket.orderType}`,
+    `Limit: ${ticket.entryLimit}`,
+    `Max Risk: ${dollars(ticket.maxRisk)}`,
+    `Max Profit: ${dollars(ticket.maxProfit)}`,
+    `Breakeven: ${ticket.breakEven || 'No disponible'}`,
+    `Take Profit: ${ticket.takeProfit}`,
+    `Stop Loss: ${ticket.stopLoss}`,
+    `Invalidation: ${ticket.invalidation}`,
+    'Do not use market order. Revisar bid/ask, max loss del broker, eventos y precio antes de enviar.'
+  ].join('\n');
+}
+
+function educationForTicket(ticket, setup, premium) {
+  const isCredit = premium.type === 'credit';
+  const isDebit = premium.type === 'debit';
+  const strategy = String(ticket.strategy || '');
+  const whyStrategy = /Iron/i.test(strategy)
+    ? 'Estrategia neutral: busca vender prima con rango definido; falla si el precio rompe fuerte un lado.'
+    : isCredit
+      ? 'Venta de prima con riesgo definido: buscas cobrar credito mientras el short strike queda defendido por soporte/resistencia.'
+      : isDebit
+        ? 'Spread debit direccional: pagas prima limitada cuando el momentum y el target justifican el riesgo.'
+        : 'Estrategia definida por reglas; usar solo si el riesgo maximo y la salida estan claros.';
+  return {
+    whyStrategy,
+    whatCouldGoWrong: [
+      'El bid/ask cambia y el limite deja de pagar.',
+      'El precio rompe invalidacion tecnica.',
+      'Macro, earnings o noticia cambia el regimen.',
+      'La liquidez no permite salir cerca del mid.'
+    ],
+    beforeEntry: [
+      'Confirmar legs exactas, expiracion y limite en Robinhood.',
+      'Confirmar max loss mostrado por broker.',
+      'Confirmar que POP y delta vienen de chain fresca.',
+      'No entrar si el spread se ensancha o la cotizacion esta stale.'
+    ],
+    educationNote: `POP estimada por ${ticket.popModel}; no es garantia. Max risk y max profit salen del payoff deterministico de la estructura.`,
+    sourceMode: setup.sourceMode || setup.dataSource || ticket.dataSource || 'server-side chain'
+  };
+}
+
 export function buildTradeTicket({ setup, scan, profile, settings = DEFAULT_EDGE_PROFILE }) {
   const premium = getPremium(setup);
   const pop = estimatePop(setup);
@@ -335,6 +391,8 @@ export function buildTradeTicket({ setup, scan, profile, settings = DEFAULT_EDGE
     timestamp: scan?.asOf || new Date().toISOString(),
     sourceSetup: setup
   };
+  ticket.robinhoodTicket = buildRobinhoodTicketText(ticket);
+  ticket.education = educationForTicket(ticket, setup, premium);
   ticket.notificationTitle = `${titleEmoji} ${ticket.symbol} — ${classification}`;
   ticket.notificationBody = [
     `${ticket.strategy} | POP ${pct(ticket.popEstimated)} | Risk: ${riskClass}`,

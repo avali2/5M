@@ -1,41 +1,40 @@
-const strategies = [
-  ['Long Call', 'Alcista, IV baja, movimiento fuerte', 'Prima pagada', 'Theta decay'],
-  ['Long Put', 'Bajista, IV baja, breakdown', 'Prima pagada', 'Theta decay'],
-  ['Bull Call Debit Spread', 'Alcista IV baja/moderada', 'Debito', 'Rally insuficiente'],
-  ['Bear Put Debit Spread', 'Bajista IV baja/moderada', 'Debito', 'Rebote'],
-  ['Bull Put Credit Spread', 'Alcista IV alta/moderada', 'Ancho - credito', 'Caida bajo short put'],
-  ['Bear Call Credit Spread', 'Bajista IV alta/moderada', 'Ancho - credito', 'Subida sobre short call'],
-  ['Iron Condor', 'Lateral, IV alta, gamma estable', 'Ancho mayor - credito', 'Movimiento fuera rango'],
-  ['Iron Butterfly', 'Pin/rango estrecho', 'Ancho - credito', 'Gamma alto'],
-  ['Calendar Spread', 'IV term structure / rango', 'Debito', 'Movimiento/IV adversos'],
-  ['Diagonal Spread', 'Swing con theta gestionada', 'Debito', 'Asignacion/IV'],
-  ['PMCC', 'Largo plazo, cuenta definida', 'Debito LEAPS', 'Caida y short call'],
-  ['Covered Call', 'Acciones en cartera, neutral/alcista', 'Riesgo acciones', 'Pierde upside'],
-  ['Cash Secured Put', 'Comprar acciones a descuento', 'Strike*100 - prima', 'Asignacion en caida'],
-  ['Protective Put', 'Cobertura', 'Prima', 'Costo seguro'],
-  ['Collar', 'Proteccion con cap upside', 'Segun primas', 'Upside limitado'],
-  ['Broken Wing Butterfly', 'Educativo, sesgo moderado', 'Definido', 'Estructura compleja'],
-  ['Ratio Spread', 'Solo paper educativo', 'Puede ser ilimitado', 'No habilitado real'],
-  ['Synthetic Long Stock', 'Solo estudio', 'Alto', 'Asignacion/margen'],
-  ['Synthetic Short Stock', 'Solo estudio', 'Alto', 'Riesgo alcista'],
-  ['0DTE Defined Risk Spread', 'Solo gatillo tecnico', 'Definido reducido', 'Gamma extremo']
-];
+import { STRATEGY_CATALOG } from '../../data/strategyCatalog.js';
+
+const tierTone = (tier) => {
+  if (tier === 'CORE_DEFINED_RISK') return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+  if (tier === 'INCOME_STOCK_BASED') return 'border-blue-200 bg-blue-50 text-blue-900';
+  if (tier === 'ADVANCED_DEFINED_RISK') return 'border-amber-200 bg-amber-50 text-amber-900';
+  if (tier === 'BLOCKED_UNDEFINED_RISK') return 'border-red-200 bg-red-50 text-red-900';
+  return 'border-slate-200 bg-slate-50 text-slate-800';
+};
 
 export default function StrategyLibrary({ onSimulate, onPaper }) {
   return (
     <section id="library" className="panel scroll-mt-24 p-4 md:p-5">
-      <p className="eyebrow text-sigma-blue">Biblioteca de Estrategias</p>
-      <h2 className="mt-1 text-xl font-bold">20 estructuras: cuando usar y cuando evitar</h2>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="eyebrow text-sigma-blue">Biblioteca de Estrategias</p>
+          <h2 className="mt-1 text-xl font-bold">Catalogo completo: READY, paper y bloqueadas</h2>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+            La app puede estudiar muchas estructuras, pero solo marca READY las que pasen datos, riesgo definido, liquidez, macro/news y auditoria Guardian. Naked/undefined risk quedan bloqueadas.
+          </p>
+        </div>
+        <span className="status-chip">{STRATEGY_CATALOG.length} estrategias</span>
+      </div>
       <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {strategies.map(([name, use, risk, avoid]) => (
-          <article className="rounded-xl border border-sigma-line bg-sigma-soft p-3 text-xs" key={name}>
-            <h3 className="font-semibold text-sigma-gold">{name}</h3>
-            <p className="mt-2 text-slate-300"><strong>Usar:</strong> {use}</p>
-            <p className="mt-1 text-slate-300"><strong>Riesgo max:</strong> {risk}</p>
-            <p className="mt-1 text-slate-400"><strong>Evitar:</strong> {avoid}</p>
-            <div className="mt-3 flex gap-2">
-              <button className="btn text-xs" onClick={() => onSimulate?.({ strategy: name, symbol: 'SPY', underlyingPrice: 100, dte: 30 })}>Simular</button>
-              <button className="btn text-xs" onClick={() => onPaper?.({ strategy: name, symbol: 'SPY', underlyingPrice: 100, dte: 30, sourceMode: 'mock educativo' })}>Paper</button>
+        {STRATEGY_CATALOG.map((item) => (
+          <article className={`rounded-xl border p-3 text-xs ${tierTone(item.tier)}`} key={item.id}>
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="font-black">{item.name}</h3>
+              <span className="rounded-full bg-white/75 px-2 py-1 text-[10px] font-bold">{item.readyLabel}</span>
+            </div>
+            <p className="mt-2"><strong>Descripcion:</strong> {item.description}</p>
+            <p className="mt-1"><strong>Usar:</strong> {item.whenToUse}</p>
+            <p className="mt-1"><strong>Gestion:</strong> {item.management}</p>
+            <p className="mt-1"><strong>Sesgo:</strong> {item.preferredBias.join(', ')}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="btn text-xs" onClick={() => onSimulate?.({ strategy: item.name, symbol: 'SPY', underlyingPrice: 100, dte: 30, sourceMode: 'educativo' })}>Simular</button>
+              <button className="btn text-xs" onClick={() => onPaper?.({ strategy: item.name, symbol: 'SPY', underlyingPrice: 100, dte: 30, sourceMode: 'paper educativo' })}>Paper</button>
             </div>
           </article>
         ))}

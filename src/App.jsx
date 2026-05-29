@@ -143,8 +143,8 @@ function AccessGate({ error, onUnlock }) {
 
 function MobileQuickNav() {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-sigma-line bg-sigma-bg/95 px-1 py-2 backdrop-blur md:hidden">
-      {[['decision', 'Inicio'], ['guardian', 'Guardian'], ['pro-signals', 'Senales'], ['lab', 'Simular'], ['paper', 'Paper'], ['journal', 'Journal']].map(([target, label]) => (
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-sigma-line bg-white/95 px-1 py-2 backdrop-blur md:hidden">
+      {[['decision', 'Inicio'], ['pro-signals', 'Senales'], ['signals', 'Scanner'], ['guardian-pro', 'Gemini'], ['journal', 'Journal'], ['settings', 'Config']].map(([target, label]) => (
         <a className="rounded-lg px-2 py-2 text-[11px] font-semibold text-slate-300" href={`#${target}`} key={target}>{label}</a>
       ))}
     </nav>
@@ -153,15 +153,39 @@ function MobileQuickNav() {
 
 function DesktopTabs() {
   const tabs = [
-    ['decision', 'Dashboard'], ['guardian', 'Guardian'], ['pro-signals', 'Senales Pro'], ['signals', 'Scanner'], ['lab', 'Simulador'],
-    ['paper', 'Paper Trading'], ['data-map', 'Fuentes Pro'], ['greeks', 'Greeks'], ['gex-lab', 'GEX Lab'],
-    ['moving-averages', 'Medias'], ['trading-plan', 'Plan'], ['library', 'Biblioteca'], ['tape-lab', 'Tape'],
-    ['options-flow', 'Flow'], ['algo-lab', 'Algo'], ['replay', 'Replay'], ['journal', 'Journal'], ['notification-status', 'Alertas'], ['settings', 'Config']
+    ['decision', 'Inicio'],
+    ['pro-signals', 'Senales'],
+    ['signals', 'Scanner'],
+    ['guardian-pro', 'Gemini'],
+    ['risk', 'Riesgo'],
+    ['journal', 'Journal'],
+    ['education', 'Educacion'],
+    ['settings', 'Settings']
   ];
   return (
     <nav className="hidden overflow-x-auto rounded-xl border border-sigma-line bg-sigma-elevated p-2 md:flex md:gap-1">
       {tabs.map(([target, label]) => <a className="whitespace-nowrap rounded-lg px-3 py-2 text-xs text-slate-600 hover:bg-sigma-soft hover:text-slate-950" href={`#${target}`} key={target}>{label}</a>)}
     </nav>
+  );
+}
+
+function CollapsibleSection({ id, title, subtitle, children, defaultOpen = false }) {
+  return (
+    <section id={id} className="panel scroll-mt-24 overflow-hidden">
+      <details open={defaultOpen}>
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-4 md:px-5">
+          <div>
+            <p className="eyebrow">Modulo secundario</p>
+            <h2 className="mt-1 text-lg font-black text-slate-950">{title}</h2>
+            {subtitle && <p className="mt-1 text-xs leading-5 text-slate-500">{subtitle}</p>}
+          </div>
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">Abrir / cerrar</span>
+        </summary>
+        <div className="space-y-5 border-t border-sigma-line bg-slate-50/60 p-4 md:p-5">
+          {children}
+        </div>
+      </details>
+    </section>
   );
 }
 
@@ -861,7 +885,42 @@ function edgeCardTone(classification) {
   return 'border-slate-200 bg-white text-slate-900';
 }
 
-function PriorityAlertsStrip({ scan, onSimulate, onPaper, onAiExplain }) {
+function formatRobinhoodTicket(ticket = {}) {
+  const legs = ticket.legs?.length
+    ? ticket.legs.map((leg) => {
+      const side = /sell/i.test(leg.side || leg.action || '') ? 'Sell to Open' : 'Buy to Open';
+      const type = String(leg.type || '').toUpperCase();
+      return `${side} ${leg.quantity || 1} ${ticket.symbol} ${ticket.expiration || 'EXP'} ${leg.strike} ${type}`;
+    })
+    : [ticket.legsText || 'Confirmar legs en cadena'];
+  return [
+    `Robinhood Ticket - VALIDO 1M`,
+    `Symbol: ${ticket.symbol || 'N/D'}`,
+    `Strategy: ${ticket.strategy || 'N/D'}`,
+    `Action in Robinhood: ${ticket.robinhoodAction || ticket.orderType || 'Limit order'}`,
+    `Expiration: ${ticket.expiration || 'Confirmar'}`,
+    'Legs:',
+    ...legs.map((leg) => `- ${leg}`),
+    `Limit: ${ticket.entryLimit || 'Confirmar bid/ask'}`,
+    `Max Risk: ${cash(ticket.maxRisk)}`,
+    `Max Profit: ${cash(ticket.maxProfit)}`,
+    `Breakeven: ${ticket.breakEven || 'Confirmar'}`,
+    `Take Profit: ${ticket.takeProfit || 'Plan no disponible'}`,
+    `Stop Loss: ${ticket.stopLoss || 'Plan no disponible'}`,
+    `Invalidation: ${ticket.invalidation || 'Revalidar soporte/resistencia y macro/news'}`,
+    'Warning: revisar cadena, bid/ask, max loss del broker y contexto macro antes de enviar. No usar market order.'
+  ].join('\n');
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  return false;
+}
+
+function PriorityAlertsStrip({ scan, onSimulate, onPaper, onJournal, onCopyTicket, onAiExplain }) {
   const approvedTickets = (scan?.guardianEdge?.actionableTickets || []).slice(0, 3);
   const reviewTickets = approvedTickets.length ? [] : (scan?.guardianEdge?.candidateTickets || scan?.guardianEdge?.tickets || []).slice(0, 3);
   const tickets = approvedTickets.length ? approvedTickets : reviewTickets;
@@ -902,11 +961,16 @@ function PriorityAlertsStrip({ scan, onSimulate, onPaper, onAiExplain }) {
             <p className="mt-3 rounded-lg bg-white/70 p-2 text-xs"><strong>Legs:</strong> {ticket.legsText || 'Confirmar chain'}</p>
             <p className="mt-2 rounded-lg bg-white/70 p-2 text-xs"><strong>Limit:</strong> {ticket.entryLimit}</p>
             <p className="mt-2 text-xs"><strong>Invalidacion:</strong> {ticket.invalidation}</p>
+            {ticket.education?.whyStrategy && (
+              <p className="mt-2 rounded-lg bg-white/70 p-2 text-xs"><strong>Aprendizaje:</strong> {ticket.education.whyStrategy}</p>
+            )}
             {showingReviewOnly && <p className="mt-2 rounded-lg border border-amber-200 bg-white/80 p-2 text-xs font-semibold text-amber-900">Gemini/Risk Guard no lo aprobo como entrada real. Usar solo para revision, simulador o paper.</p>}
             {ticket.tapeProxy && <p className="mt-2 text-xs"><strong>Tape proxy:</strong> {ticket.tapeProxy.label} ({ticket.tapeProxy.pressureScore})</p>}
             <div className="mt-3 flex flex-wrap gap-2">
+              <button className="btn btn-primary text-xs" onClick={() => onCopyTicket?.(ticket)}>Copiar ticket</button>
               <button className="btn text-xs" onClick={() => onSimulate?.(ticket.sourceSetup || ticket)}>Simular</button>
               <button className="btn text-xs" onClick={() => onPaper?.(ticket.sourceSetup || ticket)}>Guardar paper</button>
+              <button className="btn text-xs" onClick={() => onJournal?.(ticket)}>Journal</button>
               <button className="btn text-xs" onClick={onAiExplain}>Explicar</button>
             </div>
           </article>
@@ -1241,6 +1305,31 @@ export default function App() {
     window.dispatchEvent(new Event('journal-updated'));
   }
 
+  async function copyGuardianTicket(ticket) {
+    await copyText(ticket.robinhoodTicket || formatRobinhoodTicket(ticket));
+  }
+
+  async function saveTicketToJournal(ticket) {
+    await api.addJournal({
+      symbol: ticket.symbol,
+      strategy: ticket.strategy,
+      outcome: ticket.classification?.includes('READY') ? 'OBSERVADA' : 'PAPER TRADE',
+      reason: ticket.notificationBody || ticket.education?.whyStrategy || ticket.invalidation,
+      plannedEntry: ticket.entryLimit,
+      plannedExit: `${ticket.takeProfit || ''} / ${ticket.stopLoss || ''}`.trim(),
+      notes: ticket.robinhoodTicket || formatRobinhoodTicket(ticket),
+      lesson: ticket.education?.educationNote || ticket.education?.whyStrategy || 'Revisar bid/ask, max loss, invalidacion y plan antes de cualquier decision.',
+      source: 'guardian-edge-ticket',
+      confidence: ticket.edgeScore,
+      maxRisk: ticket.maxRisk,
+      maxProfit: ticket.maxProfit,
+      expiration: ticket.expiration,
+      createdFromTicketId: ticket.id
+    });
+    window.dispatchEvent(new Event('journal-updated'));
+    window.setTimeout(() => document.getElementById('journal')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  }
+
   if (locked) return <AccessGate error={accessError} onUnlock={unlock} />;
 
   return (
@@ -1250,7 +1339,7 @@ export default function App() {
         <DesktopTabs />
         {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-sigma-red">{error}</div>}
         <GeminiGuardianCommandCenter scan={scan} loading={loading} onRefresh={() => load(true)} onAiExplain={openAiPanel} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
-        <PriorityAlertsStrip scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} onAiExplain={openAiPanel} />
+        <PriorityAlertsStrip scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} onJournal={saveTicketToJournal} onCopyTicket={copyGuardianTicket} onAiExplain={openAiPanel} />
         <DecisionHero scan={scan} />
         <GuardianPanel
           scan={scan}
@@ -1261,47 +1350,65 @@ export default function App() {
           onOpenJournal={() => document.getElementById('journal')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           onAiExplain={openAiPanel}
         />
-        <DailyAssistant scan={scan} />
-        <DailyLearningCards scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
-        <DataCollectionPanel scan={scan} />
         <DataHealthPanel scan={scan} />
         <div className="grid gap-5 xl:grid-cols-[315px_minmax(0,1fr)]">
           <aside className="order-2 space-y-4 xl:order-1">
-            <ProviderCoverage scan={scan} />
             <NotificationCenter enabled={notificationEnabled} onEnabled={setNotificationEnabled} />
             <AiStatusPanel scan={scan} />
             <WatchlistAndProfile scan={scan} onSaveWatchlist={async (symbols) => { await api.saveWatchlist(symbols); load(true); }} onSaveProfile={async (profile) => { await api.saveProfile(profile); load(true); }} />
-            <Explainers onOpen={setSelectedExplainer} />
           </aside>
           <div className="order-1 space-y-5 xl:order-2">
             <RiskDesk scan={scan} />
-            <RiskGovernorPanel scan={scan} />
-            <MarketSentiment scan={scan} />
+            <ProSignals scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} onAudit={setAuditItem} onAiExplain={openAiPanel} />
+            <ScannerBoards scan={scan} />
             <TopOpportunities scan={scan} onSimulate={simulateSetup} />
             <ConditionalIdeas scan={scan} onSimulate={simulateSetup} />
-            <ProSignals scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} onAudit={setAuditItem} onAiExplain={openAiPanel} />
-            <SofiDesk scan={scan} />
-            <MarketDashboard scan={scan} onExplain={setSelectedExplainer} />
-            <GammaDesk scan={scan} onExplain={setSelectedExplainer} />
-            <ScannerBoards scan={scan} />
-            <SmartMoney scan={scan} />
+            <RiskGovernorPanel scan={scan} />
             <RisksAndEvents scan={scan} />
             <NewsPanel scan={scan} />
             <OptionsStrategyLab prefillSetup={simulationSetup} profile={scan?.profile} onSaveJournal={saveSimulationJournal} onSendPaper={paperSetupTrade} />
             <PaperTradingDesk importedSetup={paperSetup} profile={scan?.profile} onSaveJournal={saveSimulationJournal} onReplay={setReplayTrade} />
-            <ProDataMap scan={scan} />
-            <GreeksVolatilityAcademy />
-            <GexLab scan={scan} />
-            <MovingAveragePlaybook scan={scan} />
-            <TradingPlan scan={scan} onAiExplain={openAiPanel} />
-            <StrategyLibrary onSimulate={simulateSetup} onPaper={paperSetupTrade} />
-            <TapeReadingLab scan={scan} />
-            <OptionsFlowLite scan={scan} />
-            <AlgorithmicStrategyLab onPaper={paperSetupTrade} />
-            <PracticeReplay importedTrade={replayTrade} />
-            <LearningCenter scan={scan} />
-            <LearningRoadmap onSimulate={simulateSetup} onPaper={paperSetupTrade} />
             <TradeJournal scan={scan} />
+            <CollapsibleSection
+              id="education"
+              title="Educacion y companero Gemini"
+              subtitle="Conceptos, plan de trading, Greeks, estrategias y lecciones. Abre esto cuando quieras estudiar, no para decidir una entrada urgente."
+            >
+              <DailyAssistant scan={scan} />
+              <DailyLearningCards scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+              <GreeksVolatilityAcademy />
+              <TradingPlan scan={scan} onAiExplain={openAiPanel} />
+              <StrategyLibrary onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+              <LearningCenter scan={scan} />
+              <LearningRoadmap onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+            </CollapsibleSection>
+            <CollapsibleSection
+              id="advanced-labs"
+              title="Advanced / Paper Only Labs"
+              subtitle="Flujo, tape proxy, GEX, algoritmos y replay. Son herramientas de contexto o practica; no convierten un trade en READY por si solas."
+            >
+              <MarketSentiment scan={scan} />
+              <SofiDesk scan={scan} />
+              <MarketDashboard scan={scan} onExplain={setSelectedExplainer} />
+              <GammaDesk scan={scan} onExplain={setSelectedExplainer} />
+              <SmartMoney scan={scan} />
+              <GexLab scan={scan} />
+              <MovingAveragePlaybook scan={scan} />
+              <TapeReadingLab scan={scan} />
+              <OptionsFlowLite scan={scan} />
+              <AlgorithmicStrategyLab onPaper={paperSetupTrade} />
+              <PracticeReplay importedTrade={replayTrade} />
+            </CollapsibleSection>
+            <CollapsibleSection
+              id="diagnostics"
+              title="Fuentes, formulas y diagnostico"
+              subtitle="Aqui vive la trazabilidad completa: providers, formularios, data map y explainers."
+            >
+              <ProviderCoverage scan={scan} />
+              <DataCollectionPanel scan={scan} />
+              <ProDataMap scan={scan} />
+              <Explainers onOpen={setSelectedExplainer} />
+            </CollapsibleSection>
           </div>
         </div>
         <footer className="border-t border-sigma-line py-5 text-xs leading-5 text-slate-500">

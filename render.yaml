@@ -77,23 +77,23 @@ services:
       - key: AI_MANUAL_EXPLAIN
         value: "true"
       - key: AI_DAILY_TOKEN_BUDGET
-        value: "60000"
+        value: "90000"
       - key: AI_DAILY_REQUEST_BUDGET
-        value: "18"
+        value: "28"
       - key: AI_MAX_INPUT_TOKENS_PER_CALL
         value: "2200"
       - key: AI_MAX_OUTPUT_TOKENS_PER_CALL
-        value: "650"
+        value: "800"
       - key: AI_MAX_TOTAL_TOKENS_PER_CALL
         value: "3000"
       - key: AI_FALLBACK_TO_DETERMINISTIC
         value: "true"
       - key: AI_MIN_AUTOMATIC_CALL_INTERVAL_MINUTES
-        value: "20"
+        value: "10"
       - key: AI_COOLDOWN_AFTER_429_MINUTES
         value: "120"
       - key: AI_DISABLE_AUTO_AT_USAGE_PERCENT
-        value: "85"
+        value: "90"
       - key: AI_DISABLE_ALL_AT_USAGE_PERCENT
         value: "97"
       - key: ENABLE_OPENAI
@@ -135,15 +135,15 @@ services:
       - key: AGENT_CREDIT_REVIEW_MIN_SCORE
         value: "60"
       - key: AGENT_REVIEW_TOP_N
-        value: "5"
+        value: "8"
       - key: AGENT_CACHE_TTL_MINUTES
         value: "180"
       - key: AGENT_MAX_AI_VERIFICATIONS_PER_DAY
-        value: "16"
+        value: "24"
       - key: AGENT_MINUTES_BETWEEN_AI_CALLS
-        value: "20"
+        value: "10"
       - key: AGENT_DISABLE_AI_AT_USAGE_PERCENT
-        value: "85"
+        value: "90"
       - key: AGENT_FAILSAFE_DETERMINISTIC
         value: "true"
       - key: AGENT_REQUIRE_STRUCTURED_JSON

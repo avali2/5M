@@ -127,6 +127,24 @@ function CommandTile({ label, value, tone = 'info' }) {
   );
 }
 
+function buildMorningBrief({ scan, signals, rejected, nonClearGuards, source }) {
+  const marketRegime = scan?.market?.regime || scan?.marketRegime || 'DATA INSUFFICIENT';
+  const bestSignal = signals[0];
+  const bestRejected = rejected[0];
+  const mainGuard = nonClearGuards[0];
+  const strategyBias = bestSignal
+    ? bestSignal.strategy
+    : bestRejected?.strategy || 'credit spreads solo si hay chain, liquidez y macro clear';
+  return {
+    market: `Hoy el mercado esta en modo ${marketRegime}. Fuente principal: ${source}.`,
+    risk: mainGuard ? `Riesgo principal: ${mainGuard[0]} - ${mainGuard[1]?.detail || mainGuard[1]?.status}` : 'Riesgo principal: sin bloqueo fuerte reportado por guards.',
+    strategy: `Tipo de estrategia favorecida: ${strategyBias}. Prioridad a riesgo definido y venta de prima cuando el credito paga.`,
+    watch: bestSignal ? `Vigilar: ${bestSignal.ticker} ya tiene candidato aprobado.` : bestRejected ? `Vigilar: ${bestRejected.ticker} si mejora ${bestRejected.rejectionReasons?.[0] || 'score/liquidez'}.` : 'Vigilar: SPY, QQQ y nombres liquidos hasta que haya chain valida.',
+    avoid: bestRejected?.rejectionReasons?.[0] || 'Evitar entradas sin bid/ask fresco, max risk, earnings clearance y confirmacion Guardian.',
+    recommendation: bestSignal ? 'Mi recomendacion operativa: revisar ticket en Robinhood, no perseguir precio y respetar invalidacion.' : 'Mi recomendacion operativa: ESPERAR / NO TRADE hasta que los datos y guards permitan una entrada limpia.'
+  };
+}
+
 export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, onAiExplain, onSimulate, onPaper }) {
   const agent = scan?.agent || {};
   const budget = agent.tokenBudget || {};
@@ -144,6 +162,7 @@ export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, 
     `Data: ${source}; refresh ${(scan?.refreshSeconds || 300) / 60} min.`
   ];
   const avoid = rejected[0]?.rejectionReasons?.[0] || 'Evitar entradas sin chain fresca, max loss y confirmacion Guardian.';
+  const morningBrief = buildMorningBrief({ scan, signals, rejected, nonClearGuards, source });
   return (
     <section className="guardian-pro-shell scroll-mt-24" id="guardian-pro">
       <div className="guardian-hero">
@@ -174,6 +193,22 @@ export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, 
         <CommandTile label="Que puedo operar ahora" value={signals[0] ? `${signals[0].ticker} ${signals[0].strategy}` : 'Nada aprobado: solo watchlist/paper'} tone={signals[0] ? 'success' : 'warning'} />
         <CommandTile label="Que debo esperar" value={rejected[0] ? `${rejected[0].ticker} requiere mejora: ${rejected[0].rejectionReasons?.[0] || 'validacion pendiente'}` : 'Nuevo escaneo con chain y guards frescos'} />
         <CommandTile label="Que debo evitar" value={avoid} tone={avoid.toLowerCase().includes('bloque') || avoid.toLowerCase().includes('riesgo') ? 'danger' : 'warning'} />
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-950">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[.16em] text-violet-700">Gemini Morning Brief</p>
+            <h3 className="mt-1 text-xl font-black">Companero operativo, no calculadora de precios</h3>
+          </div>
+          <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-violet-700">{aiGuardian.lastReviewAt ? 'IA reviso candidatos' : 'Fallback deterministico visible'}</span>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {Object.entries(morningBrief).map(([key, value]) => (
+            <p className="rounded-xl bg-white/75 p-3" key={key}>{value}</p>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-violet-800">Gemini puede gastar tokens en auditorias y explicaciones cuando hay candidatos suficientes; si falta dato critico, el resultado correcto sigue siendo NO TRADE o revision manual.</p>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
