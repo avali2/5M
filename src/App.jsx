@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'motion/react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from './lib/api.js';
 import NotificationCenter from './features/notifications/NotificationCenter.jsx';
-import { showMobileSafeNotification } from './services/notifications.js';
 import OptionsStrategyLab from './features/options-simulator/OptionsStrategyLab.jsx';
 import LearningCenter from './features/learning/LearningCenter.jsx';
 import LearningRoadmap from './features/learning/LearningRoadmap.jsx';
@@ -25,22 +23,15 @@ import SourceFormulaAudit from './features/source-formula-audit/SourceFormulaAud
 import DailyLearningCards from './features/dashboard-education/DailyLearningCards.jsx';
 import GuardianPanel from './features/options-guardian-agent/GuardianPanel.jsx';
 import GeminiGuardianCommandCenter from './components/GeminiGuardianCommandCenter.jsx';
+import { HomePro } from './components/HomePro.tsx';
+import { processProfessionalAlerts } from './services/proAlertEngine.ts';
+import { geminiBriefFromScan, marketPulseFromScan, professionalSignalsFromScan } from './utils/proSignalAdapter.js';
 
 const cash = (value) => Number.isFinite(value) ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : '--';
 const decimal = (value, digits = 1) => Number.isFinite(value) ? Number(value).toFixed(digits) : '--';
 const dateTime = (value) => value ? new Intl.DateTimeFormat('es-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }).format(new Date(value)) : '--';
 const VALIDO_BUILD_VERSION = import.meta.env.VITE_VALIDO_BUILD_VERSION || 'local-dev';
 const VALIDO_BUILD_TIMESTAMP = import.meta.env.VITE_VALIDO_BUILD_TIMESTAMP || 'no timestamp';
-const EDGE_LABELS = {
-  EDGE_READY: 'EDGE READY',
-  AGGRESSIVE_EDGE: 'EDGE AGRESIVO DETECTADO',
-  TRADE_CANDIDATE: 'CANDIDATO DE ENTRADA',
-  WAIT_TRIGGER: 'SETUP EN ESPERA',
-  CAPITAL_HEAVY: 'CAPITAL HEAVY',
-  HIGH_POP_BAD_PAYOUT: 'HIGH POP BAD PAYOUT',
-  NO_READY: 'NO READY',
-  NO_TRADE_REAL: 'NO TRADE REAL'
-};
 const CHART_THEME = {
   grid: '#d7e2ef',
   axis: '#64748b',
@@ -55,73 +46,8 @@ const CHART_THEME = {
   tooltipItem: { color: 'var(--text-main)' },
   cursor: { fill: 'rgba(37, 99, 235, 0.08)' }
 };
-const tone = (status) => ['eligible', 'EDGE_READY'].includes(status)
-  ? 'text-sigma-green border-sigma-green/40 bg-emerald-500/10'
-  : ['configuration_required', 'conditional_edge', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT', 'soft_macro'].includes(status)
-    ? 'text-sigma-amber border-sigma-amber/40 bg-amber-500/10'
-    : 'text-sigma-red border-sigma-red/40 bg-red-500/10';
-
-function effectiveEngineState(scan) {
-  const decision = scan?.decision;
-  const edgeStatus = scan?.guardianEdge?.dailyBest?.classification || scan?.guardianEdge?.status;
-  const approvedSignals = scan?.agent?.approvedSignals || [];
-  const rejectedCandidate = scan?.agent?.rejectedCandidates?.[0];
-  const hasActionableEdge = ['EDGE_READY', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(edgeStatus);
-  const unapprovedEdge = hasActionableEdge && approvedSignals.length === 0;
-  if (unapprovedEdge) {
-    const waitingForTrigger = edgeStatus === 'WAIT_TRIGGER';
-    return {
-      status: waitingForTrigger ? 'WAIT_TRIGGER' : 'NO_TRADE_REAL',
-      label: waitingForTrigger ? 'SETUP EN ESPERA' : 'NO TRADE REAL - CANDIDATO EN REVISION',
-      reasons: rejectedCandidate?.rejectionReasons?.length
-        ? rejectedCandidate.rejectionReasons
-        : decision?.reasons || ['El mejor candidato aun no paso filtros estrictos, confirmacion manual o clearance de datos.']
-    };
-  }
-  const softMacroOnly = (scan?.macro?.softImpactEvents?.length || 0) > 0 && !(scan?.macro?.highImpactEvents?.length || 0);
-  if (hasActionableEdge) {
-    return {
-      status: edgeStatus,
-      label: EDGE_LABELS[edgeStatus] || edgeStatus,
-      reasons: decision?.reasons || []
-    };
-  }
-  if (softMacroOnly && decision?.status !== 'eligible') {
-    return {
-      status: 'soft_macro',
-      label: 'RIESGO MACRO CERCANO - SOFT WARNING',
-      reasons: decision?.reasons || []
-    };
-  }
-  if (!decision) return { status: 'loading', label: 'CARGANDO ENGINE', reasons: [] };
-  return decision;
-}
-
 function Empty({ children }) {
   return <div className="rounded-xl border border-dashed border-sigma-line p-6 text-center text-sm text-slate-500">{children}</div>;
-}
-
-function Header({ scan, loading, onRefresh, seconds }) {
-  const engine = effectiveEngineState(scan);
-  return (
-    <header className="sticky top-0 z-30 border-b border-sigma-line/80 bg-white/88 px-4 backdrop-blur-xl md:px-8">
-      <div className="mx-auto flex min-h-[68px] max-w-[1540px] flex-wrap items-center justify-between gap-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-amber-200 via-sigma-gold to-amber-700 text-xl font-black text-slate-950">V</div>
-          <div>
-            <h1 className="text-[15px] font-bold tracking-[.08em] text-slate-950">VALIDO 1M PRO</h1>
-            <p className="text-[11px] text-slate-500">Institutional OS. Signals first. Risk always.</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="status-chip">{engine.label}</span>
-          <span className="status-chip font-mono">Refresh {seconds}s</span>
-          <span className="hidden text-xs text-slate-500 sm:inline">{dateTime(scan?.asOf)} ET</span>
-          <button className="btn" disabled={loading} onClick={onRefresh}>{loading ? 'Escaneando...' : 'Escanear ahora'}</button>
-        </div>
-      </div>
-    </header>
-  );
 }
 
 function AccessGate({ error, onUnlock }) {
@@ -143,9 +69,9 @@ function AccessGate({ error, onUnlock }) {
 
 function MobileQuickNav() {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-sigma-line bg-white/95 px-1 py-2 backdrop-blur md:hidden">
-      {[['decision', 'Inicio'], ['pro-signals', 'Senales'], ['signals', 'Scanner'], ['guardian-pro', 'Gemini'], ['journal', 'Journal'], ['settings', 'Config']].map(([target, label]) => (
-        <a className="rounded-lg px-2 py-2 text-[11px] font-semibold text-slate-300" href={`#${target}`} key={target}>{label}</a>
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-[#26364f] bg-[#07111f]/95 px-1 py-2 backdrop-blur md:hidden">
+      {[['decision', 'Inicio'], ['signals', 'Senales'], ['gemini', 'Gemini'], ['news', 'Noticias'], ['risk', 'Riesgo'], ['journal', 'Journal'], ['settings', 'Config']].map(([target, label]) => (
+        <a className="rounded-lg px-2 py-2 text-[10px] font-semibold text-slate-300" href={`#${target}`} key={target}>{label}</a>
       ))}
     </nav>
   );
@@ -154,17 +80,16 @@ function MobileQuickNav() {
 function DesktopTabs() {
   const tabs = [
     ['decision', 'Inicio'],
-    ['pro-signals', 'Senales'],
-    ['signals', 'Scanner'],
-    ['guardian-pro', 'Gemini'],
+    ['signals', 'Senales'],
+    ['gemini', 'Gemini'],
+    ['news', 'Noticias'],
     ['risk', 'Riesgo'],
     ['journal', 'Journal'],
-    ['education', 'Educacion'],
-    ['settings', 'Settings']
+    ['settings', 'Configuracion']
   ];
   return (
-    <nav className="hidden overflow-x-auto rounded-xl border border-sigma-line bg-sigma-elevated p-2 md:flex md:gap-1">
-      {tabs.map(([target, label]) => <a className="whitespace-nowrap rounded-lg px-3 py-2 text-xs text-slate-600 hover:bg-sigma-soft hover:text-slate-950" href={`#${target}`} key={target}>{label}</a>)}
+    <nav className="mx-auto hidden overflow-x-auto rounded-xl border border-[#26364f] bg-[#0b1728] p-2 md:flex md:gap-1" style={{ width: 'min(1180px, calc(100% - 28px))' }}>
+      {tabs.map(([target, label]) => <a className="whitespace-nowrap rounded-lg px-3 py-2 text-xs text-slate-300 hover:bg-[#1d3557] hover:text-white" href={`#${target}`} key={target}>{label}</a>)}
     </nav>
   );
 }
@@ -186,45 +111,6 @@ function CollapsibleSection({ id, title, subtitle, children, defaultOpen = false
         </div>
       </details>
     </section>
-  );
-}
-
-function DecisionHero({ scan }) {
-  const decision = effectiveEngineState(scan);
-  if (!decision) return <div className="panel h-64 animate-pulse bg-sigma-elevated" />;
-  const heroSummary = decision.status === 'NO_TRADE_REAL'
-    ? decision.reasons?.join(' ') || 'No hay senal aprobada. El motor sigue vigilando candidatos, pero no hay entrada limpia.'
-    : scan?.summary || decision.reasons?.join(' ') || 'Cargando datos del engine...';
-  return (
-    <motion.section id="decision" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`panel scroll-mt-24 border p-5 md:p-7 ${tone(decision.status)}`}>
-      <div className="grid gap-7 lg:grid-cols-[1.35fr_.95fr]">
-        <div>
-          <div className="eyebrow">Autonomous Market Intelligence Engine</div>
-          <h2 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">{decision.label}</h2>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-            {heroSummary}
-          </p>
-          {scan?.summaryWarning && (
-            <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-sigma-amber">
-              IA manual no disponible: {scan.summaryWarning}. El scanner no depende de OpenAI y sigue funcionando.
-            </p>
-          )}
-          {decision.reasons?.length > 0 && (
-            <div className="mt-5 space-y-2">
-              {decision.reasons.map((reason) => (
-                <p className="rounded-lg border border-current/20 bg-black/15 px-3 py-2 text-xs" key={reason}>{reason}</p>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <HeroMetric name="Regimen" value={scan?.market?.regime || 'Blocked'} />
-          <HeroMetric name="VIX real" value={Number.isFinite(scan?.market?.vix) ? decimal(scan.market.vix) : 'No feed'} />
-          <HeroMetric name="Breadth" value={Number.isFinite(scan?.market?.breadth) ? `${scan.market.breadth}%` : 'No feed'} />
-          <HeroMetric name="Fuente resumen" value={scan?.summarySource || 'Motor de reglas'} />
-        </div>
-      </div>
-    </motion.section>
   );
 }
 
@@ -257,15 +143,6 @@ function DailyAssistant({ scan }) {
         </div>
       </div>
     </section>
-  );
-}
-
-function HeroMetric({ name, value }) {
-  return (
-    <div className="rounded-xl border border-sigma-line/70 bg-black/20 p-3">
-      <p className="eyebrow">{name}</p>
-      <p className="mt-2 text-sm font-semibold text-white">{value}</p>
-    </div>
   );
 }
 
@@ -1246,16 +1123,12 @@ export default function App() {
       setAccessError('');
       setScan(data);
       setSeconds(data.refreshSeconds || 300);
-      const newest = data.alerts?.[0];
-      if (notificationEnabled && newest && newest.key !== latestAlert.current) {
-        await showMobileSafeNotification({
-          title: newest.kind === 'a_setup' ? 'Valido 1M: setup detectado' : 'Valido 1M: NO TRADE',
-          body: newest.message,
-          tag: newest.key,
-          data: { url: '/institutional-os.html#signals' }
-        });
+      const proSignals = professionalSignalsFromScan(data);
+      const newest = proSignals.find((signal) => ['READY', 'AGGRESSIVE', '0DTE_SCALP'].includes(signal.status));
+      if (notificationEnabled && newest && newest.id !== latestAlert.current) {
+        await processProfessionalAlerts(proSignals);
       }
-      latestAlert.current = newest?.key || null;
+      latestAlert.current = newest?.id || null;
     } catch (loadError) {
       if (loadError.status === 401) {
         setLocked(true);
@@ -1280,6 +1153,16 @@ export default function App() {
   }, [scan?.refreshSeconds, notificationEnabled]);
 
   const selected = useMemo(() => selectedExplainer ? explainers[selectedExplainer] : null, [selectedExplainer, explainers]);
+  const professionalSignals = useMemo(() => professionalSignalsFromScan(scan || {}), [scan]);
+  const marketPulse = useMemo(() => marketPulseFromScan(scan || {}), [scan]);
+  const geminiBrief = useMemo(() => geminiBriefFromScan(scan || {}, professionalSignals), [scan, professionalSignals]);
+  const archiveMode = typeof window !== 'undefined' && ['/archivo', '/laboratorio', '/dev'].some((path) => window.location.pathname.startsWith(path));
+  const alertStatus = useMemo(() => ({
+    pushEnabled: notificationEnabled,
+    lastAlert: latestAlert.current,
+    lastError: error || null,
+    nextScan: seconds ? `${seconds}s` : null
+  }), [notificationEnabled, error, seconds]);
   async function unlock(key) {
     api.setAccessKey(key);
     api.explainers().then(setExplainers).catch(() => {});
@@ -1330,92 +1213,129 @@ export default function App() {
     window.setTimeout(() => document.getElementById('journal')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   }
 
+  async function saveProfessionalSignal(signal) {
+    await api.addJournal({
+      symbol: signal.symbol,
+      strategy: signal.strategyLabel,
+      outcome: signal.status === 'READY' ? 'OBSERVADA' : signal.status,
+      reason: signal.geminiCoach?.summary || signal.technicalSummary,
+      plannedEntry: signal.executionPlan.entryTrigger,
+      plannedExit: `${signal.executionPlan.takeProfit} / ${signal.executionPlan.stopLoss}`,
+      notes: signal.ticketText,
+      lesson: signal.geminiCoach?.mainRisk || 'Riesgo primero: confirmar datos antes de actuar.',
+      source: 'professional-signal-console',
+      confidence: signal.score,
+      maxRisk: signal.maxRiskUsd,
+      maxProfit: signal.maxProfitUsd,
+      expiration: signal.expiration
+    });
+    window.dispatchEvent(new Event('journal-updated'));
+  }
+
+  async function copyProfessionalSignal(signal) {
+    await copyText(signal.ticketText);
+  }
+
+  function viewProfessionalSignal(signal) {
+    window.history.replaceState(null, '', `/signals/${encodeURIComponent(signal.id)}`);
+    setAuditItem({ metric: 'Professional Signal', setup: signal });
+  }
+
+  function dismissProfessionalSignal(signal) {
+    latestAlert.current = signal.id;
+  }
+
   if (locked) return <AccessGate error={accessError} onUnlock={unlock} />;
 
   return (
-    <div className="min-h-screen bg-sigma-bg text-sigma-text">
-      <Header scan={scan} loading={loading} onRefresh={() => load(true)} seconds={seconds} />
-      <main className="mx-auto max-w-[1540px] space-y-5 px-4 py-5 pb-20 md:px-8 md:pb-5">
-        <DesktopTabs />
-        {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-sigma-red">{error}</div>}
-        <GeminiGuardianCommandCenter scan={scan} loading={loading} onRefresh={() => load(true)} onAiExplain={openAiPanel} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
-        <PriorityAlertsStrip scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} onJournal={saveTicketToJournal} onCopyTicket={copyGuardianTicket} onAiExplain={openAiPanel} />
-        <DecisionHero scan={scan} />
-        <GuardianPanel
-          scan={scan}
-          onSimulate={simulateSetup}
-          onPaper={paperSetupTrade}
-          onRefresh={() => load(true)}
-          onOpenChecklist={() => document.getElementById('paper')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-          onOpenJournal={() => document.getElementById('journal')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-          onAiExplain={openAiPanel}
-        />
-        <DataHealthPanel scan={scan} />
-        <div className="grid gap-5 xl:grid-cols-[315px_minmax(0,1fr)]">
-          <aside className="order-2 space-y-4 xl:order-1">
-            <NotificationCenter enabled={notificationEnabled} onEnabled={setNotificationEnabled} />
-            <AiStatusPanel scan={scan} />
-            <WatchlistAndProfile scan={scan} onSaveWatchlist={async (symbols) => { await api.saveWatchlist(symbols); load(true); }} onSaveProfile={async (profile) => { await api.saveProfile(profile); load(true); }} />
-          </aside>
-          <div className="order-1 space-y-5 xl:order-2">
-            <RiskDesk scan={scan} />
+    <div className="pro-console">
+      <div className="py-3"><DesktopTabs /></div>
+      {error && <div className="pro-section rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
+      <HomePro
+        signals={professionalSignals}
+        marketPulse={marketPulse}
+        geminiBrief={geminiBrief}
+        alertStatus={alertStatus}
+        onScanNow={() => load(true)}
+        onViewSignal={viewProfessionalSignal}
+        onCopyTicket={copyProfessionalSignal}
+        onSaveSignal={saveProfessionalSignal}
+        onDismissSignal={dismissProfessionalSignal}
+        onAskGemini={openAiPanel}
+      />
+
+      <section id="news" className="pro-section">
+        <NewsPanel scan={scan} />
+      </section>
+      <section id="risk" className="pro-section">
+        <RiskDesk scan={scan} />
+        <div className="mt-4"><RiskGovernorPanel scan={scan} /></div>
+      </section>
+      <section id="journal" className="pro-section">
+        <TradeJournal scan={scan} />
+      </section>
+      <section id="settings" className="pro-section grid gap-4 lg:grid-cols-3">
+        <NotificationCenter enabled={notificationEnabled} onEnabled={setNotificationEnabled} />
+        <AiStatusPanel scan={scan} />
+        <WatchlistAndProfile scan={scan} onSaveWatchlist={async (symbols) => { await api.saveWatchlist(symbols); load(true); }} onSaveProfile={async (profile) => { await api.saveProfile(profile); load(true); }} />
+      </section>
+
+      {archiveMode && (
+        <section id="archivo" className="pro-section space-y-5">
+          <CollapsibleSection id="archivo-guardian" title="Archivo Guardian / scanner completo" defaultOpen>
+            <GeminiGuardianCommandCenter scan={scan} loading={loading} onRefresh={() => load(true)} onAiExplain={openAiPanel} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+            <PriorityAlertsStrip scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} onJournal={saveTicketToJournal} onCopyTicket={copyGuardianTicket} onAiExplain={openAiPanel} />
+            <GuardianPanel
+              scan={scan}
+              onSimulate={simulateSetup}
+              onPaper={paperSetupTrade}
+              onRefresh={() => load(true)}
+              onOpenChecklist={() => document.getElementById('paper')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              onOpenJournal={() => document.getElementById('journal')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              onAiExplain={openAiPanel}
+            />
             <ProSignals scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} onAudit={setAuditItem} onAiExplain={openAiPanel} />
             <ScannerBoards scan={scan} />
             <TopOpportunities scan={scan} onSimulate={simulateSetup} />
             <ConditionalIdeas scan={scan} onSimulate={simulateSetup} />
-            <RiskGovernorPanel scan={scan} />
             <RisksAndEvents scan={scan} />
-            <NewsPanel scan={scan} />
+          </CollapsibleSection>
+          <CollapsibleSection id="laboratorio" title="Laboratorio y paper ocultos">
             <OptionsStrategyLab prefillSetup={simulationSetup} profile={scan?.profile} onSaveJournal={saveSimulationJournal} onSendPaper={paperSetupTrade} />
             <PaperTradingDesk importedSetup={paperSetup} profile={scan?.profile} onSaveJournal={saveSimulationJournal} onReplay={setReplayTrade} />
-            <TradeJournal scan={scan} />
-            <CollapsibleSection
-              id="education"
-              title="Educacion y companero Gemini"
-              subtitle="Conceptos, plan de trading, Greeks, estrategias y lecciones. Abre esto cuando quieras estudiar, no para decidir una entrada urgente."
-            >
-              <DailyAssistant scan={scan} />
-              <DailyLearningCards scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
-              <GreeksVolatilityAcademy />
-              <TradingPlan scan={scan} onAiExplain={openAiPanel} />
-              <StrategyLibrary onSimulate={simulateSetup} onPaper={paperSetupTrade} />
-              <LearningCenter scan={scan} />
-              <LearningRoadmap onSimulate={simulateSetup} onPaper={paperSetupTrade} />
-            </CollapsibleSection>
-            <CollapsibleSection
-              id="advanced-labs"
-              title="Advanced / Paper Only Labs"
-              subtitle="Flujo, tape proxy, GEX, algoritmos y replay. Son herramientas de contexto o practica; no convierten un trade en READY por si solas."
-            >
-              <MarketSentiment scan={scan} />
-              <SofiDesk scan={scan} />
-              <MarketDashboard scan={scan} onExplain={setSelectedExplainer} />
-              <GammaDesk scan={scan} onExplain={setSelectedExplainer} />
-              <SmartMoney scan={scan} />
-              <GexLab scan={scan} />
-              <MovingAveragePlaybook scan={scan} />
-              <TapeReadingLab scan={scan} />
-              <OptionsFlowLite scan={scan} />
-              <AlgorithmicStrategyLab onPaper={paperSetupTrade} />
-              <PracticeReplay importedTrade={replayTrade} />
-            </CollapsibleSection>
-            <CollapsibleSection
-              id="diagnostics"
-              title="Fuentes, formulas y diagnostico"
-              subtitle="Aqui vive la trazabilidad completa: providers, formularios, data map y explainers."
-            >
-              <ProviderCoverage scan={scan} />
-              <DataCollectionPanel scan={scan} />
-              <ProDataMap scan={scan} />
-              <Explainers onOpen={setSelectedExplainer} />
-            </CollapsibleSection>
-          </div>
-        </div>
-        <footer className="border-t border-sigma-line py-5 text-xs leading-5 text-slate-500">
-          Valido 1M es un sistema semiautonomo de filtrado y educacion. No envia ordenes ni sustituye la confirmacion del broker o asesoramiento financiero personalizado. Las opciones pueden perder el capital comprometido. Gamma mostrado es un proxy basado en OI/Greeks de cadena real, no posicionamiento dealer confirmado.
-          <span className="mt-2 block font-mono text-[11px] text-slate-600">VALIDO_BUILD_VERSION {VALIDO_BUILD_VERSION} | Build {dateTime(VALIDO_BUILD_TIMESTAMP)}</span>
-        </footer>
-      </main>
+            <MarketSentiment scan={scan} />
+            <SofiDesk scan={scan} />
+            <MarketDashboard scan={scan} onExplain={setSelectedExplainer} />
+            <GammaDesk scan={scan} onExplain={setSelectedExplainer} />
+            <SmartMoney scan={scan} />
+            <GexLab scan={scan} />
+            <MovingAveragePlaybook scan={scan} />
+            <TapeReadingLab scan={scan} />
+            <OptionsFlowLite scan={scan} />
+            <AlgorithmicStrategyLab onPaper={paperSetupTrade} />
+            <PracticeReplay importedTrade={replayTrade} />
+          </CollapsibleSection>
+          <CollapsibleSection id="archivo-educacion" title="Educacion y fuentes completas">
+            <DailyAssistant scan={scan} />
+            <DailyLearningCards scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+            <GreeksVolatilityAcademy />
+            <TradingPlan scan={scan} onAiExplain={openAiPanel} />
+            <StrategyLibrary onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+            <LearningCenter scan={scan} />
+            <LearningRoadmap onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+            <ProviderCoverage scan={scan} />
+            <DataCollectionPanel scan={scan} />
+            <DataHealthPanel scan={scan} />
+            <ProDataMap scan={scan} />
+            <Explainers onOpen={setSelectedExplainer} />
+          </CollapsibleSection>
+        </section>
+      )}
+
+      <footer className="pro-footer text-xs leading-5">
+        Educational / decision-support only. No auto-trading enabled. Candidatos de alta probabilidad con riesgo definido, sujetos a validacion de datos, liquidez, volatilidad y contexto macro.
+        <span className="mt-2 block font-mono text-[11px]">VALIDO_BUILD_VERSION {VALIDO_BUILD_VERSION} | Build {dateTime(VALIDO_BUILD_TIMESTAMP)} | <a href="/archivo">Archivo</a></span>
+      </footer>
       <MobileQuickNav />
       <Modal item={selected} onClose={() => setSelectedExplainer(null)} />
       <SourceFormulaAudit item={auditItem} onClose={() => setAuditItem(null)} />

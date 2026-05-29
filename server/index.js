@@ -761,6 +761,10 @@ export async function startServer() {
       }
     }));
     app.get('/', (_req, res) => res.redirect('/institutional-os.html'));
+    app.get(['/archivo', '/laboratorio', '/dev', '/signals/:id'], (_req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      res.sendFile(path.join(dist, 'institutional-os.html'));
+    });
   } catch {
     app.get('/', (_req, res) => res.json({
       service: 'Valido 1M API',

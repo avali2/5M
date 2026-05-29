@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'valido-1m-';
-const CACHE_NAME = `${CACHE_PREFIX}shell-v4`;
+const CACHE_NAME = `${CACHE_PREFIX}shell-v5`;
 const DEFAULT_ICON = '/icons/icon-192.png';
 const DEFAULT_BADGE = '/icons/badge-72.png';
 const SHELL = ['/manifest.webmanifest', DEFAULT_ICON, DEFAULT_BADGE, '/icons/validov.svg'];
@@ -41,13 +41,14 @@ self.addEventListener('push', (event) => {
   } catch {
     payload = { body: event.data ? event.data.text() : '' };
   }
-  const data = payload.data || { url: '/institutional-os.html?tab=guardian#guardian' };
+  const data = payload.data || {};
+  const targetUrl = data.url || (data.signalId ? `/signals/${data.signalId}` : '/institutional-os.html#signals');
   event.waitUntil(self.registration.showNotification(payload.title || 'Options Guardian', {
     body: payload.body || 'Nueva alerta Guardian disponible.',
     icon: payload.icon || DEFAULT_ICON,
     badge: payload.badge || DEFAULT_BADGE,
     tag: payload.tag || 'guardian-web-push',
-    data,
+    data: { ...data, url: targetUrl },
     actions: payload.actions || [],
     requireInteraction: payload.severity === 'critical'
   }));
