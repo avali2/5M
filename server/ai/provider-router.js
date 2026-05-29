@@ -33,6 +33,20 @@ function normalizeReview(raw, fallbackSummary = 'Gemini Guardian no entrego una 
   };
 }
 
+function isCreditOrIncomeCandidate(signal = {}) {
+  const strategy = String(signal.strategy || '');
+  const creditDebit = String(signal.creditDebit?.type || signal.premiumType || '').toLowerCase();
+  return creditDebit === 'credit' ||
+    Number.isFinite(Number(signal.netCredit ?? signal.credit)) ||
+    /(Credit Spread|Bull Put|Bear Call|Iron Condor|Iron Fly|Put Credit|Call Credit|income|venta de prima)/i.test(strategy);
+}
+
+function reviewThresholdFor(signal = {}, agentSettings = {}) {
+  return isCreditOrIncomeCandidate(signal)
+    ? (agentSettings.creditReviewMinScore || 60)
+    : (agentSettings.verifyMinScore || 78);
+}
+
 function extractReviewJson(text) {
   const cleaned = cleanJsonText(text);
   try {
@@ -50,6 +64,7 @@ function extractReviewJson(text) {
 
 function compactSignalPayload(signal = {}, scan = {}) {
   const macro = scan.macro || {};
+  const legs = Array.isArray(signal.legs) ? signal.legs : [];
   return {
     symbol: signal.symbol || signal.ticker,
     price: signal.underlyingPrice ?? signal.currentPrice ?? null,
@@ -63,7 +78,38 @@ function compactSignalPayload(signal = {}, scan = {}) {
     score: signal.confidenceScore ?? signal.score,
     maxRisk: signal.maxRisk,
     maxProfit: signal.maxProfit,
+    riskReward: signal.riskReward,
+    expectedMove: signal.expectedMove,
+    liquidityScore: signal.liquidityScore,
+    tradeQualityScore: signal.tradeQualityScore,
+    maxBidAskSpreadPct: signal.maxBidAskSpreadPct,
     collateral: signal.collateralRequired,
+    definedRisk: !/naked|short straddle|short strangle|ratio/i.test(String(signal.strategy || '')),
+    legs: legs.map((leg) => ({
+      side: leg.side,
+      type: leg.type,
+      strike: leg.strike,
+      bid: leg.bid,
+      ask: leg.ask,
+      delta: leg.delta,
+      gamma: leg.gamma,
+      theta: leg.theta,
+      vega: leg.vega,
+      iv: leg.iv,
+      volume: leg.volume,
+      openInterest: leg.openInterest,
+      source: leg.source
+    })),
+    technicals: signal.technicals ? {
+      trend: signal.technicals.trend,
+      support: signal.technicals.support,
+      resistance: signal.technicals.resistance,
+      vwap20: signal.technicals.vwap20,
+      rsi14: signal.technicals.rsi14,
+      macdHistogram: signal.technicals.macd?.histogram,
+      relativeVolume20: signal.technicals.relativeVolume20
+    } : null,
+    tapeProxy: signal.tapeProxy || null,
     eventsMacro: (macro.highImpactEvents || []).slice(0, 5).map((event) => event.title || event.event || event.name || event.date),
     macroWarnings: (macro.softImpactEvents || []).slice(0, 5).map((event) => event.title || event.event || event.name || event.date),
     newsDetected: [...(macro.newsBlocks || []), ...(macro.breakingRisk || []).filter((item) => item.caution)].slice(0, 5).map((item) => ({
@@ -114,8 +160,9 @@ export class AiProviderRouter {
       gatekeeper: {
         mode: this.agentSettings.mode || 'gatekeeper',
         autoVerifySignals: Boolean(this.agentSettings.autoVerifySignals && this.settings.autoSignalDecision),
-        verifyMinScore: this.agentSettings.verifyMinScore || 82,
-        reviewTopN: this.agentSettings.reviewTopN || 3,
+        verifyMinScore: this.agentSettings.verifyMinScore || 78,
+        creditReviewMinScore: this.agentSettings.creditReviewMinScore || 60,
+        reviewTopN: this.agentSettings.reviewTopN || 5,
         cacheTtlMinutes: this.agentSettings.cacheTtlMinutes || 180,
         requireStructuredJson: this.agentSettings.requireStructuredJson !== false,
         lastReviewAt: this.lastReviewAt
@@ -145,6 +192,7 @@ export class AiProviderRouter {
 
   async reviewSignal(signal, scan, { automatic = true, cycleKey = null } = {}) {
     const score = Number(signal?.confidenceScore ?? signal?.score ?? 0);
+    const minReviewScore = reviewThresholdFor(signal, this.agentSettings);
     const hash = this.reviewHash(signal, scan);
     const cached = this.reviewCache.get(hash);
     if (cached && cached.expiresAt > Date.now()) return { ...cached.value, cacheHit: true };
@@ -170,8 +218,8 @@ export class AiProviderRouter {
     if (!this.settings.autoSignalDecision || !this.agentSettings.autoVerifySignals) {
       return unavailable('Gemini Guardian automatico esta desactivado; requiere revision manual.');
     }
-    if (score < (this.agentSettings.verifyMinScore || 82)) {
-      return unavailable(`Score ${score} debajo del minimo de revision Gemini ${this.agentSettings.verifyMinScore || 82}.`);
+    if (score < minReviewScore) {
+      return unavailable(`Score ${score} debajo del minimo de revision Gemini ${minReviewScore}.`);
     }
     if (!this.gemini?.configured || !this.gemini?.enabled) {
       return unavailable('Gemini no configurado o desactivado; fallback deterministico activo.');
@@ -197,6 +245,8 @@ export class AiProviderRouter {
       'NO calcules precios, Greeks, POP, EV, strikes ni riesgo. Solo audita los datos calculados.',
       'No prometas ganancias. Si faltan datos, si hay macro/news/earnings/geopolitica seria, o el trade no es limpio, usa CAUTION o BLOCK.',
       'Actua como SIGMA_GUARDIAN: audita evidencia, contradicciones, frescura de datos y blockers. No apruebes nada con datos incompletos.',
+      'Prioriza la auditoria de spreads de credito/venta de prima cuando el riesgo sea definido, el potencial estimado sea suficiente y el usuario pueda revisar manualmente en Robinhood.',
+      'Si recibes tapeProxy, tratalo como confirmacion secundaria educativa; no es Level 2 ni order flow institucional confirmado.',
       'Responde SOLO JSON valido con exactamente estas claves:',
       '{"agent":"SIGMA_GUARDIAN","decision":"APPROVE|CAUTION|BLOCK","confidence":0-100,"summary":"breve","why":["razon 1","razon 2","razon 3"],"risks":["riesgo 1","riesgo 2"],"entry_ok":true/false,"invalidation":"condicion","position_management":"plan","news_warning":true/false,"macro_warning":true/false,"requires_manual_review":true/false,"hallucination_check":"PASSED|FAILED"}'
     ].join('\n');

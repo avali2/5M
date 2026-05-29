@@ -5,6 +5,11 @@ const asNumber = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const asPercentInput = (value, fallback) => {
+  const parsed = asNumber(value, fallback);
+  return parsed <= 1 ? parsed * 100 : parsed;
+};
+
 const asBool = (value, fallback = false) => {
   if (value === undefined || value === null || value === '') return fallback;
   return ['true', '1', 'yes', 'on'].includes(String(value).toLowerCase());
@@ -98,18 +103,29 @@ export const config = {
     autoNarrative: String(process.env.AI_AUTO_NARRATIVE || 'false').toLowerCase() === 'true',
     manualExplain: String(process.env.AI_MANUAL_EXPLAIN || 'true').toLowerCase() !== 'false',
     fallbackToDeterministic: String(process.env.AI_FALLBACK_TO_DETERMINISTIC || 'true').toLowerCase() !== 'false',
-    dailyTokenBudget: asNumber(process.env.AI_DAILY_TOKEN_BUDGET, 30000),
-    dailyRequestBudget: asNumber(process.env.AI_DAILY_REQUEST_BUDGET, 8),
+    dailyTokenBudget: asNumber(process.env.AI_DAILY_TOKEN_BUDGET, 60000),
+    dailyRequestBudget: asNumber(process.env.AI_DAILY_REQUEST_BUDGET, 18),
     maxInputTokensPerCall: asNumber(process.env.AI_MAX_INPUT_TOKENS_PER_CALL, 2200),
     maxOutputTokensPerCall: asNumber(process.env.AI_MAX_OUTPUT_TOKENS_PER_CALL, 650),
     maxTotalTokensPerCall: asNumber(process.env.AI_MAX_TOTAL_TOKENS_PER_CALL, 3000),
-    minAutomaticCallIntervalMinutes: asNumber(process.env.AI_MIN_AUTOMATIC_CALL_INTERVAL_MINUTES, 60),
+    minAutomaticCallIntervalMinutes: asNumber(process.env.AI_MIN_AUTOMATIC_CALL_INTERVAL_MINUTES, 20),
     cooldownAfter429Minutes: asNumber(process.env.AI_COOLDOWN_AFTER_429_MINUTES, 120),
-    disableAutoAtUsagePercent: asNumber(process.env.AI_DISABLE_AUTO_AT_USAGE_PERCENT, 75),
-    disableAllAtUsagePercent: asNumber(process.env.AI_DISABLE_ALL_AT_USAGE_PERCENT, 95)
+    disableAutoAtUsagePercent: asNumber(process.env.AI_DISABLE_AUTO_AT_USAGE_PERCENT, 85),
+    disableAllAtUsagePercent: asNumber(process.env.AI_DISABLE_ALL_AT_USAGE_PERCENT, 97)
   },
   guardian: {
-    enabled: String(process.env.GUARDIAN_ENABLED || 'true').toLowerCase() !== 'false'
+    enabled: String(process.env.GUARDIAN_ENABLED || 'true').toLowerCase() !== 'false',
+    edgeMode: {
+      minProfitDollars: asNumber(process.env.SIGNAL_MIN_TARGET_PROFIT, 30),
+      minPopToNotify: asPercentInput(process.env.MIN_POP_TO_NOTIFY, 70),
+      minScoreReady: asNumber(process.env.MIN_EDGE_SCORE, 70),
+      minScoreAggressive: asNumber(process.env.MIN_AGGRESSIVE_SCORE, 65),
+      minScoreCandidate: asNumber(process.env.MIN_CANDIDATE_SCORE, 60),
+      allowCapitalHeavyAlerts: asBool(process.env.ALLOW_CAPITAL_HEAVY_ALERTS, true),
+      allowVeryAggressive: asBool(process.env.ALLOW_VERY_AGGRESSIVE, false),
+      allow0DTE: asBool(process.env.ALLOW_0DTE, false),
+      maxAlertsPerHour: asNumber(process.env.PUSH_MAX_ALERTS_PER_HOUR, 3)
+    }
   },
   webPush: {
     enabled: asBool(process.env.PUSH_ENABLED || process.env.ENABLE_WEB_PUSH, false),
@@ -132,12 +148,13 @@ export const config = {
     refreshIntervalMinutes: asNumber(process.env.AGENT_REFRESH_INTERVAL_MINUTES, 5),
     manualScanEnabled: asBool(process.env.AGENT_MANUAL_SCAN_ENABLED, true),
     autoVerifySignals: asBool(process.env.AGENT_AUTO_VERIFY_SIGNALS, true),
-    verifyMinScore: asNumber(process.env.AGENT_VERIFY_MIN_SCORE, 82),
-    reviewTopN: asNumber(process.env.AGENT_REVIEW_TOP_N, 3),
+    verifyMinScore: asNumber(process.env.AGENT_VERIFY_MIN_SCORE, 78),
+    creditReviewMinScore: asNumber(process.env.AGENT_CREDIT_REVIEW_MIN_SCORE, 60),
+    reviewTopN: asNumber(process.env.AGENT_REVIEW_TOP_N, 5),
     cacheTtlMinutes: asNumber(process.env.AGENT_CACHE_TTL_MINUTES, 180),
-    maxAiVerificationsPerDay: asNumber(process.env.AGENT_MAX_AI_VERIFICATIONS_PER_DAY, 8),
-    minutesBetweenAiCalls: asNumber(process.env.AGENT_MINUTES_BETWEEN_AI_CALLS, 45),
-    disableAiAtUsagePercent: asNumber(process.env.AGENT_DISABLE_AI_AT_USAGE_PERCENT, 75),
+    maxAiVerificationsPerDay: asNumber(process.env.AGENT_MAX_AI_VERIFICATIONS_PER_DAY, 16),
+    minutesBetweenAiCalls: asNumber(process.env.AGENT_MINUTES_BETWEEN_AI_CALLS, 20),
+    disableAiAtUsagePercent: asNumber(process.env.AGENT_DISABLE_AI_AT_USAGE_PERCENT, 85),
     failsafeDeterministic: asBool(process.env.AGENT_FAILSAFE_DETERMINISTIC, true),
     requireStructuredJson: asBool(process.env.AGENT_REQUIRE_STRUCTURED_JSON, true)
   },

@@ -854,28 +854,80 @@ function RisksAndEvents({ scan }) {
   );
 }
 
-function AlertCenter({ scan }) {
-  const hasEdge = ['EDGE_READY', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(scan?.guardianEdge?.dailyBest?.classification || scan?.guardianEdge?.status);
-  const alerts = (scan?.alerts || []).filter((alert) => !(hasEdge && alert.kind === 'no_trade')).slice(0, 5);
-  const labelFor = (kind) => {
-    if (kind === 'a_setup') return 'Nuevo spread A+ detectado';
-    if (kind === 'trade_candidate') return 'Candidato Guardian detectado';
-    return 'No trade real';
-  };
+function edgeCardTone(classification) {
+  if (classification === 'EDGE_READY') return 'border-emerald-200 bg-emerald-50 text-emerald-950';
+  if (classification === 'AGGRESSIVE_EDGE' || classification === 'CAPITAL_HEAVY' || classification === 'HIGH_POP_BAD_PAYOUT') return 'border-amber-300 bg-amber-50 text-amber-950';
+  if (classification === 'TRADE_CANDIDATE' || classification === 'WAIT_TRIGGER') return 'border-blue-200 bg-blue-50 text-blue-950';
+  return 'border-slate-200 bg-white text-slate-900';
+}
+
+function PriorityAlertsStrip({ scan, onSimulate, onPaper, onAiExplain }) {
+  const approvedTickets = (scan?.guardianEdge?.actionableTickets || []).slice(0, 3);
+  const reviewTickets = approvedTickets.length ? [] : (scan?.guardianEdge?.candidateTickets || scan?.guardianEdge?.tickets || []).slice(0, 3);
+  const tickets = approvedTickets.length ? approvedTickets : reviewTickets;
+  const showingReviewOnly = approvedTickets.length === 0 && reviewTickets.length > 0;
+  const hasEdge = approvedTickets.length > 0 || reviewTickets.length > 0;
+  const alerts = (scan?.alerts || []).filter((alert) => !(hasEdge && alert.kind === 'no_trade')).slice(0, 3);
   return (
-    <section className="panel p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div><p className="eyebrow">Smart alerts</p><h3 className="mt-1 text-lg font-semibold">Centro de alertas</h3></div>
+    <section className="panel border-2 border-blue-100 bg-white p-4 shadow-panel">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="eyebrow text-blue-700">Alertas principales</p>
+          <h2 className="mt-1 text-2xl font-black text-slate-950">Opciones primero: tickets, watchlist y riesgos</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            {showingReviewOnly
+              ? 'No hay senal operable aprobada; estos son candidatos visibles para estudio/revision manual.'
+              : 'Candidatos de riesgo definido. Gemini revisa mas setups de credito, pero una alerta no es orden ni garantia.'}
+          </p>
+        </div>
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">Auto refresh {scan?.refreshSeconds || 300}s</span>
       </div>
-      <div className="space-y-2">
-        {alerts.map((alert) => (
-          <div className="rounded-lg border border-sigma-line bg-sigma-soft p-3 text-xs" key={alert.key + alert.date}>
-            <p className={`font-semibold ${['a_setup', 'trade_candidate'].includes(alert.kind) ? 'text-sigma-green' : 'text-sigma-amber'}`}>{labelFor(alert.kind)}</p>
-            <p className="mt-1 text-slate-300">{alert.message}</p>
-            <p className="mt-1 text-slate-500">{dateTime(alert.createdAt)}</p>
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
+        {tickets.length ? tickets.map((ticket) => (
+          <article className={`rounded-2xl border p-4 shadow-sm ${edgeCardTone(ticket.classification)}`} key={ticket.id}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[.14em] opacity-75">{showingReviewOnly ? 'EN REVISION - NO OPERABLE' : ticket.classification}</p>
+                <h3 className="mt-1 text-xl font-black">{ticket.symbol} {ticket.strategy}</h3>
+                <p className="mt-1 text-xs opacity-80">{ticket.riskClass}</p>
+              </div>
+              <span className="rounded-full bg-white/75 px-2 py-1 text-[11px] font-bold">Score {ticket.edgeScore}</span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <p className="rounded-lg bg-white/70 p-2"><strong>Exp</strong><br />{ticket.expiration || 'Confirmar'}</p>
+              <p className="rounded-lg bg-white/70 p-2"><strong>POP est.</strong><br />{Number.isFinite(ticket.popEstimated) ? `${ticket.popEstimated.toFixed(1)}%` : 'N/D'}</p>
+              <p className="rounded-lg bg-white/70 p-2"><strong>Max profit est.</strong><br />{cash(ticket.maxProfit)}</p>
+              <p className="rounded-lg bg-white/70 p-2"><strong>Max risk</strong><br />{cash(ticket.maxRisk)}</p>
+            </div>
+            <p className="mt-3 rounded-lg bg-white/70 p-2 text-xs"><strong>Legs:</strong> {ticket.legsText || 'Confirmar chain'}</p>
+            <p className="mt-2 rounded-lg bg-white/70 p-2 text-xs"><strong>Limit:</strong> {ticket.entryLimit}</p>
+            <p className="mt-2 text-xs"><strong>Invalidacion:</strong> {ticket.invalidation}</p>
+            {showingReviewOnly && <p className="mt-2 rounded-lg border border-amber-200 bg-white/80 p-2 text-xs font-semibold text-amber-900">Gemini/Risk Guard no lo aprobo como entrada real. Usar solo para revision, simulador o paper.</p>}
+            {ticket.tapeProxy && <p className="mt-2 text-xs"><strong>Tape proxy:</strong> {ticket.tapeProxy.label} ({ticket.tapeProxy.pressureScore})</p>}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="btn text-xs" onClick={() => onSimulate?.(ticket.sourceSetup || ticket)}>Simular</button>
+              <button className="btn text-xs" onClick={() => onPaper?.(ticket.sourceSetup || ticket)}>Guardar paper</button>
+              <button className="btn text-xs" onClick={onAiExplain}>Explicar</button>
+            </div>
+          </article>
+        )) : (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700 xl:col-span-2">
+            <strong>No hay ticket visible ahora.</strong>
+            <p className="mt-2">{scan?.decision?.reasons?.[0] || 'El scanner sigue vigilando. Si falta chain, macro/news clearance o max loss, la decision correcta es NO TRADE.'}</p>
           </div>
-        ))}
-        {!alerts.length && <Empty>Las alertas apareceran tras un escaneo real.</Empty>}
+        )}
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-[10px] font-black uppercase tracking-[.14em] text-slate-500">Ultimas alertas</p>
+          <div className="mt-3 space-y-2">
+            {alerts.length ? alerts.map((alert) => (
+              <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs" key={alert.key + alert.date}>
+                <p className={`font-bold ${['a_setup', 'trade_candidate'].includes(alert.kind) ? 'text-emerald-700' : 'text-amber-700'}`}>{alert.kind === 'trade_candidate' ? 'Candidato Guardian' : alert.kind === 'a_setup' ? 'Setup aprobado' : 'No trade / riesgo'}</p>
+                <p className="mt-1 text-slate-700">{alert.message}</p>
+                <p className="mt-1 text-slate-500">{dateTime(alert.createdAt)}</p>
+              </div>
+            )) : <p className="text-sm text-slate-500">Apareceran al escanear.</p>}
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -1198,6 +1250,7 @@ export default function App() {
         <DesktopTabs />
         {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-sigma-red">{error}</div>}
         <GeminiGuardianCommandCenter scan={scan} loading={loading} onRefresh={() => load(true)} onAiExplain={openAiPanel} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
+        <PriorityAlertsStrip scan={scan} onSimulate={simulateSetup} onPaper={paperSetupTrade} onAiExplain={openAiPanel} />
         <DecisionHero scan={scan} />
         <GuardianPanel
           scan={scan}
@@ -1217,7 +1270,6 @@ export default function App() {
             <ProviderCoverage scan={scan} />
             <NotificationCenter enabled={notificationEnabled} onEnabled={setNotificationEnabled} />
             <AiStatusPanel scan={scan} />
-            <AlertCenter scan={scan} />
             <WatchlistAndProfile scan={scan} onSaveWatchlist={async (symbols) => { await api.saveWatchlist(symbols); load(true); }} onSaveProfile={async (profile) => { await api.saveProfile(profile); load(true); }} />
             <Explainers onOpen={setSelectedExplainer} />
           </aside>

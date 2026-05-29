@@ -82,6 +82,35 @@ function correlationRisk(symbol, activeSymbols) {
   return activeSymbols.filter((active) => CORRELATED[active] === bucket).length >= 2;
 }
 
+function buildTapeProxy(technicals = {}, setup = {}) {
+  const relVol = Number(technicals.relativeVolume20);
+  const macd = Number(technicals.macd?.histogram);
+  const rsi = Number(technicals.rsi14);
+  const bullish = /Bull|Call Debit/i.test(setup.strategy);
+  const bearish = /Bear|Put Debit/i.test(setup.strategy);
+  let pressure = 0;
+  if (technicals.trend === 'bullish') pressure += 25;
+  if (technicals.trend === 'bearish') pressure -= 25;
+  if (Number.isFinite(macd)) pressure += Math.max(-25, Math.min(25, macd * 80));
+  if (Number.isFinite(relVol)) pressure += relVol >= 1.2 ? 15 : relVol < 0.8 ? -10 : 5;
+  if (Number.isFinite(rsi)) {
+    if (rsi > 70) pressure -= bullish ? 10 : -5;
+    else if (rsi < 30) pressure += bearish ? -10 : 5;
+    else if (rsi >= 45 && rsi <= 65) pressure += bullish ? 5 : bearish ? -5 : 0;
+  }
+  const score = Math.round(Math.max(-100, Math.min(100, pressure)));
+  const aligned = bullish ? score > 10 : bearish ? score < -10 : Math.abs(score) < 35;
+  return {
+    mode: 'proxy',
+    label: score >= 25 ? 'Bullish tape proxy' : score <= -25 ? 'Bearish tape proxy' : Math.abs(score) < 12 ? 'Neutral tape proxy' : 'Mixed tape proxy',
+    pressureScore: score,
+    aggressionScore: Math.round(Math.max(0, Math.min(100, Math.abs(score) + (Number.isFinite(relVol) ? (relVol - 1) * 25 : 0)))),
+    volumeSurgeScore: Number.isFinite(relVol) ? Math.round(Math.max(0, Math.min(100, relVol * 50))) : null,
+    alignedWithStrategy: aligned,
+    limitation: 'Proxy educativo basado en tendencia, momentum, volumen relativo y VWAP/EMA disponibles; no es Time & Sales ni Level 2 real.'
+  };
+}
+
 function individualBlocks({ setup, ivRank, gamma, earningsRisk, policy, profile, flowBias }) {
   const blocks = [];
   const premiumTrade = !/Debit Spread/i.test(setup.strategy);
@@ -339,7 +368,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     const setup = candidate.setup;
     const flowBias = flowAlignment(flow, setup);
     const riskAllowed = setup.maxRisk <= profile.accountSize * profile.riskPct / 100;
-    const enriched = {
+      const enriched = {
       ...setup,
       dte: candidate.dte,
       expectedMove: candidate.metrics.expectedMove,
@@ -351,6 +380,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
       gammaRisk: candidate.gamma.regime,
       gammaProxy: candidate.gamma,
       technicals: candidate.technicals,
+      tapeProxy: buildTapeProxy(candidate.technicals, setup),
       trend: candidate.technicals.trend,
       flowBias
     };
@@ -392,6 +422,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
         `Proxy gamma OI ${candidate.gamma.regime}`,
         candidate.ivRank === null ? `IV Rank acumulando historia (${candidate.ivRankObservations}/${policy.ivRankMinObservations} sesiones)` : `IV Rank ${candidate.ivRank}`,
         `Liquidez ${setup.liquidityScore}/10`,
+        `${enriched.tapeProxy.label}: ${enriched.tapeProxy.pressureScore} (proxy, no Level 2)`,
         flowBias === 'unavailable' ? 'Flujo institucional opcional no disponible' : `Flujo inusual ${flowBias}`
       ]
     };

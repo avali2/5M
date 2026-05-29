@@ -24,7 +24,7 @@ export class AiBudgetManager {
   }
 
   usagePercent() {
-    const budget = Math.max(1, this.settings.dailyTokenBudget || 30000);
+    const budget = Math.max(1, this.settings.dailyTokenBudget || 60000);
     return Math.round((this.tokensUsed / budget) * 100);
   }
 
@@ -38,13 +38,13 @@ export class AiBudgetManager {
     const now = Date.now();
     const cooldown = this.cooldowns.get(provider) || 0;
     if (cooldown > now) return { allowed: false, reason: `${provider} pausado hasta ${new Date(cooldown).toLocaleString()}` };
-    if (this.requestsUsed >= (this.settings.dailyRequestBudget || 8)) return { allowed: false, reason: 'Presupuesto diario de requests IA alcanzado.' };
-    if (this.tokensUsed + estimatedTokens > (this.settings.dailyTokenBudget || 30000)) return { allowed: false, reason: 'Presupuesto diario de tokens IA alcanzado.' };
-    if (this.usagePercent() >= (this.settings.disableAllAtUsagePercent || 95)) return { allowed: false, reason: 'Uso IA mayor a 95%; tutor deterministico activado.' };
+    if (this.requestsUsed >= (this.settings.dailyRequestBudget || 18)) return { allowed: false, reason: 'Presupuesto diario de requests IA alcanzado.' };
+    if (this.tokensUsed + estimatedTokens > (this.settings.dailyTokenBudget || 60000)) return { allowed: false, reason: 'Presupuesto diario de tokens IA alcanzado.' };
+    if (this.usagePercent() >= (this.settings.disableAllAtUsagePercent || 97)) return { allowed: false, reason: 'Uso IA mayor al limite maximo; tutor deterministico activado.' };
     if (automatic) {
       if (!this.settings.autoTutor) return { allowed: false, reason: 'IA automatica desactivada.' };
-      if (this.usagePercent() >= (this.settings.disableAutoAtUsagePercent || 75)) return { allowed: false, reason: 'Modo ahorro: automatico pausado por consumo.' };
-      const minGap = (this.settings.minAutomaticCallIntervalMinutes || 60) * 60 * 1000;
+      if (this.usagePercent() >= (this.settings.disableAutoAtUsagePercent || 85)) return { allowed: false, reason: 'Modo ahorro: automatico pausado por consumo.' };
+      const minGap = (this.settings.minAutomaticCallIntervalMinutes || 20) * 60 * 1000;
       if (now - this.lastAutomaticAt < minGap) return { allowed: false, reason: 'Intervalo minimo de IA automatica no cumplido.' };
     }
     return { allowed: true, reason: null };
@@ -74,16 +74,16 @@ export class AiBudgetManager {
     return {
       day: this.day,
       tokensUsed: this.tokensUsed,
-      dailyTokenBudget: this.settings.dailyTokenBudget || 30000,
+      dailyTokenBudget: this.settings.dailyTokenBudget || 60000,
       requestsUsed: this.requestsUsed,
-      dailyRequestBudget: this.settings.dailyRequestBudget || 8,
+      dailyRequestBudget: this.settings.dailyRequestBudget || 18,
       usagePercent: this.usagePercent(),
       automaticEnabled: Boolean(this.settings.autoTutor),
       automaticSignalDecision: Boolean(this.settings.autoSignalDecision),
       automaticNarrative: Boolean(this.settings.autoNarrative),
       manualExplain: this.settings.manualExplain !== false,
-      disableAutoAtUsagePercent: this.settings.disableAutoAtUsagePercent || 75,
-      disableAllAtUsagePercent: this.settings.disableAllAtUsagePercent || 95,
+      disableAutoAtUsagePercent: this.settings.disableAutoAtUsagePercent || 85,
+      disableAllAtUsagePercent: this.settings.disableAllAtUsagePercent || 97,
       cooldowns: Object.fromEntries([...this.cooldowns.entries()].map(([key]) => [key, this.cooldownUntil(key)])),
       lastError: this.lastError || null
     };

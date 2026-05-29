@@ -77,25 +77,25 @@ services:
       - key: AI_MANUAL_EXPLAIN
         value: "true"
       - key: AI_DAILY_TOKEN_BUDGET
-        value: "20000"
+        value: "60000"
       - key: AI_DAILY_REQUEST_BUDGET
-        value: "6"
+        value: "18"
       - key: AI_MAX_INPUT_TOKENS_PER_CALL
-        value: "1800"
+        value: "2200"
       - key: AI_MAX_OUTPUT_TOKENS_PER_CALL
-        value: "500"
+        value: "650"
       - key: AI_MAX_TOTAL_TOKENS_PER_CALL
-        value: "2500"
+        value: "3000"
       - key: AI_FALLBACK_TO_DETERMINISTIC
         value: "true"
       - key: AI_MIN_AUTOMATIC_CALL_INTERVAL_MINUTES
-        value: "90"
+        value: "20"
       - key: AI_COOLDOWN_AFTER_429_MINUTES
-        value: "180"
+        value: "120"
       - key: AI_DISABLE_AUTO_AT_USAGE_PERCENT
-        value: "65"
+        value: "85"
       - key: AI_DISABLE_ALL_AT_USAGE_PERCENT
-        value: "90"
+        value: "97"
       - key: ENABLE_OPENAI
         value: "false"
       - key: OPENAI_API_KEY
@@ -131,17 +131,19 @@ services:
       - key: AGENT_AUTO_VERIFY_SIGNALS
         value: "true"
       - key: AGENT_VERIFY_MIN_SCORE
-        value: "82"
+        value: "78"
+      - key: AGENT_CREDIT_REVIEW_MIN_SCORE
+        value: "60"
       - key: AGENT_REVIEW_TOP_N
-        value: "3"
+        value: "5"
       - key: AGENT_CACHE_TTL_MINUTES
         value: "180"
       - key: AGENT_MAX_AI_VERIFICATIONS_PER_DAY
-        value: "8"
+        value: "16"
       - key: AGENT_MINUTES_BETWEEN_AI_CALLS
-        value: "45"
+        value: "20"
       - key: AGENT_DISABLE_AI_AT_USAGE_PERCENT
-        value: "75"
+        value: "85"
       - key: AGENT_FAILSAFE_DETERMINISTIC
         value: "true"
       - key: AGENT_REQUIRE_STRUCTURED_JSON
@@ -232,6 +234,8 @@ services:
         value: "true"
       - key: SIGNAL_MAX_PER_DAY
         value: "3"
+      - key: SIGNAL_MIN_TARGET_PROFIT
+        value: "30"
       - key: MAX_RISK_PER_TRADE_PCT
         value: "0.02"
       - key: MAX_PORTFOLIO_RISK_PCT

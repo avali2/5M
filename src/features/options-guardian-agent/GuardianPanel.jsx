@@ -15,32 +15,75 @@ const dateTime = (value) => value ? new Intl.DateTimeFormat('es-US', { dateStyle
 const money = (value) => Number.isFinite(Number(value)) ? `$${Number(value).toFixed(2)}` : 'No disponible';
 const percent = (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : 'No disponible';
 const severityColor = {
-  critical: 'border-red-500/40 bg-red-500/10 text-sigma-red',
-  warning: 'border-amber-500/40 bg-amber-500/10 text-sigma-amber',
-  opportunity: 'border-emerald-500/40 bg-emerald-500/10 text-sigma-green',
-  educational: 'border-blue-500/40 bg-blue-500/10 text-sigma-blue',
-  info: 'border-sigma-line bg-sigma-soft text-slate-300'
+  critical: 'border-red-200 bg-red-50 text-red-800',
+  warning: 'border-amber-200 bg-amber-50 text-amber-900',
+  opportunity: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  educational: 'border-blue-200 bg-blue-50 text-blue-900',
+  info: 'border-slate-200 bg-slate-50 text-slate-700'
 };
+
+function ticketTone(ticket) {
+  const classification = ticket?.classification || '';
+  if (classification === 'AGGRESSIVE_EDGE' || ticket?.riskClass?.includes('Volatility Risk')) {
+    return {
+      card: 'border-amber-300 bg-amber-50 text-amber-950',
+      badge: 'border-amber-300 bg-amber-100 text-amber-900',
+      accent: 'text-amber-800',
+      inset: 'border-amber-200 bg-white/80 text-amber-950'
+    };
+  }
+  if (classification === 'TRADE_CANDIDATE' || classification === 'WAIT_TRIGGER') {
+    return {
+      card: 'border-blue-200 bg-blue-50 text-blue-950',
+      badge: 'border-blue-200 bg-blue-100 text-blue-800',
+      accent: 'text-blue-800',
+      inset: 'border-blue-100 bg-white/85 text-blue-950'
+    };
+  }
+  if (classification === 'EDGE_READY') {
+    return {
+      card: 'border-emerald-200 bg-emerald-50 text-emerald-950',
+      badge: 'border-emerald-200 bg-emerald-100 text-emerald-800',
+      accent: 'text-emerald-800',
+      inset: 'border-emerald-100 bg-white/85 text-emerald-950'
+    };
+  }
+  if (classification === 'NO_READY' || classification === 'NO_TRADE_REAL') {
+    return {
+      card: 'border-red-200 bg-red-50 text-red-950',
+      badge: 'border-red-200 bg-red-100 text-red-800',
+      accent: 'text-red-800',
+      inset: 'border-red-100 bg-white/85 text-red-950'
+    };
+  }
+  return {
+    card: 'border-slate-200 bg-slate-50 text-slate-900',
+    badge: 'border-slate-200 bg-white text-slate-700',
+    accent: 'text-slate-800',
+    inset: 'border-slate-200 bg-white/85 text-slate-900'
+  };
+}
 
 function Status({ label, value, good }) {
   return (
     <div className="rounded-lg border border-sigma-line bg-sigma-soft p-3 text-xs">
       <p className="text-slate-500">{label}</p>
-      <p className={`mt-1 font-semibold ${good === true ? 'text-sigma-green' : good === false ? 'text-sigma-amber' : 'text-white'}`}>{value || '--'}</p>
+      <p className={`mt-1 font-semibold ${good === true ? 'text-emerald-700' : good === false ? 'text-amber-700' : 'text-slate-950'}`}>{value || '--'}</p>
     </div>
   );
 }
 
 function TicketDetails({ ticket, onAction }) {
   if (!ticket) return null;
+  const tone = ticketTone(ticket);
   return (
-    <div className="mt-3 rounded-xl border border-emerald-400/20 bg-slate-950/50 p-3 text-[11px] text-slate-300">
+    <div className={`mt-3 rounded-xl border p-3 text-[11px] shadow-sm ${tone.card}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="font-mono text-sigma-green">{ticket.classification} | {ticket.riskClass}</p>
-          <h5 className="mt-1 text-sm font-semibold text-white">{ticket.symbol} {ticket.strategy}</h5>
+          <p className={`font-mono font-bold ${tone.accent}`}>{ticket.classification} | {ticket.riskClass}</p>
+          <h5 className="mt-1 text-sm font-semibold text-slate-950">{ticket.symbol} {ticket.strategy}</h5>
         </div>
-        <span className="rounded-full border border-sigma-line px-2 py-1 text-slate-400">Score {ticket.edgeScore ?? '--'}/100</span>
+        <span className={`rounded-full border px-2 py-1 font-bold ${tone.badge}`}>Score {ticket.edgeScore ?? '--'}/100</span>
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <p><strong>Action Robinhood:</strong><br />{ticket.robinhoodAction}</p>
@@ -49,6 +92,7 @@ function TicketDetails({ ticket, onAction }) {
         <p><strong>Orden:</strong><br />{ticket.orderType} | {ticket.entryLimit}</p>
         <p><strong>Max risk:</strong><br />{money(ticket.maxRisk)}</p>
         <p><strong>Max profit:</strong><br />{money(ticket.maxProfit)}</p>
+        <p><strong>Minimo configurado:</strong><br />{money(ticket.minProfitDollars)} {ticket.profitTargetOk ? '(cumple)' : '(no cumple)'}</p>
         <p><strong>Break-even:</strong><br />{ticket.breakEven || 'No disponible'}</p>
         <p><strong>POP / EV:</strong><br />{percent(ticket.popEstimated)} | {ticket.evEstimated === null ? 'EV no disponible' : money(ticket.evEstimated)}</p>
         <p><strong>ROC:</strong><br />{ticket.roc === null ? 'No disponible' : percent(ticket.roc)}</p>
@@ -57,20 +101,20 @@ function TicketDetails({ ticket, onAction }) {
         <p><strong>Timestamp:</strong><br />{dateTime(ticket.timestamp)}</p>
       </div>
       <div className="mt-3 grid gap-2 md:grid-cols-3">
-        <div className="rounded-lg border border-sigma-line p-2"><strong>Take profit</strong><br />{ticket.takeProfit}</div>
-        <div className="rounded-lg border border-sigma-line p-2"><strong>Stop loss</strong><br />{ticket.stopLoss}</div>
-        <div className="rounded-lg border border-sigma-line p-2"><strong>Invalidacion</strong><br />{ticket.invalidation}</div>
+        <div className={`rounded-lg border p-2 ${tone.inset}`}><strong>Take profit</strong><br />{ticket.takeProfit}</div>
+        <div className={`rounded-lg border p-2 ${tone.inset}`}><strong>Stop loss</strong><br />{ticket.stopLoss}</div>
+        <div className={`rounded-lg border p-2 ${tone.inset}`}><strong>Invalidacion</strong><br />{ticket.invalidation}</div>
       </div>
-      <details className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-2">
+      <details className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-950">
         <summary className="cursor-pointer font-semibold text-sigma-amber">Do not enter if / seguridad</summary>
-        <ul className="mt-2 list-inside list-disc space-y-1 text-slate-300">
+        <ul className="mt-2 list-inside list-disc space-y-1 text-amber-950">
           {(ticket.doNotEnterIf || []).map((rule) => <li key={rule}>{rule}</li>)}
           <li>POP estimada no garantiza ganancia. Revisa precio real, max loss e invalidacion en Robinhood.</li>
         </ul>
       </details>
-      <details className="mt-3 rounded-lg border border-blue-400/20 bg-blue-400/5 p-2">
+      <details className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-950">
         <summary className="cursor-pointer font-semibold text-sigma-blue">Como ponerlo en Robinhood</summary>
-        <ol className="mt-2 list-inside list-decimal space-y-1 text-slate-300">
+        <ol className="mt-2 list-inside list-decimal space-y-1 text-blue-950">
           <li>Busca {ticket.symbol} y abre Options.</li>
           <li>Selecciona expiracion {ticket.expiration || 'indicada'}.</li>
           <li>Agrega exactamente estas legs: {ticket.legsText || 'ver ticket'}.</li>
@@ -100,9 +144,9 @@ function TimelineEvent({ event, onAction, onReviewed, onIgnored, onSilence, onTa
         </div>
         <span className="text-slate-400">{dateTime(event.createdAt || event.created_at)}</span>
       </div>
-      <h4 className="mt-2 font-semibold text-white">{event.title}</h4>
-      <p className="mt-1 leading-5 text-slate-200">{event.message}</p>
-      <p className="mt-2 leading-5 text-slate-400"><strong>Guardian:</strong> {event.recommendation}</p>
+      <h4 className="mt-2 font-semibold text-slate-950">{event.title}</h4>
+      <p className="mt-1 leading-5 text-slate-700">{event.message}</p>
+      <p className="mt-2 leading-5 text-slate-600"><strong>Guardian:</strong> {event.recommendation}</p>
       <p className="mt-2 text-[11px] text-slate-500">Fuente: {event.source || 'No disponible'} | Notificacion: {event.notificationSent || event.notification_sent ? 'enviada' : 'in-app'}</p>
       {(event.data?.score || event.data?.dataMode) && (
         <p className="mt-1 text-[11px] text-slate-500">Score: {event.data.score ?? '--'} | Modo dato: {event.data.dataMode || 'No disponible'} | Timestamp: {dateTime(event.data.timestamp)}</p>
@@ -346,8 +390,8 @@ export default function GuardianPanel({
         </div>
         {message && <p className="rounded-lg border border-sigma-line bg-sigma-soft p-3 text-xs text-slate-300">{message}</p>}
         {scan?.guardianEdge?.dailyBest && (
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs">
-            <p className="eyebrow text-sigma-green">Daily Edge Ticket</p>
+          <div className={`rounded-xl border p-4 text-xs ${ticketTone(scan.guardianEdge.dailyBest).card}`}>
+            <p className={`eyebrow ${ticketTone(scan.guardianEdge.dailyBest).accent}`}>Daily Edge Ticket</p>
             <TicketDetails ticket={scan.guardianEdge.dailyBest} onAction={action} />
           </div>
         )}
@@ -367,7 +411,7 @@ export default function GuardianPanel({
           <div className="space-y-3">
             <div className="rounded-xl border border-sigma-line bg-sigma-soft p-4 text-xs">
               <p className="eyebrow text-sigma-blue">Trading companion</p>
-              <p className="mt-3 leading-5 text-slate-200"><strong>Que vigila:</strong> scanner, Risk Governor, cadena, macro, journal y calidad de datos.</p>
+              <p className="mt-3 leading-5 text-slate-700"><strong>Que vigila:</strong> scanner, Risk Governor, cadena, macro, journal y calidad de datos.</p>
               <p className="mt-2 leading-5 text-slate-300"><strong>Que estudiar hoy:</strong> {coach.lesson}</p>
               <p className="mt-2 leading-5 text-slate-300"><strong>Practica:</strong> {coach.practice}</p>
               <p className="mt-2 leading-5 text-sigma-amber"><strong>Regla critica:</strong> {coach.motivation}</p>

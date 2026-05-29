@@ -17,6 +17,7 @@ export const DEFAULT_EDGE_PROFILE = {
   minScoreReady: 70,
   minScoreAggressive: 65,
   minScoreCandidate: 60,
+  minProfitDollars: 30,
   allowCapitalHeavyAlerts: true,
   allowVeryAggressive: false,
   allow0DTE: false,
@@ -163,7 +164,7 @@ function liquidityScore(setup) {
   return round(legScores.reduce((sum, value) => sum + value, 0) / legScores.length, 1);
 }
 
-function dataWarnings(setup) {
+function dataWarnings(setup, settings = DEFAULT_EDGE_PROFILE) {
   const warnings = [];
   const legs = Array.isArray(setup.legs) ? setup.legs : [];
   if (!legs.length) warnings.push('No hay legs suficientes para construir ticket.');
@@ -178,6 +179,9 @@ function dataWarnings(setup) {
   if (getBreakevenText(setup) === 'No disponible') warnings.push('Break-even no disponible.');
   if (asNumber(setup.maxRisk) === null) warnings.push('Max risk no disponible.');
   if (asNumber(setup.maxProfit) === null) warnings.push('Max profit no disponible.');
+  if (asNumber(setup.maxProfit) !== null && asNumber(setup.maxProfit) < (settings.minProfitDollars || 30)) {
+    warnings.push(`Max profit estimado menor al minimo configurado de $${settings.minProfitDollars || 30}.`);
+  }
   if (!setup.expiration) warnings.push('Expiracion no disponible.');
   return [...new Set(warnings)];
 }
@@ -215,10 +219,12 @@ function classifyTicket({ setup, settings, globalBlocks, dataIssues, popPct, ev,
   const maxRisk = asNumber(setup.maxRisk);
   const maxProfit = asNumber(setup.maxProfit);
   const readyData = dataIssues.filter((issue) => /POP|Break-even|Max risk|Max profit|Expiracion|bid\/ask|strike/i.test(issue));
+  const lowPayout = maxProfit !== null && maxProfit < (settings.minProfitDollars || 30);
   const criticalBlocks = (setup.blocks || []).filter((block) => /stale|dato|data|noticia|evento macro|kill switch|colateral utilizado sobre 80/i.test(block));
   const criticalGlobal = (globalBlocks || []).filter((block) => /evento macro|noticias sensibles|kill switch|perdida|colateral utilizado sobre 80/i.test(block));
   if (!isDefinedRiskStrategy(setup)) return EDGE_CLASSIFICATIONS.NO_TRADE_REAL;
   if (readyData.length || maxRisk === null || maxProfit === null || popPct === null) return EDGE_CLASSIFICATIONS.NO_READY;
+  if (lowPayout) return EDGE_CLASSIFICATIONS.NO_READY;
   if (criticalBlocks.length || criticalGlobal.length) return EDGE_CLASSIFICATIONS.NO_TRADE_REAL;
   const capitalHeavy = riskClasses.includes('Capital Heavy');
   const highPopBad = popPct >= minPop && (ev?.value !== null && ev.value < 0 || maxProfit / Math.max(maxRisk, 1) < 0.18);
@@ -275,7 +281,7 @@ function doNotEnterRules(setup, premium) {
 export function buildTradeTicket({ setup, scan, profile, settings = DEFAULT_EDGE_PROFILE }) {
   const premium = getPremium(setup);
   const pop = estimatePop(setup);
-  const dataIssues = dataWarnings(setup);
+  const dataIssues = dataWarnings(setup, settings);
   const ev = estimateEv(setup, pop.value, premium);
   const globalBlocks = scan?.decision?.status === 'eligible' ? [] : scan?.decision?.reasons || [];
   const riskClasses = riskClassForTicket({ setup, popPct: pop.value, ev, profile, globalBlocks, dataIssues });
@@ -303,6 +309,8 @@ export function buildTradeTicket({ setup, scan, profile, settings = DEFAULT_EDGE
     entryLimitValue: premium.value,
     maxRisk: asNumber(setup.maxRisk),
     maxProfit: asNumber(setup.maxProfit),
+    minProfitDollars: settings.minProfitDollars || 30,
+    profitTargetOk: asNumber(setup.maxProfit) !== null && asNumber(setup.maxProfit) >= (settings.minProfitDollars || 30),
     collateralRequired: asNumber(setup.collateralRequired, asNumber(setup.maxRisk)),
     breakEven: getBreakevenText(setup),
     popEstimated: pop.value,
@@ -312,6 +320,7 @@ export function buildTradeTicket({ setup, scan, profile, settings = DEFAULT_EDGE
     expectedProfit: ev.expectedProfit,
     expectedLoss: ev.expectedLoss,
     riskReward: asNumber(setup.riskReward) ?? (asNumber(setup.maxProfit) && asNumber(setup.maxRisk) ? round(asNumber(setup.maxProfit) / asNumber(setup.maxRisk), 2) : null),
+    tapeProxy: setup.tapeProxy || null,
     roc: asNumber(setup.maxProfit) && asNumber(setup.collateralRequired, asNumber(setup.maxRisk)) ? round((asNumber(setup.maxProfit) / asNumber(setup.collateralRequired, asNumber(setup.maxRisk))) * 100, 2) : null,
     edgeScore,
     confidence: edgeScore >= 80 ? 'Alta' : edgeScore >= 65 ? 'Media' : 'Baja',
@@ -331,7 +340,7 @@ export function buildTradeTicket({ setup, scan, profile, settings = DEFAULT_EDGE
     `${ticket.strategy} | POP ${pct(ticket.popEstimated)} | Risk: ${riskClass}`,
     `Exp: ${ticket.expiration} | ${ticket.legsText}`,
     `${ticket.entryLimit}`,
-    `MaxRisk: ${dollars(ticket.maxRisk)} | TP: ${ticket.takeProfitValue === null ? 'plan' : dollars(ticket.takeProfitValue)} | SL: ${ticket.stopLossValue === null ? 'plan' : dollars(ticket.stopLossValue)}`
+    `MaxRisk: ${dollars(ticket.maxRisk)} | MaxProfit est.: ${dollars(ticket.maxProfit)} | TP: ${ticket.takeProfitValue === null ? 'plan' : dollars(ticket.takeProfitValue)} | SL: ${ticket.stopLossValue === null ? 'plan' : dollars(ticket.stopLossValue)}`
   ].join('\n');
   return ticket;
 }

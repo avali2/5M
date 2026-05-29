@@ -18,14 +18,16 @@ export function createCompactScanPayload(scan = {}) {
       strategy: ticket.strategy,
       classification: ticket.classification,
       riskClass: ticket.riskClass,
-      pop: ticket.pop,
-      ev: ticket.ev,
+      pop: ticket.popEstimated ?? ticket.pop,
+      ev: ticket.evEstimated ?? ticket.ev,
       entryLimit: ticket.entryLimit,
       maxRisk: ticket.maxRisk,
       maxProfit: ticket.maxProfit,
       expiration: ticket.expiration,
       legs: ticket.legs,
-      invalidation: ticket.invalidation
+      invalidation: ticket.invalidation,
+      tapeProxy: ticket.tapeProxy,
+      minProfitDollars: ticket.minProfitDollars
     } : null,
     opportunities: (scan.opportunities || []).slice(0, 5).map((item) => ({
       symbol: item.symbol,
@@ -69,7 +71,8 @@ export function buildAiTutorPrompt() {
     'Explica en espanol claro y prudente.',
     'No calcules precios, strikes, POP, EV, Greeks ni riesgo; esos datos ya vienen del motor deterministico.',
     'No prometas ganancias ni digas que el usuario debe ejecutar.',
-    'Enfocate en: que revisar, riesgo principal, invalidacion, fuente de datos y leccion educativa.',
-    'Maximo 140 palabras.'
+    'Enfocate en: que revisar, riesgo principal, invalidacion, fuente de datos, tape reading proxy si existe, y una leccion profunda pero accionable sobre venta de prima/spreads de credito.',
+    'Si hay candidato de credito, explica por que el credito compensa o no compensa el riesgo y que confirmaria en Robinhood.',
+    'Maximo 220 palabras.'
   ].join(' ');
 }
