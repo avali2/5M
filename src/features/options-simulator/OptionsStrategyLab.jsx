@@ -24,6 +24,20 @@ const explanations = {
   pop: 'Estimacion basada en delta de strikes cortos cuando existe. No es una probabilidad garantizada.',
   chart: 'La linea de vencimiento es payoff contractual. Hoy e IV +/-10 usan una aproximacion local por Greeks.'
 };
+const chartTheme = {
+  grid: '#d7e2ef',
+  axis: '#64748b',
+  tooltip: {
+    background: 'var(--chart-tooltip-bg)',
+    border: '1px solid var(--border-soft)',
+    borderRadius: 12,
+    boxShadow: '0 14px 36px rgba(15, 23, 42, .12)',
+    color: 'var(--chart-tooltip-text)'
+  },
+  label: { color: 'var(--text-muted)', fontWeight: 700 },
+  item: { color: 'var(--text-main)' },
+  cursor: { stroke: 'rgba(37, 99, 235, .25)' }
+};
 
 export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJournal, onSendPaper }) {
   const [symbol, setSymbol] = useState('SPY');
@@ -213,10 +227,10 @@ export default function OptionsStrategyLab({ prefillSetup, profile, onSaveJourna
           <button className="mb-2 text-xs font-semibold text-sigma-gold" onClick={() => setHelp('chart')}>Payoff y sensibilidad: Como se calcula?</button>
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={analytics.chart}>
-              <CartesianGrid stroke="#273453" vertical={false} />
-              <XAxis dataKey="price" tick={{ fill: '#91a0bc', fontSize: 10 }} />
-              <YAxis tick={{ fill: '#91a0bc', fontSize: 10 }} />
-              <Tooltip contentStyle={{ background: '#111a2d', border: '1px solid #273453' }} />
+              <CartesianGrid stroke={chartTheme.grid} vertical={false} />
+              <XAxis dataKey="price" tick={{ fill: chartTheme.axis, fontSize: 10 }} />
+              <YAxis tick={{ fill: chartTheme.axis, fontSize: 10 }} />
+              <Tooltip cursor={chartTheme.cursor} contentStyle={chartTheme.tooltip} labelStyle={chartTheme.label} itemStyle={chartTheme.item} />
               <Legend />
               <Line type="monotone" dataKey="expiration" name="P/L vencimiento" stroke="#18bf86" dot={false} />
               <Line type="monotone" dataKey="estimatedToday" name="P/L hoy est." stroke="#4f8ff7" dot={false} />

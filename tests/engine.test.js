@@ -137,6 +137,17 @@ test('agent endpoints expose guarded status without requiring AI', async () => {
   assert.equal(status.body.name, 'Gemini Guardian');
   assert.ok(['ACTIVE', 'CAUTION', 'BLOCKED', 'SLEEPING'].includes(status.body.state));
   assert.ok(status.body.guards.macro);
+  const macro = await request(app).get('/api/macro/guard').set('X-Valido-Key', 'long-private-mobile-key').expect(200);
+  assert.equal(macro.body.ok, true);
+  assert.ok(macro.body.guard);
+  const news = await request(app).get('/api/news/guard').set('X-Valido-Key', 'long-private-mobile-key').expect(200);
+  assert.equal(news.body.ok, true);
+  assert.ok(news.body.geopolitical);
+  const verify = await request(app).post('/api/agent/verify-signal').set('X-Valido-Key', 'long-private-mobile-key').send({ dryRun: true, symbol: 'SPY' }).expect(200);
+  assert.equal(verify.body.review.agent, 'SIGMA_GUARDIAN');
+  assert.equal(verify.body.aiCalled, false);
+  const push = await request(app).post('/api/push/test').set('X-Valido-Key', 'long-private-mobile-key').send({ dryRun: true }).expect(200);
+  assert.equal(push.body.dryRun, true);
   const signals = await request(app).get('/api/signals').set('X-Valido-Key', 'long-private-mobile-key').expect(200);
   assert.ok(Array.isArray(signals.body.signals));
   assert.equal(signals.body.signals.length <= 3, true);

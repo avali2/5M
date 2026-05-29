@@ -41,6 +41,20 @@ const EDGE_LABELS = {
   NO_READY: 'NO READY',
   NO_TRADE_REAL: 'NO TRADE REAL'
 };
+const CHART_THEME = {
+  grid: '#d7e2ef',
+  axis: '#64748b',
+  tooltip: {
+    background: 'var(--chart-tooltip-bg)',
+    border: '1px solid var(--border-soft)',
+    borderRadius: 12,
+    boxShadow: '0 14px 36px rgba(15, 23, 42, .12)',
+    color: 'var(--chart-tooltip-text)'
+  },
+  tooltipLabel: { color: 'var(--text-muted)', fontWeight: 700 },
+  tooltipItem: { color: 'var(--text-main)' },
+  cursor: { fill: 'rgba(37, 99, 235, 0.08)' }
+};
 const tone = (status) => ['eligible', 'EDGE_READY'].includes(status)
   ? 'text-sigma-green border-sigma-green/40 bg-emerald-500/10'
   : ['configuration_required', 'conditional_edge', 'AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT', 'soft_macro'].includes(status)
@@ -146,7 +160,7 @@ function DesktopTabs() {
   ];
   return (
     <nav className="hidden overflow-x-auto rounded-xl border border-sigma-line bg-sigma-elevated p-2 md:flex md:gap-1">
-      {tabs.map(([target, label]) => <a className="whitespace-nowrap rounded-lg px-3 py-2 text-xs text-slate-300 hover:bg-sigma-soft hover:text-white" href={`#${target}`} key={target}>{label}</a>)}
+      {tabs.map(([target, label]) => <a className="whitespace-nowrap rounded-lg px-3 py-2 text-xs text-slate-600 hover:bg-sigma-soft hover:text-slate-950" href={`#${target}`} key={target}>{label}</a>)}
     </nav>
   );
 }
@@ -519,10 +533,10 @@ function MarketDashboard({ scan, onExplain }) {
         {market?.sectorRotation?.length ? (
           <ResponsiveContainer width="100%" height={145}>
             <BarChart data={market.sectorRotation.slice(0, 6)} margin={{ top: 15, right: 8, left: -25, bottom: 0 }}>
-              <CartesianGrid stroke="#273453" vertical={false} />
-              <XAxis dataKey="symbol" tick={{ fill: '#91a0bc', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#91a0bc', fontSize: 10 }} />
-              <Tooltip contentStyle={{ background: '#111a2d', border: '1px solid #273453' }} />
+              <CartesianGrid stroke={CHART_THEME.grid} vertical={false} />
+              <XAxis dataKey="symbol" tick={{ fill: CHART_THEME.axis, fontSize: 11 }} />
+              <YAxis tick={{ fill: CHART_THEME.axis, fontSize: 10 }} />
+              <Tooltip cursor={CHART_THEME.cursor} contentStyle={CHART_THEME.tooltip} labelStyle={CHART_THEME.tooltipLabel} itemStyle={CHART_THEME.tooltipItem} />
               <Bar dataKey="return20d">
                 {market.sectorRotation.slice(0, 6).map((item) => <Cell fill={item.return20d >= 0 ? '#18bf86' : '#ef5961'} key={item.symbol} />)}
               </Bar>
@@ -568,10 +582,10 @@ function GammaDesk({ scan, onExplain }) {
         {profile.length ? (
           <ResponsiveContainer width="100%" height={230}>
             <BarChart data={profile} margin={{ top: 18, right: 8, left: -5, bottom: 0 }}>
-              <CartesianGrid stroke="#273453" vertical={false} />
-              <XAxis dataKey="strike" tick={{ fill: '#91a0bc', fontSize: 10 }} />
-              <YAxis tick={{ fill: '#91a0bc', fontSize: 10 }} />
-              <Tooltip contentStyle={{ background: '#111a2d', border: '1px solid #273453' }} />
+              <CartesianGrid stroke={CHART_THEME.grid} vertical={false} />
+              <XAxis dataKey="strike" tick={{ fill: CHART_THEME.axis, fontSize: 10 }} />
+              <YAxis tick={{ fill: CHART_THEME.axis, fontSize: 10 }} />
+              <Tooltip cursor={CHART_THEME.cursor} contentStyle={CHART_THEME.tooltip} labelStyle={CHART_THEME.tooltipLabel} itemStyle={CHART_THEME.tooltipItem} />
               <Bar dataKey="netGamma">
                 {profile.map((row) => <Cell fill={row.netGamma >= 0 ? '#4f8ff7' : '#ef5961'} key={row.strike} />)}
               </Bar>
@@ -643,9 +657,9 @@ function ScannerBoards({ scan }) {
           <>
             <ResponsiveContainer width="100%" height={170}>
               <BarChart data={diagnostics} layout="vertical" margin={{ top: 10, right: 8, left: 40, bottom: 0 }}>
-                <XAxis type="number" domain={[0, 100]} tick={{ fill: '#91a0bc', fontSize: 10 }} />
-                <YAxis type="category" dataKey="name" tick={{ fill: '#91a0bc', fontSize: 10 }} width={75} />
-                <Tooltip contentStyle={{ background: '#111a2d', border: '1px solid #273453' }} />
+                <XAxis type="number" domain={[0, 100]} tick={{ fill: CHART_THEME.axis, fontSize: 10 }} />
+                <YAxis type="category" dataKey="name" tick={{ fill: CHART_THEME.axis, fontSize: 10 }} width={75} />
+                <Tooltip cursor={CHART_THEME.cursor} contentStyle={CHART_THEME.tooltip} labelStyle={CHART_THEME.tooltipLabel} itemStyle={CHART_THEME.tooltipItem} />
                 <Bar dataKey="ivRank">
                   {diagnostics.map((item) => <Cell fill={item.eligible ? '#18bf86' : '#f4aa32'} key={item.name} />)}
                 </Bar>
@@ -1183,7 +1197,7 @@ export default function App() {
       <main className="mx-auto max-w-[1540px] space-y-5 px-4 py-5 pb-20 md:px-8 md:pb-5">
         <DesktopTabs />
         {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-sigma-red">{error}</div>}
-        <GeminiGuardianCommandCenter scan={scan} loading={loading} onRefresh={() => load(true)} onAiExplain={openAiPanel} onSimulate={simulateSetup} />
+        <GeminiGuardianCommandCenter scan={scan} loading={loading} onRefresh={() => load(true)} onAiExplain={openAiPanel} onSimulate={simulateSetup} onPaper={paperSetupTrade} />
         <DecisionHero scan={scan} />
         <GuardianPanel
           scan={scan}

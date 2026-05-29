@@ -89,8 +89,18 @@ export function createPushRouter({ pushService }) {
       next(error);
     }
   });
-  router.post('/test', async (_req, res, next) => {
+  router.post('/test', async (req, res, next) => {
     try {
+      if (req.body?.dryRun || req.body?.testMode === 'dryRun') {
+        return res.json({
+          ok: true,
+          dryRun: true,
+          aiCalled: false,
+          sent: false,
+          status: pushService.status(),
+          note: 'Dry-run push: no notification was sent and no subscription was modified.'
+        });
+      }
       res.json(await pushService.test());
     } catch (error) {
       next(error);

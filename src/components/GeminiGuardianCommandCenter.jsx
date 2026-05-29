@@ -48,7 +48,7 @@ function GuardPill({ label, guard }) {
   );
 }
 
-function SignalTicket({ signal, onSimulate, onAiExplain }) {
+function SignalTicket({ signal, onSimulate, onPaper, onAiExplain }) {
   const guardian = signal.geminiGuardian;
   return (
     <article className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
@@ -94,6 +94,7 @@ function SignalTicket({ signal, onSimulate, onAiExplain }) {
       <div className="mt-4 flex flex-wrap gap-2">
         <button className="btn btn-primary" onClick={() => copySignal(signal)}>Copiar senal</button>
         <button className="btn" onClick={() => onSimulate?.(signal)}>Simular</button>
+        <button className="btn" onClick={() => onPaper?.(signal)}>Guardar como paper</button>
         <button className="btn" onClick={onAiExplain}>Explicarme con Gemini</button>
         <a className="btn" href="#paper">Ver checklist Robinhood</a>
       </div>
@@ -111,7 +112,22 @@ function Mini({ label, value }) {
   );
 }
 
-export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, onAiExplain, onSimulate }) {
+function CommandTile({ label, value, tone = 'info' }) {
+  const tones = {
+    info: 'border-blue-100 bg-blue-50 text-blue-900',
+    success: 'border-emerald-100 bg-emerald-50 text-emerald-800',
+    warning: 'border-amber-100 bg-amber-50 text-amber-800',
+    danger: 'border-red-100 bg-red-50 text-red-800'
+  };
+  return (
+    <div className={`rounded-2xl border p-3 ${tones[tone] || tones.info}`}>
+      <p className="text-[10px] font-black uppercase tracking-[.14em] opacity-75">{label}</p>
+      <p className="mt-1 text-sm font-black">{value}</p>
+    </div>
+  );
+}
+
+export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, onAiExplain, onSimulate, onPaper }) {
   const agent = scan?.agent || {};
   const budget = agent.tokenBudget || {};
   const aiGuardian = agent.aiGuardian || agent.aiVerificationStatus?.guardian || {};
@@ -120,13 +136,21 @@ export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, 
   const state = agent.state || 'SLEEPING';
   const decision = agent.marketDecision || scan?.decision?.label || 'DATA INSUFFICIENT';
   const source = scan?.providers?.find((provider) => provider.id === 'tradier' && provider.configured) ? 'Tradier' : 'Yahoo/fallback';
+  const guardEntries = Object.entries(agent.guards || {});
+  const nonClearGuards = guardEntries.filter(([, guard]) => guard?.status && guard.status !== 'clear');
+  const topThings = [
+    signals[0] ? `Operable: ${signals[0].ticker} ${signals[0].strategy}` : 'Ahora: WATCHLIST/NO_TRADE hasta que pase score, POP y auditoria.',
+    nonClearGuards[0] ? `Riesgo principal: ${nonClearGuards[0][0]} - ${nonClearGuards[0][1].detail}` : 'Guards principales sin bloqueo.',
+    `Data: ${source}; refresh ${(scan?.refreshSeconds || 300) / 60} min.`
+  ];
+  const avoid = rejected[0]?.rejectionReasons?.[0] || 'Evitar entradas sin chain fresca, max loss y confirmacion Guardian.';
   return (
     <section className="guardian-pro-shell scroll-mt-24" id="guardian-pro">
       <div className="guardian-hero">
         <div>
-          <p className="text-[11px] font-black uppercase tracking-[.18em] text-blue-700">Copiloto de riesgo y senales</p>
-          <h2 className="mt-2 text-3xl font-black text-slate-950 md:text-4xl">Gemini Guardian</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Senales reales arriba, candidatos rechazados abajo. Gemini audita candidatos calculados por el motor; precios, riesgo, POP y filtros siguen siendo deterministicos.</p>
+          <p className="text-[11px] font-black uppercase tracking-[.18em] text-blue-700">Gemini Market Command Center</p>
+          <h2 className="mt-2 text-3xl font-black text-slate-950 md:text-4xl">Gemini Guardian / SIGMA Guardian</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Primero decision, despues tickets. SIGMA audita candidatos calculados por el motor; precios, riesgo, POP, Greeks, news y macro siguen viniendo de datos y reglas verificables.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded-full border px-3 py-1 text-xs font-black ${stateTone[state] || stateTone.SLEEPING}`}>{state}</span>
@@ -146,6 +170,21 @@ export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, 
         <Mini label="Motivo actual" value={aiGuardian.reason || signals[0]?.geminiGuardian?.summary || rejected[0]?.rejectionReasons?.[0] || 'Vigilando sin senal aprobada'} />
       </div>
 
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <CommandTile label="Que puedo operar ahora" value={signals[0] ? `${signals[0].ticker} ${signals[0].strategy}` : 'Nada aprobado: solo watchlist/paper'} tone={signals[0] ? 'success' : 'warning'} />
+        <CommandTile label="Que debo esperar" value={rejected[0] ? `${rejected[0].ticker} requiere mejora: ${rejected[0].rejectionReasons?.[0] || 'validacion pendiente'}` : 'Nuevo escaneo con chain y guards frescos'} />
+        <CommandTile label="Que debo evitar" value={avoid} tone={avoid.toLowerCase().includes('bloque') || avoid.toLowerCase().includes('riesgo') ? 'danger' : 'warning'} />
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {topThings.map((item, index) => (
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-700 shadow-sm" key={item}>
+            <p className="text-[10px] font-black uppercase tracking-[.14em] text-slate-500">Top {index + 1}</p>
+            <p className="mt-1 font-semibold">{item}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -156,7 +195,7 @@ export default function GeminiGuardianCommandCenter({ scan, loading, onRefresh, 
         </div>
         <div className="mt-4 space-y-3">
           {signals.length ? signals.slice(0, 3).map((signal) => (
-            <SignalTicket signal={signal} key={signal.id} onSimulate={onSimulate} onAiExplain={onAiExplain} />
+            <SignalTicket signal={signal} key={signal.id} onSimulate={onSimulate} onPaper={onPaper} onAiExplain={onAiExplain} />
           )) : (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
               <strong>No hay senal aprobada.</strong> El sistema sigue vigilando {scan?.watchlist?.symbols?.slice(0, 8).join(', ') || 'la watchlist'}.

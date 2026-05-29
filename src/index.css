@@ -3,6 +3,21 @@
 @tailwind utilities;
 
 :root {
+  --bg-app: #edf4ff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fbff;
+  --bg-panel: #f8fafc;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --border-soft: #d7e2ef;
+  --accent: #2563eb;
+  --success-bg: #ecfdf5;
+  --warning-bg: #fffbeb;
+  --danger-bg: #fef2f2;
+  --info-bg: #eff6ff;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-text: #0f172a;
+  --chart-cursor: rgba(37, 99, 235, 0.08);
   color: #0f172a;
   background: #edf4ff;
   font-family: "Segoe UI", Inter, Arial, sans-serif;
@@ -11,6 +26,14 @@
 }
 
 * { box-sizing: border-box; }
+
+*,
+*::before,
+*::after {
+  transition-property: color, background-color, border-color, box-shadow, transform;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
 
 body {
   margin: 0;
@@ -29,12 +52,19 @@ a { color: inherit; }
     @apply rounded-2xl border border-sigma-line bg-sigma-card shadow-panel;
   }
 
+  .panel:hover,
+  .metric:hover,
+  .guardian-pro-shell:hover,
+  .guardian-hero:hover {
+    background: var(--bg-card-hover);
+  }
+
   .eyebrow {
     @apply text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500;
   }
 
   .status-chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-sigma-line bg-sigma-soft px-2.5 py-1 text-[11px] font-semibold text-slate-300;
+    @apply inline-flex items-center gap-1.5 rounded-full border border-sigma-line bg-sigma-soft px-2.5 py-1 text-[11px] font-semibold text-slate-700;
   }
 
   .metric {
@@ -58,11 +88,60 @@ a { color: inherit; }
   }
 
   .table-cell {
-    @apply border-t border-sigma-line/60 px-3 py-2.5 text-xs text-slate-200;
+    @apply border-t border-sigma-line/60 px-3 py-2.5 text-xs text-slate-700;
   }
 }
 
 .scrollbar { scrollbar-width: thin; scrollbar-color: #273453 transparent; }
+
+.recharts-wrapper,
+.recharts-surface,
+.recharts-responsive-container {
+  background: transparent !important;
+}
+
+.recharts-tooltip-wrapper {
+  outline: none !important;
+  z-index: 20;
+}
+
+.recharts-tooltip-cursor {
+  fill: var(--chart-cursor) !important;
+  stroke: rgba(37, 99, 235, .18) !important;
+}
+
+.recharts-default-tooltip {
+  background: var(--chart-tooltip-bg) !important;
+  border: 1px solid var(--border-soft) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, .12) !important;
+  color: var(--chart-tooltip-text) !important;
+}
+
+.recharts-tooltip-label,
+.recharts-tooltip-item,
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-value {
+  color: var(--chart-tooltip-text) !important;
+}
+
+.edge-aggressive-card {
+  border-color: #f59e0b;
+  background: #fff7ed;
+  color: #7c2d12;
+}
+
+.edge-candidate-card {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.edge-block-card {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
 
 .guardian-pro-shell {
   border: 1px solid #d7e2ef;

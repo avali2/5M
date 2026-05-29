@@ -230,6 +230,118 @@ function buildAgentPayload({ scan, settings, providers, guardianScheduler }) {
   };
 }
 
+function firstSignalCandidate(payload, idOrSymbol) {
+  const pool = [...(payload.approvedSignals || []), ...(payload.rejectedCandidates || [])];
+  if (!idOrSymbol) return pool[0] || null;
+  const key = String(idOrSymbol).toUpperCase();
+  return pool.find((item) =>
+    String(item?.id || '').toUpperCase() === key ||
+    String(item?.ticker || item?.symbol || '').toUpperCase() === key
+  ) || pool[0] || null;
+}
+
+function sigmaDecisionFor(signal, guards, settings) {
+  const blockers = [
+    ...(signal?.rejectionReasons || []),
+    ...(signal?.nearbyEvents || []),
+    ...Object.entries(guards || {})
+      .filter(([, guard]) => guard?.status === 'block')
+      .map(([name, guard]) => `${name}: ${guard.detail}`)
+  ].filter(Boolean);
+  const score = Number(signal?.score);
+  const pop = Number(signal?.popEstimated ?? signal?.probability);
+  const minPop = (settings.signals?.minPop || 0.7) <= 1 ? (settings.signals?.minPop || 0.7) * 100 : settings.signals?.minPop;
+  const scoreOk = Number.isFinite(score) && score >= (settings.signals?.minScore || 82);
+  const popOk = Number.isFinite(pop) && pop >= minPop;
+  if (!signal || blockers.length) return { decision: 'NO_TRADE', auditStatus: 'REJECTED', priority: 'LOW', blockers };
+  if (scoreOk && popOk && signal.geminiGuardian?.decision === 'APPROVE') return { decision: 'APPROVED', auditStatus: 'APPROVED', priority: 'HIGH', blockers };
+  if (scoreOk || popOk) return { decision: 'WATCHLIST', auditStatus: 'NEEDS_HUMAN_REVIEW', priority: 'MEDIUM', blockers: ['Requiere confirmacion final de cadena, guards y Gemini Guardian.'] };
+  return { decision: 'NO_TRADE', auditStatus: 'REJECTED', priority: 'LOW', blockers: ['Score o POP debajo del mandato.'] };
+}
+
+function buildSigmaAudit({ signal, scan, guards, settings }) {
+  const outcome = sigmaDecisionFor(signal, guards, settings);
+  const legs = (signal?.legs || []).map((leg) => ({
+    side: leg.side,
+    type: leg.type,
+    strike: leg.strike,
+    bid: leg.bid,
+    ask: leg.ask,
+    mid: leg.mid,
+    delta: leg.delta,
+    gamma: leg.gamma,
+    theta: leg.theta,
+    vega: leg.vega,
+    volume: leg.volume,
+    openInterest: leg.openInterest
+  }));
+  const score = Number(signal?.score);
+  return {
+    agent: 'SIGMA_GUARDIAN',
+    signal_id: signal?.id || 'dry-run-no-signal',
+    timestamp: new Date().toISOString(),
+    market_regime: scan?.market?.regime || 'NO_TRADE',
+    decision: outcome.decision,
+    priority: outcome.priority,
+    symbol: signal?.ticker || signal?.symbol || 'NO_DATA',
+    underlying_price: Number(signal?.currentPrice) || null,
+    strategy: signal?.strategy || 'NO_TRADE',
+    direction: signal?.direction || 'NO_TRADE',
+    expiration: signal?.expiration || null,
+    dte: Number.isFinite(Number(signal?.dte)) ? Number(signal.dte) : null,
+    legs,
+    entry: {
+      limit_price: Number(signal?.creditDebit?.value) || null,
+      natural_price: null,
+      mid_price: Number(signal?.creditDebit?.value) || null,
+      max_slippage_allowed: null
+    },
+    risk: {
+      max_profit: Number(signal?.maxProfit) || null,
+      max_loss: Number(signal?.maxRisk ?? signal?.maxLoss) || null,
+      buying_power_required: Number(signal?.collateralRequired) || null,
+      risk_reward: Number.isFinite(Number(signal?.maxProfit)) && Number(signal?.maxRisk) > 0 ? Number((signal.maxProfit / signal.maxRisk).toFixed(2)) : null,
+      position_size_contracts: Number(signal?.maxRisk) > 0 && scan?.profile?.accountSize ? Math.max(0, Math.floor((scan.profile.accountSize * scan.profile.riskPct / 100) / signal.maxRisk)) : 0,
+      account_risk_percent: Number(signal?.maxRisk) > 0 && scan?.profile?.accountSize ? Number((signal.maxRisk / scan.profile.accountSize * 100).toFixed(2)) : null
+    },
+    probability: {
+      probability_of_profit: Number(signal?.popEstimated ?? signal?.probability) || null,
+      probability_source: signal?.source?.probability || 'DELTA_APPROX',
+      break_even: null
+    },
+    scores: {
+      technical_score: signal?.scoreFactors?.primaryTrend ?? null,
+      liquidity_score: signal?.scoreFactors?.optionsLiquidity ?? null,
+      volatility_score: signal?.scoreFactors?.volatilityEdge ?? null,
+      news_score: signal?.scoreFactors?.newsEarningsMacro ?? null,
+      earnings_risk_score: guards?.earnings?.status === 'clear' ? 10 : 0,
+      risk_score: signal?.scoreFactors?.riskRewardSizing ?? null,
+      final_score: Number.isFinite(score) ? score : null
+    },
+    evidence: [
+      signal?.reason,
+      `Macro Guard: ${guards?.macro?.status || 'unavailable'} - ${guards?.macro?.detail || ''}`,
+      `News Guard: ${guards?.news?.status || 'unavailable'} - ${guards?.news?.detail || ''}`,
+      `Earnings Guard: ${guards?.earnings?.status || 'unavailable'} - ${guards?.earnings?.detail || ''}`
+    ].filter(Boolean),
+    blockers: outcome.blockers,
+    trade_management: {
+      take_profit: signal?.closeAlert || 'TP 40%-60% si se valida en broker.',
+      stop_loss: signal?.closeAlert || 'Stop por precio del spread o invalidacion tecnica.',
+      adjustment_plan: 'No ajustar sin recalcular max loss, bid/ask y evento macro/news.',
+      close_before_earnings: guards?.earnings?.status !== 'clear',
+      invalidation_level: null
+    },
+    gemini_audit: {
+      status: outcome.auditStatus,
+      confidence: signal?.geminiGuardian?.confidence ?? (outcome.decision === 'NO_TRADE' ? 35 : 60),
+      data_freshness_seconds: scan?.asOf ? Math.max(0, Math.round((Date.now() - new Date(scan.asOf).getTime()) / 1000)) : null,
+      hallucination_check: signal?.geminiGuardian?.decision === 'APPROVE' ? 'PASSED' : 'FAILED',
+      reason: signal?.geminiGuardian?.summary || outcome.blockers[0] || 'Dry-run deterministic Sigma Guardian audit.'
+    }
+  };
+}
+
 export function createApp(settings = config, customProviders = null, options = { startBackground: true }) {
   const app = express();
   const providers = customProviders || createProviders(settings);
@@ -292,6 +404,7 @@ export function createApp(settings = config, customProviders = null, options = {
       securityStatus: accessRequired && !protectedAccess ? 'configuration_required' : 'ready',
       database: {
         configured: Boolean(settings.database?.url),
+        ssl: Boolean(settings.database?.ssl),
         connected: repository.mode === 'postgresql',
         mode: repository.mode
       },
@@ -300,6 +413,11 @@ export function createApp(settings = config, customProviders = null, options = {
         warning: process.env.RENDER ? 'Render free/low-cost services can sleep; continuous alerts depend on plan and uptime.' : null
       },
       refreshSeconds: settings.refreshSeconds,
+      lastQuote: scheduler.latest?.market?.quotes?.find((quote) => Number.isFinite(quote.price))?.timestamp || scheduler.latest?.asOf || null,
+      lastOptionsChain: scheduler.latest?.collection?.latestSnapshotAt || scheduler.latest?.asOf || null,
+      lastNews: scheduler.latest?.macro?.news?.[0]?.datetime || scheduler.latest?.macro?.breakingRisk?.[0]?.datetime || null,
+      marketStatus: guardianScheduler.status(repository.mode).marketStatus || 'unknown',
+      lastChecked: new Date().toISOString(),
       scheduler: {
         running: Boolean(scheduler.running),
         lastScan: scheduler.latest?.asOf || null,
@@ -310,11 +428,14 @@ export function createApp(settings = config, customProviders = null, options = {
         enabled: settings.agent?.enabled !== false,
         name: settings.agent?.name || 'Gemini Guardian',
         mode: settings.agent?.mode || 'gatekeeper',
+        refreshIntervalMinutes: settings.agent?.refreshIntervalMinutes || 5,
         autoVerifySignals: Boolean(settings.agent?.autoVerifySignals),
         aiDecisionEnabled: Boolean(typeof providers.ai?.status === 'function' ? providers.ai.status()?.automaticSignalDecision : false),
         dailyAiBudget: settings.ai?.dailyTokenBudget,
         aiUsedToday: typeof providers.ai?.status === 'function' ? providers.ai.status()?.budget?.tokensUsed : null,
         requestsUsedToday: typeof providers.ai?.status === 'function' ? providers.ai.status()?.budget?.requestsUsed : null,
+        dailyAiBudgetOk: typeof providers.ai?.status === 'function' ? (providers.ai.status()?.budget?.usagePercent || 0) < settings.ai?.disableAllAtUsagePercent : true,
+        failsafeDeterministic: settings.agent?.failsafeDeterministic !== false && settings.ai?.fallbackToDeterministic !== false,
         lastReviewAt: typeof providers.ai?.status === 'function' ? providers.ai.status()?.gatekeeper?.lastReviewAt : null,
         nextReviewAt: guardianScheduler.status(repository.mode).nextScan
       },
@@ -345,6 +466,45 @@ export function createApp(settings = config, customProviders = null, options = {
     }
   });
 
+  app.get('/api/macro/guard', async (_req, res, next) => {
+    try {
+      const scan = await scheduler.snapshot();
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
+      res.json({
+        ok: true,
+        guard: payload.guards.macro,
+        fed: payload.guards.fed,
+        earnings: payload.guards.earnings,
+        highImpactEvents: scan?.macro?.highImpactEvents || [],
+        softImpactEvents: scan?.macro?.softImpactEvents || [],
+        earningsCalendar: scan?.macro?.earnings || [],
+        asOf: scan.asOf
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/news/guard', async (_req, res, next) => {
+    try {
+      const scan = await scheduler.snapshot();
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
+      res.json({
+        ok: true,
+        guard: payload.guards.news,
+        geopolitical: payload.guards.geopolitical,
+        breakingRisk: scan?.macro?.breakingRisk || [],
+        newsBlocks: scan?.macro?.newsBlocks || [],
+        companyNews: scan?.macro?.companyNews || [],
+        asOf: scan.asOf
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post('/api/agent/scan', async (_req, res, next) => {
     try {
       const scan = await scheduler.run(true);
@@ -352,6 +512,55 @@ export function createApp(settings = config, customProviders = null, options = {
       res.json({
         ...buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }),
         scan: enriched
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/agent/verify-signal', async (req, res, next) => {
+    try {
+      const scan = await scheduler.snapshot();
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
+      const candidate = req.body?.signal || firstSignalCandidate(payload, req.body?.signalId || req.body?.symbol);
+      const dryRun = req.body?.dryRun !== false;
+      const sigmaAudit = buildSigmaAudit({ signal: candidate, scan: enriched, guards: payload.guards, settings });
+      if (dryRun || !candidate) {
+        return res.json({
+          ok: true,
+          dryRun: true,
+          aiCalled: false,
+          review: sigmaAudit,
+          note: 'Dry-run deterministico: no consume Gemini ni envia notificacion.'
+        });
+      }
+      if (typeof providers.ai?.reviewSignal !== 'function') {
+        return res.json({
+          ok: true,
+          dryRun: false,
+          aiCalled: false,
+          review: { ...sigmaAudit, decision: 'NEEDS_HUMAN_REVIEW' },
+          note: 'AI router unavailable; deterministic failsafe returned.'
+        });
+      }
+      const review = await providers.ai.reviewSignal(candidate, enriched, { automatic: false, cycleKey: `manual-${Date.now()}` });
+      return res.json({
+        ok: true,
+        dryRun: false,
+        aiCalled: review.provider === 'gemini',
+        review,
+        sigmaAudit: {
+          ...sigmaAudit,
+          decision: review.decision === 'APPROVE' && review.entry_ok ? 'APPROVED' : review.decision === 'BLOCK' ? 'NO_TRADE' : 'NEEDS_HUMAN_REVIEW',
+          gemini_audit: {
+            ...sigmaAudit.gemini_audit,
+            status: review.decision === 'APPROVE' && review.entry_ok ? 'APPROVED' : review.decision === 'BLOCK' ? 'REJECTED' : 'NEEDS_HUMAN_REVIEW',
+            confidence: review.confidence,
+            hallucination_check: review.decision === 'APPROVE' && review.entry_ok ? 'PASSED' : 'FAILED',
+            reason: review.summary
+          }
+        }
       });
     } catch (error) {
       next(error);
@@ -399,6 +608,16 @@ export function createApp(settings = config, customProviders = null, options = {
   app.get('/api/scan', async (_req, res, next) => {
     try {
       const scan = await scheduler.snapshot();
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/scan', async (_req, res, next) => {
+    try {
+      const scan = await scheduler.run(true);
       const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
       res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
     } catch (error) {

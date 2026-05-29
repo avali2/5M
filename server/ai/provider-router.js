@@ -17,6 +17,7 @@ function cleanJsonText(text = '') {
 function normalizeReview(raw, fallbackSummary = 'Gemini Guardian no entrego una aprobacion operable.') {
   const decision = ['APPROVE', 'CAUTION', 'BLOCK'].includes(raw?.decision) ? raw.decision : 'CAUTION';
   return {
+    agent: 'SIGMA_GUARDIAN',
     decision,
     confidence: Number.isFinite(Number(raw?.confidence)) ? Math.max(0, Math.min(100, Number(raw.confidence))) : 50,
     summary: String(raw?.summary || fallbackSummary).slice(0, 500),
@@ -27,7 +28,8 @@ function normalizeReview(raw, fallbackSummary = 'Gemini Guardian no entrego una 
     position_management: String(raw?.position_management || 'Usar tamano pequeno, take profit definido y stop segun plan.'),
     news_warning: Boolean(raw?.news_warning),
     macro_warning: Boolean(raw?.macro_warning),
-    requires_manual_review: raw?.requires_manual_review !== undefined ? Boolean(raw.requires_manual_review) : decision !== 'APPROVE'
+    requires_manual_review: raw?.requires_manual_review !== undefined ? Boolean(raw.requires_manual_review) : decision !== 'APPROVE',
+    hallucination_check: raw?.hallucination_check === 'PASSED' && decision === 'APPROVE' ? 'PASSED' : 'FAILED'
   };
 }
 
@@ -194,8 +196,9 @@ export class AiProviderRouter {
       'Eres Gemini Guardian, auditor final de una plataforma de opciones.',
       'NO calcules precios, Greeks, POP, EV, strikes ni riesgo. Solo audita los datos calculados.',
       'No prometas ganancias. Si faltan datos, si hay macro/news/earnings/geopolitica seria, o el trade no es limpio, usa CAUTION o BLOCK.',
+      'Actua como SIGMA_GUARDIAN: audita evidencia, contradicciones, frescura de datos y blockers. No apruebes nada con datos incompletos.',
       'Responde SOLO JSON valido con exactamente estas claves:',
-      '{"decision":"APPROVE|CAUTION|BLOCK","confidence":0-100,"summary":"breve","why":["razon 1","razon 2","razon 3"],"risks":["riesgo 1","riesgo 2"],"entry_ok":true/false,"invalidation":"condicion","position_management":"plan","news_warning":true/false,"macro_warning":true/false,"requires_manual_review":true/false}'
+      '{"agent":"SIGMA_GUARDIAN","decision":"APPROVE|CAUTION|BLOCK","confidence":0-100,"summary":"breve","why":["razon 1","razon 2","razon 3"],"risks":["riesgo 1","riesgo 2"],"entry_ok":true/false,"invalidation":"condicion","position_management":"plan","news_warning":true/false,"macro_warning":true/false,"requires_manual_review":true/false,"hallucination_check":"PASSED|FAILED"}'
     ].join('\n');
 
     try {

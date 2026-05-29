@@ -6,7 +6,6 @@ import { repository } from '../db/repository.js';
 import { classifyEventRisk, classifyNewsRisk, classifySoftEventRisk, computeGammaProxy, detectMarketRegime, loadMarketOverview } from './market-intelligence.js';
 import { deriveTechnicals } from './technicals.js';
 import {
-  generateBrokenWingCondor,
   generateCashSecuredPut,
   generateCoveredCall,
   generateDefinedRiskSetups,
@@ -150,7 +149,6 @@ async function scanSymbol({ symbol, providers, market, macro, policy, profile })
       const earningsRisk = highImpactForSymbol(macro.earnings, symbol, entry.date);
       const base = entry.category === 'income' ? [
         ...generateDefinedRiskSetups({ symbol, spot: quote.price, expiration: entry.date, chain: entry.chain, trend: technicals.trend, policy: standardPolicy }),
-        ...generateBrokenWingCondor({ symbol, spot: quote.price, expiration: entry.date, chain: entry.chain, trend: technicals.trend, policy: standardPolicy }),
         ...generateCashSecuredPut({ symbol, spot: quote.price, expiration: entry.date, chain: entry.chain, trend: technicals.trend, policy: standardPolicy, cashAvailable: profile.accountSize * profile.maxCollateralPct / 100 }),
         ...generateCoveredCall({ symbol, spot: quote.price, expiration: entry.date, chain: entry.chain, trend: technicals.trend, policy: standardPolicy, shares: profile.holdings[symbol] }),
         ...generateVolatilityDebitSpread({ symbol, spot: quote.price, expiration: entry.date, chain: entry.chain, trend: technicals.trend, policy: standardPolicy })

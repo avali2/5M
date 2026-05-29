@@ -67,7 +67,8 @@ test('Gemini Guardian approves only structured JSON APPROVE reviews', async () =
             position_management: 'TP 50%, stop definido',
             news_warning: false,
             macro_warning: false,
-            requires_manual_review: false
+            requires_manual_review: false,
+            hallucination_check: 'PASSED'
           }),
           usage: { totalTokens: 200 }
         };
@@ -90,6 +91,57 @@ test('Gemini Guardian approves only structured JSON APPROVE reviews', async () =
   assert.equal(review.decision, 'APPROVE');
   assert.equal(review.entry_ok, true);
   assert.equal(review.status, 'approved');
+  assert.equal(review.hallucination_check, 'PASSED');
+});
+
+test('Gemini Guardian rejects APPROVE when hallucination check fails or is missing', async () => {
+  const scan = {
+    asOf: '2026-05-28T15:00:00.000Z',
+    decision: { status: 'eligible', label: 'PLANES', reasons: [] },
+    macro: {},
+    opportunities: [{
+      symbol: 'SPY',
+      strategy: 'Bull Put Spread',
+      expiration: '2026-06-18',
+      strikes: '700 / 695',
+      confidenceScore: 88,
+      pop: 76,
+      maxRisk: 430,
+      maxProfit: 70,
+      collateralRequired: 430,
+      riskGovernor: { allowedReal: true },
+      blocks: [],
+      legs: []
+    }],
+    rejected: [],
+    guardianEdge: { notifyableTickets: [], actionableTickets: [], tickets: [] }
+  };
+  const reviewed = await applyGeminiGuardianGate(scan, {
+    settings: {
+      ai: { autoSignalDecision: true },
+      agent: { enabled: true, autoVerifySignals: true, verifyMinScore: 82, reviewTopN: 3 },
+      signals: { requireAiConfirmation: true }
+    },
+    providers: {
+      ai: {
+        status: () => ({ automaticSignalDecision: true, budget: {} }),
+        async reviewSignal() {
+          return {
+            decision: 'APPROVE',
+            confidence: 88,
+            summary: 'Aprobo pero no paso hallucination check.',
+            entry_ok: true,
+            requires_manual_review: false,
+            news_warning: false,
+            macro_warning: false,
+            hallucination_check: 'FAILED'
+          };
+        }
+      }
+    }
+  });
+  assert.equal(reviewed.opportunities.length, 0);
+  assert.match(reviewed.rejected[0].blocks.join(' '), /hallucination|Sigma Guardian/i);
 });
 
 test('Gemini Guardian blocks BLOCK reviews from becoming operable', async () => {

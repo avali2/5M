@@ -185,13 +185,13 @@ services:
       - key: ACCOUNT_SIZE
         value: "2000"
       - key: RISK_PER_TRADE_PCT
-        value: "2"
+        value: "1"
       - key: MAX_COLLATERAL_PCT
         value: "20"
       - key: MAX_DAILY_LOSS_PCT
-        value: "5"
+        value: "2"
       - key: MAX_WEEKLY_LOSS_PCT
-        value: "8"
+        value: "5"
       - key: MAX_OPEN_TRADES
         value: "3"
       - key: MIN_DTE

@@ -194,10 +194,10 @@ export const config = {
   },
   policy: {
     accountSize: asNumber(process.env.ACCOUNT_SIZE, 2000),
-    riskPct: asNumber(process.env.RISK_PER_TRADE_PCT, 2),
+    riskPct: asNumber(process.env.RISK_PER_TRADE_PCT, 1),
     maxCollateralPct: asNumber(process.env.MAX_COLLATERAL_PCT, 20),
-    maxDailyLossPct: asNumber(process.env.MAX_DAILY_LOSS_PCT, 5),
-    maxWeeklyLossPct: asNumber(process.env.MAX_WEEKLY_LOSS_PCT, 8),
+    maxDailyLossPct: asNumber(process.env.MAX_DAILY_LOSS_PCT, 2),
+    maxWeeklyLossPct: asNumber(process.env.MAX_WEEKLY_LOSS_PCT, 5),
     maxOpenTrades: asNumber(process.env.MAX_OPEN_TRADES, 3),
     minScore: asNumber(process.env.SIGNAL_MIN_SCORE, asNumber(process.env.MIN_SCORE, 82)),
     minDte: asNumber(process.env.MIN_DTE, 21),

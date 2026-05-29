@@ -1,5 +1,20 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
+const chartTheme = {
+  grid: '#d7e2ef',
+  axis: '#64748b',
+  tooltip: {
+    background: 'var(--chart-tooltip-bg)',
+    border: '1px solid var(--border-soft)',
+    borderRadius: 12,
+    boxShadow: '0 14px 36px rgba(15, 23, 42, .12)',
+    color: 'var(--chart-tooltip-text)'
+  },
+  label: { color: 'var(--text-muted)', fontWeight: 700 },
+  item: { color: 'var(--text-main)' },
+  cursor: { fill: 'rgba(37, 99, 235, 0.08)' }
+};
+
 export default function GexLab({ scan }) {
   const surface = scan?.gammaSurfaces?.find((item) => item.symbol === 'SPY') || scan?.gammaSurfaces?.[0];
   const profile = surface?.profile?.slice(-22) || [];
@@ -20,7 +35,7 @@ export default function GexLab({ scan }) {
           </div>
           <div className="mt-4 h-64 rounded-xl bg-sigma-soft p-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={profile}><CartesianGrid stroke="#273453" vertical={false} /><XAxis dataKey="strike" tick={{ fill: '#91a0bc', fontSize: 10 }} /><YAxis tick={{ fill: '#91a0bc', fontSize: 10 }} /><Tooltip contentStyle={{ background: '#111a2d', border: '1px solid #273453' }} /><Bar dataKey="netGamma" fill="#4f8ff7" /></BarChart>
+              <BarChart data={profile}><CartesianGrid stroke={chartTheme.grid} vertical={false} /><XAxis dataKey="strike" tick={{ fill: chartTheme.axis, fontSize: 10 }} /><YAxis tick={{ fill: chartTheme.axis, fontSize: 10 }} /><Tooltip cursor={chartTheme.cursor} contentStyle={chartTheme.tooltip} labelStyle={chartTheme.label} itemStyle={chartTheme.item} /><Bar dataKey="netGamma" fill="#4f8ff7" /></BarChart>
             </ResponsiveContainer>
           </div>
         </>
