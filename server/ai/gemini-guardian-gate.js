@@ -48,6 +48,11 @@ function isCreditOrIncomeSetup(setup = {}) {
     Number.isFinite(Number(setup.credit ?? setup.netCredit ?? setup.maxProfit));
 }
 
+function isCreditOrIncomeTicket(ticket = {}) {
+  return isCreditOrIncomeSetup(ticket.sourceSetup || ticket) ||
+    /(Credit|Bull Put|Bear Call|Iron Condor|Iron Fly)/i.test(String(ticket.strategy || ticket.classification || ''));
+}
+
 function hasDefinedRiskMath(setup = {}) {
   if (/naked|short straddle|short strangle|ratio/i.test(String(setup.strategy || ''))) return false;
   return Number.isFinite(Number(setup.maxRisk)) && Number.isFinite(Number(setup.maxProfit)) && Array.isArray(setup.legs) && setup.legs.length >= 2;
@@ -104,10 +109,17 @@ function buildReviewCandidates(scan, agentSettings, signalSettings) {
 
 function restrictGuardianTicketsToApproved(scan, approved) {
   if (!scan.guardianEdge) return;
-  scan.guardianEdge.candidateTickets = scan.guardianEdge.candidateTickets ||
+  const candidateTickets = scan.guardianEdge.candidateTickets ||
     scan.guardianEdge.actionableTickets ||
     scan.guardianEdge.tickets ||
     [];
+  scan.guardianEdge.candidateTickets = candidateTickets
+    .slice()
+    .sort((left, right) =>
+      (isCreditOrIncomeTicket(right) ? 1 : 0) - (isCreditOrIncomeTicket(left) ? 1 : 0) ||
+      Number(right.edgeScore || 0) - Number(left.edgeScore || 0) ||
+      Number(right.maxProfit || 0) - Number(left.maxProfit || 0)
+    );
   const approvedTickets = (tickets = []) => tickets.filter((ticket) => approved.some((setup) => sameTicketAndSetup(ticket, setup)));
   scan.guardianEdge.notifyableTickets = approvedTickets(scan.guardianEdge.notifyableTickets);
   scan.guardianEdge.actionableTickets = approvedTickets(scan.guardianEdge.actionableTickets);
