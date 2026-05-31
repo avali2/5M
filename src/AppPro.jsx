@@ -6,6 +6,8 @@ import { processProfessionalAlerts } from './services/proAlertEngine.ts';
 import { geminiBriefFromScan, marketPulseFromScan, professionalSignalsFromScan } from './utils/proSignalAdapter.js';
 
 const LegacyArchive = React.lazy(() => import('./App.jsx'));
+const VALIDO_BUILD_VERSION = import.meta.env.VITE_VALIDO_BUILD_VERSION || 'local-dev';
+const VALIDO_BUILD_TIMESTAMP = import.meta.env.VITE_VALIDO_BUILD_TIMESTAMP || 'no timestamp';
 const dateTime = (value) => value ? new Intl.DateTimeFormat('es-US', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/New_York' }).format(new Date(value)) : '--';
 const money = (value) => Number.isFinite(Number(value)) ? Number(value).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : '--';
 
@@ -14,15 +16,30 @@ function AccessGate({ error, onUnlock }) {
   return (
     <div className="pro-console grid min-h-screen place-items-center p-5">
       <form className="card w-full max-w-md p-6" onSubmit={(event) => { event.preventDefault(); onUnlock(key); }}>
-        <div className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-violet-500 text-2xl font-black text-white">V</div>
-        <p className="mt-5 text-xs font-black uppercase tracking-[.18em] text-sky-300">Acceso privado</p>
+        <div className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 text-2xl font-black text-white">V</div>
+        <p className="mt-5 text-xs font-black uppercase tracking-[.18em] text-blue-600">Acceso privado</p>
         <h1 className="mt-2 text-2xl font-black">VALIDO 1M</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-300">Introduce la clave privada. Los tokens del broker y proveedores nunca se exponen al navegador.</p>
-        {error && <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">{error}</p>}
-        <input className="mt-5 h-11 w-full rounded-xl border border-[#26364f] bg-[#0b1728] px-3 text-sm text-white outline-none" type="password" autoComplete="current-password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="Clave de acceso" />
+        <p className="mt-3 text-sm leading-6 text-slate-500">Introduce la clave privada. Los tokens del broker y proveedores nunca se exponen al navegador.</p>
+        {error && <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-700">{error}</p>}
+        <input className="mt-5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500" type="password" autoComplete="current-password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="Clave de acceso" />
         <button className="primary mt-3 w-full" type="submit">Entrar</button>
       </form>
     </div>
+  );
+}
+
+function VersionBadge() {
+  const v = VALIDO_BUILD_VERSION;
+  const ts = VALIDO_BUILD_TIMESTAMP;
+  const shortTs = ts !== 'no timestamp' ? new Date(ts).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }) : '';
+  return (
+    <a
+      href="/archivo"
+      title={`Build: ${v} | ${ts}`}
+      className="fixed right-3 top-3 z-[60] rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-[10px] font-semibold text-slate-500 shadow-sm backdrop-blur hover:border-blue-400 hover:text-slate-900 md:right-4 md:top-4"
+    >
+      v{v}{shortTs ? ` · ${shortTs}` : ''}
+    </a>
   );
 }
 
@@ -30,11 +47,11 @@ function MainNav() {
   const items = [['decision', 'Inicio'], ['signals', 'Senales'], ['gemini', 'Gemini'], ['news', 'Noticias'], ['risk', 'Riesgo'], ['journal', 'Journal'], ['settings', 'Config']];
   return (
     <>
-      <nav className="mx-auto hidden overflow-x-auto rounded-xl border border-[#26364f] bg-[#0b1728] p-2 md:flex md:gap-1" style={{ width: 'min(1180px, calc(100% - 28px))' }}>
-        {items.map(([target, label]) => <a className="whitespace-nowrap rounded-lg px-3 py-2 text-xs text-slate-300 hover:bg-[#1d3557] hover:text-white" href={`#${target}`} key={target}>{label}</a>)}
+      <nav className="mx-auto hidden overflow-x-auto rounded-xl border border-slate-200 bg-white p-2 shadow-sm md:flex md:gap-1" style={{ width: 'min(1180px, calc(100% - 28px))' }}>
+        {items.map(([target, label]) => <a className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-blue-50 hover:text-blue-700" href={`#${target}`} key={target}>{label}</a>)}
       </nav>
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-[#26364f] bg-[#07111f]/95 px-1 py-2 backdrop-blur md:hidden">
-        {items.map(([target, label]) => <a className="rounded-lg px-2 py-2 text-[10px] font-semibold text-slate-300" href={`#${target}`} key={target}>{label}</a>)}
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-slate-200 bg-white/95 px-1 py-2 backdrop-blur md:hidden">
+        {items.map(([target, label]) => <a className="rounded-lg px-2 py-2 text-[10px] font-semibold text-slate-500 hover:text-blue-700" href={`#${target}`} key={target}>{label}</a>)}
       </nav>
     </>
   );
@@ -52,11 +69,11 @@ function SimpleNews({ scan }) {
       <div className="section-title"><h2>Noticias / Macro</h2><span className="badge badge-watch">{items.length ? `${items.length} items` : 'CLEAR'}</span></div>
       <div className="mt-3 grid gap-2">
         {items.length ? items.slice(0, 8).map((item, index) => (
-          <div className="rounded-xl border border-white/10 bg-white/[.035] p-3 text-sm" key={`${item.title}-${index}`}>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm" key={`${item.title}-${index}`}>
             <strong>{item.tone}: {item.title}</strong>
-            <p className="mt-1 text-slate-400">{item.detail ? dateTime(item.detail) : 'Fuente server-side'}</p>
+            <p className="mt-1 text-slate-500">{item.detail ? dateTime(item.detail) : 'Fuente server-side'}</p>
           </div>
-        )) : <p className="text-sm text-slate-400">Sin bloqueo macro/news reportado en el ultimo scan.</p>}
+        )) : <p className="text-sm text-slate-500">Sin bloqueo macro/news reportado en el ultimo scan.</p>}
       </div>
     </section>
   );
@@ -76,7 +93,7 @@ function SimpleRisk({ scan }) {
         <div><span>0DTE</span><strong>{profile.allow0Dte ? 'Enabled' : 'Guarded'}</strong></div>
         <div><span>Daily loss</span><strong>{profile.dailyLossPct ?? 0}%</strong></div>
       </div>
-      {reasons.length ? <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">{reasons.slice(0, 3).join(' | ')}</div> : null}
+      {reasons.length ? <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-50 p-3 text-sm text-amber-800">{reasons.slice(0, 3).join(' | ')}</div> : null}
     </section>
   );
 }
@@ -87,11 +104,11 @@ function SimpleJournal({ scan, entries, onRefresh }) {
       <div className="section-title"><h2>Journal</h2><button onClick={onRefresh}>Actualizar</button></div>
       <div className="mt-3 grid gap-2">
         {entries.length ? entries.slice(0, 6).map((entry) => (
-          <div className="rounded-xl border border-white/10 bg-white/[.035] p-3 text-sm" key={entry.id}>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm" key={entry.id}>
             <strong>{entry.symbol} - {entry.strategy}</strong>
-            <p className="mt-1 text-slate-400">{entry.outcome} | {dateTime(entry.createdAt || entry.created_at)}</p>
+            <p className="mt-1 text-slate-500">{entry.outcome} | {dateTime(entry.createdAt || entry.created_at)}</p>
           </div>
-        )) : <p className="text-sm text-slate-400">Guarda una senal desde Signal Feed para empezar el registro.</p>}
+        )) : <p className="text-sm text-slate-500">Guarda una senal desde Signal Feed para empezar el registro.</p>}
       </div>
       <p className="mt-3 text-xs text-slate-500">Ultimo scan: {dateTime(scan?.asOf)}</p>
     </section>
@@ -106,7 +123,7 @@ function SettingsPanel({ notificationEnabled, setNotificationEnabled, scan }) {
         <h2 className="m-0">Configuracion / API</h2>
         <div className="mt-3 grid gap-2 text-sm">
           {(scan?.providers || []).slice(0, 8).map((provider) => (
-            <div className="flex justify-between rounded-xl border border-white/10 bg-white/[.035] p-3" key={provider.id || provider.name}>
+            <div className="flex justify-between rounded-xl border border-slate-200 bg-slate-50 p-3" key={provider.id || provider.name}>
               <span>{provider.name || provider.id}</span>
               <strong>{provider.configured ? 'OK' : provider.required ? 'FALTA' : 'OPCIONAL'}</strong>
             </div>
@@ -215,7 +232,7 @@ export default function AppPro() {
 
   if (archiveMode) {
     return (
-      <Suspense fallback={<div className="pro-console grid min-h-screen place-items-center text-white">Cargando archivo...</div>}>
+      <Suspense fallback={<div className="pro-console grid min-h-screen place-items-center text-slate-500">Cargando archivo...</div>}>
         <LegacyArchive />
       </Suspense>
     );
@@ -225,6 +242,7 @@ export default function AppPro() {
 
   return (
     <div className="pro-console">
+      <VersionBadge />
       <div className="py-3"><MainNav /></div>
       {error && <div className="pro-section rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
       <HomePro

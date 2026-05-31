@@ -1,44 +1,38 @@
 :root {
-  --pro-bg: #07111f;
-  --pro-surface: #0b1728;
-  --pro-surface-2: #101b2e;
-  --pro-card: #101b2e;
-  --pro-border: #1f2d44;
-  --pro-text: #f8fafc;
-  --pro-muted: #94a3b8;
-  --ready: #22c55e;
-  --aggressive: #f97316;
-  --scalp: #ef4444;
-  --watch: #eab308;
+  --pro-bg: #f0f6ff;
+  --pro-surface: #ffffff;
+  --pro-surface-2: #f8fbff;
+  --pro-card: #ffffff;
+  --pro-border: #d7e2ef;
+  --pro-text: #0f172a;
+  --pro-muted: #475569;
+  --ready: #16a34a;
+  --aggressive: #ea580c;
+  --scalp: #dc2626;
+  --watch: #ca8a04;
   --avoid: #dc2626;
   --nodata: #64748b;
-  --gemini: #8b5cf6;
-  --gemini-blue: #38bdf8;
-  --macro: #f59e0b;
-  --info: #38bdf8;
+  --gemini: #7c3aed;
+  --gemini-blue: #2563eb;
+  --macro: #d97706;
+  --info: #2563eb;
 }
 
 body {
-  background:
-    radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent 30%),
-    radial-gradient(circle at top right, rgba(139, 92, 246, 0.08), transparent 30%),
-    var(--pro-bg);
+  background: #eef5ff;
   color: var(--pro-text);
   font-family: "Segoe UI", Inter, Arial, sans-serif;
 }
 
 .pro-console {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 20% 0%, rgba(56, 189, 248, 0.12), transparent 30rem),
-    radial-gradient(circle at 80% 0%, rgba(139, 92, 246, 0.12), transparent 28rem),
-    var(--pro-bg);
+  background: #eef5ff;
   color: var(--pro-text);
 }
 
 .pro-console button {
   border: 1px solid var(--pro-border);
-  background: #152640;
+  background: #ffffff;
   color: var(--pro-text);
   border-radius: 10px;
   padding: 8px 14px;
@@ -49,8 +43,8 @@ body {
 }
 
 .pro-console button:hover {
-  background: #1d3557;
-  border-color: #38bdf8;
+  background: #f1f5f9;
+  border-color: var(--gemini-blue);
 }
 
 .pro-console button.primary,
@@ -62,20 +56,20 @@ body {
 }
 
 .pro-console button.primary:hover {
-  background: linear-gradient(135deg, #60ceff, #a07bff);
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
 }
 
 .pro-console button.danger {
-  background: rgba(220, 38, 38, 0.12);
-  border-color: rgba(220, 38, 38, 0.4);
-  color: #fecaca;
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #991b1b;
 }
 
 .pro-console .card {
-  background: linear-gradient(180deg, var(--pro-surface), var(--pro-surface-2));
+  background: #ffffff;
   border: 1px solid var(--pro-border);
   border-radius: 16px;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26);
+  box-shadow: 0 4px 24px rgba(30, 64, 175, 0.06);
 }
 
 .home-pro {
@@ -98,10 +92,7 @@ body {
   margin: 0;
   font-size: 22px;
   font-weight: 800;
-  background: linear-gradient(135deg, var(--pro-text), var(--gemini-blue));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--pro-text);
 }
 
 .app-header p {
@@ -119,10 +110,11 @@ body {
 }
 
 .header-status span {
-  border: 1px solid rgba(148, 163, 184, 0.15);
+  border: 1px solid var(--pro-border);
   border-radius: 999px;
   padding: 4px 8px;
   white-space: nowrap;
+  background: #ffffff;
 }
 
 .market-pulse,
@@ -147,8 +139,8 @@ body {
 
 .pulse-grid div,
 .signal-card__grid div {
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #f8fafc;
+  border: 1px solid var(--pro-border);
   border-radius: 12px;
   padding: 8px 10px;
 }
@@ -253,8 +245,8 @@ body {
 }
 
 .signal-card__grid div.gemini-highlight {
-  border-color: rgba(139, 92, 246, 0.3);
-  background: rgba(139, 92, 246, 0.06);
+  border-color: rgba(124, 58, 237, 0.25);
+  background: rgba(124, 58, 237, 0.04);
 }
 
 .execution-box,
@@ -265,8 +257,8 @@ body {
 }
 
 .execution-box {
-  background: rgba(56, 189, 248, 0.08);
-  border: 1px solid rgba(56, 189, 248, 0.18);
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.16);
 }
 
 .execution-box p {
@@ -275,8 +267,8 @@ body {
 }
 
 .gemini-box {
-  background: rgba(139, 92, 246, 0.1);
-  border: 1px solid rgba(139, 92, 246, 0.22);
+  background: rgba(124, 58, 237, 0.06);
+  border: 1px solid rgba(124, 58, 237, 0.18);
 }
 
 .gemini-box p {
@@ -285,9 +277,9 @@ body {
 }
 
 .gamma-strip {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.28);
-  color: #fecaca;
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  color: #991b1b;
   font-size: 12px;
 }
 
@@ -327,7 +319,7 @@ body {
 
 .compact-list button {
   text-align: left;
-  background: rgba(255, 255, 255, 0.04);
+  background: #f8fafc;
   font-size: 12px;
 }
 
@@ -352,63 +344,63 @@ body {
 }
 
 .badge-ready {
-  background: rgba(34, 197, 94, 0.14);
+  background: rgba(22, 163, 74, 0.08);
   color: var(--ready);
-  border: 1px solid rgba(34, 197, 94, 0.42);
+  border: 1px solid rgba(22, 163, 74, 0.3);
 }
 
 .badge-aggressive {
-  background: rgba(249, 115, 22, 0.14);
+  background: rgba(234, 88, 12, 0.08);
   color: var(--aggressive);
-  border: 1px solid rgba(249, 115, 22, 0.42);
+  border: 1px solid rgba(234, 88, 12, 0.3);
 }
 
 .badge-enter-now {
-  background: rgba(34, 197, 94, 0.18);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.5);
+  background: rgba(22, 163, 74, 0.12);
+  color: #16a34a;
+  border: 1px solid rgba(22, 163, 74, 0.4);
 }
 
 .badge-wait {
-  background: rgba(234, 179, 8, 0.14);
+  background: rgba(202, 138, 4, 0.08);
   color: var(--watch);
-  border: 1px solid rgba(234, 179, 8, 0.42);
+  border: 1px solid rgba(202, 138, 4, 0.3);
 }
 
 .badge-watch {
-  background: rgba(148, 163, 184, 0.14);
-  color: #cbd5e1;
-  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: rgba(100, 116, 139, 0.08);
+  color: #475569;
+  border: 1px solid rgba(100, 116, 139, 0.25);
 }
 
 .badge-no-chase {
-  background: rgba(249, 115, 22, 0.14);
+  background: rgba(234, 88, 12, 0.08);
   color: var(--aggressive);
-  border: 1px solid rgba(249, 115, 22, 0.42);
+  border: 1px solid rgba(234, 88, 12, 0.3);
 }
 
 .badge-blocked {
-  background: rgba(220, 38, 38, 0.14);
-  color: #fecaca;
-  border: 1px solid rgba(220, 38, 38, 0.42);
+  background: rgba(220, 38, 38, 0.08);
+  color: #991b1b;
+  border: 1px solid rgba(220, 38, 38, 0.3);
 }
 
 .badge-gemini {
-  background: rgba(139, 92, 246, 0.14);
-  color: #ddd6fe;
-  border: 1px solid rgba(139, 92, 246, 0.42);
+  background: rgba(124, 58, 237, 0.08);
+  color: #6d28d9;
+  border: 1px solid rgba(124, 58, 237, 0.25);
 }
 
 .badge-avoid {
-  background: rgba(220, 38, 38, 0.14);
-  color: #fecaca;
-  border: 1px solid rgba(220, 38, 38, 0.42);
+  background: rgba(220, 38, 38, 0.08);
+  color: #991b1b;
+  border: 1px solid rgba(220, 38, 38, 0.3);
 }
 
 .badge-nodata {
-  background: rgba(100, 116, 139, 0.16);
-  color: #cbd5e1;
-  border: 1px solid rgba(100, 116, 139, 0.42);
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+  border: 1px solid rgba(100, 116, 139, 0.25);
 }
 
 .muted {
@@ -423,7 +415,7 @@ body {
 }
 
 .pro-section .panel {
-  background: linear-gradient(180deg, var(--pro-surface), var(--pro-surface-2));
+  background: #ffffff;
   border-color: var(--pro-border);
   color: var(--pro-text);
 }
@@ -446,7 +438,7 @@ body {
   display: flex;
   justify-content: space-around;
   border-top: 1px solid var(--pro-border);
-  background: rgba(7, 17, 31, 0.96);
+  background: rgba(255, 255, 255, 0.96);
   padding: 6px 4px 12px;
   backdrop-filter: blur(8px);
 }
@@ -470,7 +462,7 @@ body {
 .mobile-nav a:hover,
 .mobile-nav a.active {
   color: var(--pro-text);
-  background: rgba(56, 189, 248, 0.08);
+  background: rgba(37, 99, 235, 0.06);
 }
 
 .mobile-nav a .nav-icon {
@@ -481,20 +473,20 @@ body {
 /* === AUTO GUARDIAN STATUS === */
 
 .auto-guardian {
-  border: 1px solid rgba(139, 92, 246, 0.25);
-  background: rgba(139, 92, 246, 0.04);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  background: rgba(124, 58, 237, 0.02);
 }
 
 .auto-guardian.active {
-  border-color: rgba(34, 197, 94, 0.3);
+  border-color: rgba(22, 163, 74, 0.25);
 }
 
 .auto-guardian.paused {
-  border-color: rgba(234, 179, 8, 0.3);
+  border-color: rgba(202, 138, 4, 0.25);
 }
 
 .auto-guardian.blocked {
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: rgba(220, 38, 38, 0.25);
 }
 
 .guardian-status-dot {
@@ -521,14 +513,14 @@ body {
 }
 
 .guardian-status-dot.sleeping {
-  background: #64748b;
+  background: #94a3b8;
 }
 
 /* === GEMINI BRIEF DESTACADO === */
 
 .gemini-brief-card {
-  border: 1px solid rgba(139, 92, 246, 0.25);
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.06), rgba(56, 189, 248, 0.04));
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.04), rgba(37, 99, 235, 0.03));
   border-radius: 16px;
   padding: 14px;
 }
@@ -568,11 +560,11 @@ body {
 .gemini-risk-notes {
   margin-top: 8px;
   padding: 8px 10px;
-  background: rgba(239, 68, 68, 0.06);
-  border: 1px solid rgba(239, 68, 68, 0.15);
+  background: rgba(220, 38, 38, 0.04);
+  border: 1px solid rgba(220, 38, 38, 0.12);
   border-radius: 10px;
   font-size: 11px;
-  color: #fecaca;
+  color: #991b1b;
 }
 
 /* === CHART TOOLTIP === */
@@ -580,9 +572,9 @@ body {
 .chart-tooltip,
 .recharts-tooltip-wrapper,
 .apexcharts-tooltip {
-  background: #0b1728 !important;
-  color: #f3f7fc !important;
-  border: 1px solid #26364f !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #d7e2ef !important;
   border-radius: 10px !important;
 }
 
