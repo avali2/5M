@@ -3,7 +3,7 @@ function list(value) {
 }
 
 function reviewAllowsEntry(review) {
-  return review?.decision === 'APPROVE' &&
+  return review?.decision === 'APPROVED' &&
     review.entry_ok === true &&
     review.hallucination_check === 'PASSED' &&
     review.requires_manual_review !== true &&
@@ -13,8 +13,8 @@ function reviewAllowsEntry(review) {
 
 function blockedReason(review) {
   if (!review) return 'Gemini Guardian no emitio revision.';
-  if (review.decision === 'BLOCK') return `Gemini Guardian BLOCK: ${review.summary}`;
-  if (review.decision === 'CAUTION') return `Gemini Guardian CAUTION: ${review.summary}`;
+  if (review.decision === 'BLOCKED') return `Gemini Guardian BLOCKED: ${review.summary}`;
+  if (review.decision === 'WATCH_ONLY') return `Gemini Guardian WATCH_ONLY: ${review.summary}`;
   if (review.requires_manual_review) return `Gemini Guardian requiere revision manual: ${review.summary}`;
   if (review.hallucination_check !== 'PASSED') return `Sigma Guardian rechazo por hallucination/data check: ${review.summary}`;
   if (review.macro_warning) return `Gemini Guardian detecto macro warning: ${review.summary}`;
@@ -131,6 +131,37 @@ function restrictGuardianTicketsToApproved(scan, approved) {
   scan.guardianEdge.status = scan.guardianEdge.dailyBest?.classification || 'NO_READY';
 }
 
+/**
+ * Construye el veredicto JSON completo de Gemini Guardian
+ * que debe devolver el proveedor AI en cada revisión.
+ *
+ * Formato esperado por la app:
+ * {
+ *   "approved": true|false,
+ *   "confidence": 0-100,
+ *   "verdict": "APPROVED | WATCH_ONLY | REJECTED",
+ *   "summary": "string",
+ *   "riskNotes": ["string"],
+ *   "whatCanGoWrong": ["string"],
+ *   "entryComment": "string",
+ *   "exitComment": "string",
+ *   "educationNote": "string"
+ * }
+ */
+function buildGeminiVerdictTemplate() {
+  return {
+    approved: false,
+    confidence: 0,
+    verdict: 'REJECTED',
+    summary: 'Gemini Guardian no ha revisado esta señal aún.',
+    riskNotes: [],
+    whatCanGoWrong: [],
+    entryComment: '',
+    exitComment: '',
+    educationNote: ''
+  };
+}
+
 export async function applyGeminiGuardianGate(scan, { providers, settings } = {}) {
   const signalSettings = settings?.signals || {};
   const agentSettings = settings?.agent || {};
@@ -201,27 +232,65 @@ export async function applyGeminiGuardianGate(scan, { providers, settings } = {}
     const review = await providers.ai.reviewSignal(setup, scan, { automatic: true, cycleKey: scan.asOf });
     scan.aiGuardian.reviewed += 1;
     if (review.cacheHit) scan.aiGuardian.cacheHits += 1;
-    if (review.decision === 'APPROVE') scan.aiGuardian.approved += 1;
-    if (review.decision === 'CAUTION') scan.aiGuardian.cautioned += 1;
-    if (review.decision === 'BLOCK') scan.aiGuardian.blocked += 1;
+    if (review.decision === 'APPROVED') scan.aiGuardian.approved += 1;
+    if (review.decision === 'WATCH_ONLY') scan.aiGuardian.cautioned += 1;
+    if (review.decision === 'BLOCKED') scan.aiGuardian.blocked += 1;
+
+    // Construir veredicto completo
+    const verdict = buildGeminiVerdictTemplate();
+    verdict.approved = reviewAllowsEntry(review);
+    verdict.confidence = review.confidence || 50;
+    verdict.verdict = review.decision === 'APPROVED' ? 'APPROVED'
+      : review.decision === 'WATCH_ONLY' ? 'WATCH_ONLY'
+      : 'REJECTED';
+    verdict.summary = review.summary || 'Sin resumen de Gemini.';
+    verdict.riskNotes = Array.isArray(review.risks) ? review.risks
+      : Array.isArray(review.riskNotes) ? review.riskNotes
+      : review.whatCanGoWrong || [];
+    verdict.whatCanGoWrong = Array.isArray(review.whatCanGoWrong) ? review.whatCanGoWrong
+      : ['El precio puede moverse en contra.', 'La liquidez puede disminuir.', 'Evento macro imprevisto.'];
+    verdict.entryComment = review.entry_comment || review.entryComment || 'Usar orden limite. No perseguir precio.';
+    verdict.exitComment = review.exit_comment || review.exitComment || 'Respetar stop loss y take profit. Cerrar antes de 3:30pm ET en 0DTE.';
+    verdict.educationNote = review.education_note || review.educationNote || (review.decision === 'APPROVED'
+      ? 'Operación con riesgo definido. La probabilidad es estimación, no garantía.'
+      : 'Esta señal no está aprobada para operar. Revisar condiciones del mercado antes de actuar.');
+
     scan.aiGuardian.reviews.push({
       symbol: setup.symbol,
       strategy: setup.strategy,
       expiration: setup.expiration,
       strikes: setup.strikes,
-      decision: review.decision,
-      confidence: review.confidence,
-      summary: review.summary,
+      decision: verdict.verdict,
+      confidence: verdict.confidence,
+      summary: verdict.summary,
+      riskNotes: verdict.riskNotes,
+      whatCanGoWrong: verdict.whatCanGoWrong,
       requiresManualReview: review.requires_manual_review,
       cacheHit: review.cacheHit,
-      reviewHash: review.reviewHash
+      reviewHash: review.reviewHash,
+      entryComment: verdict.entryComment,
+      exitComment: verdict.exitComment,
+      educationNote: verdict.educationNote
     });
+
     const reviewedSetup = {
       ...setup,
-      geminiReview: review,
-      aiVerificationStatus: reviewAllowsEntry(review) ? 'APPROVED_BY_GEMINI_GUARDIAN' : 'REQUIRES_MANUAL_REVIEW'
+      geminiReview: {
+        ...review,
+        approved: verdict.approved,
+        confidence: verdict.confidence,
+        verdict: verdict.verdict,
+        summary: verdict.summary,
+        riskNotes: verdict.riskNotes,
+        whatCanGoWrong: verdict.whatCanGoWrong,
+        entryComment: verdict.entryComment,
+        exitComment: verdict.exitComment,
+        educationNote: verdict.educationNote
+      },
+      aiVerificationStatus: verdict.approved ? 'APPROVED_BY_GEMINI_GUARDIAN' : 'REQUIRES_MANUAL_REVIEW'
     };
-    if (reviewAllowsEntry(review) && opportunityKeys.has(setupKey(setup))) {
+
+    if (verdict.approved && opportunityKeys.has(setupKey(setup))) {
       approved.push(reviewedSetup);
     } else {
       rejectedByAi.push({
@@ -252,8 +321,8 @@ export async function applyGeminiGuardianGate(scan, { providers, settings } = {}
         status: 'no_trade',
         label: 'NO TRADE REAL - REQUIERE REVISION GEMINI',
         reasons: [
-          scan.aiGuardian.reviews[0]?.summary || scan.aiGuardian.reason || 'Ningun candidato operable recibio APPROVE estructurado de Gemini Guardian.',
-          'No se envia push ni se marca operable sin decision APPROVE.'
+          scan.aiGuardian.reviews[0]?.summary || scan.aiGuardian.reason || 'Ningun candidato operable recibio APPROVED estructurado de Gemini Guardian.',
+          'No se envia push ni se marca operable sin decision APPROVED.'
         ]
       };
       scan.summary = `NO TRADE REAL: ${scan.decision.reasons.join(' ')}`;

@@ -30,6 +30,66 @@ function statusClass(status: ProfessionalSignal["status"]) {
   }
 }
 
+function GeminiVerdict({ coach }: { coach: ProfessionalSignal["geminiCoach"] }) {
+  if (!coach) {
+    return (
+      <div className="gemini-box muted">
+        <p><strong>Gemini Guardian:</strong> Pendiente de revisión o requiere revisión manual.</p>
+      </div>
+    );
+  }
+
+  const verdictColor = coach.decision === "takeable" ? "var(--ready)" 
+    : coach.decision === "aggressive_takeable" || coach.decision === "scalp_only" ? "var(--aggressive)"
+    : coach.decision === "watch" ? "var(--watch)" 
+    : "var(--avoid)";
+
+  return (
+    <div className="gemini-box" style={{ borderLeft: `4px solid ${verdictColor}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <p style={{ fontWeight: 700, color: 'var(--gemini)', fontSize: 13, margin: 0 }}>
+          Gemini Guardian
+        </p>
+        <span className={`badge ${
+          coach.decision === "takeable" ? "badge-ready" 
+          : coach.decision === "aggressive_takeable" ? "badge-aggressive"
+          : coach.decision === "scalp_only" ? "badge-scalp"
+          : coach.decision === "watch" ? "badge-watch"
+          : "badge-avoid"
+        }`} style={{ fontSize: 9 }}>
+          {coach.decision === "takeable" ? "APROBADA" 
+            : coach.decision === "aggressive_takeable" ? "AGRESIVA"
+            : coach.decision === "scalp_only" ? "SCALP"
+            : coach.decision === "watch" ? "OBSERVAR"
+            : "EVITAR"}
+        </span>
+      </div>
+      <p style={{ margin: '4px 0', fontSize: 12, lineHeight: 1.4 }}>{coach.summary}</p>
+      <p style={{ margin: '4px 0', fontSize: 11, color: 'var(--pro-muted)' }}>
+        <strong>Confianza:</strong> {coach.confidence}/100
+      </p>
+      {coach.mainRisk && (
+        <p style={{ margin: '4px 0', fontSize: 11, color: '#fecaca' }}>
+          <strong>Riesgo principal:</strong> {coach.mainRisk}
+        </p>
+      )}
+      {coach.doNotEnterIf && (
+        <p style={{ margin: '4px 0', fontSize: 11, color: 'var(--watch)' }}>
+          <strong>No entrar si:</strong> {coach.doNotEnterIf}
+        </p>
+      )}
+      {coach.checklist && coach.checklist.length > 0 && (
+        <div style={{ marginTop: 6, padding: 6, background: 'rgba(0,0,0,0.15)', borderRadius: 8, fontSize: 11 }}>
+          <strong style={{ color: 'var(--gemini-blue)' }}>Checklist Gemini:</strong>
+          {coach.checklist.slice(0, 4).map((item, i) => (
+            <p key={i} style={{ margin: '2px 0', color: 'var(--pro-muted)' }}>• {item}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SignalCard({
   signal,
   onView,
@@ -64,23 +124,22 @@ export function SignalCard({
         <div><span>POP</span><strong>{pop}</strong></div>
         <div><span>Entrada</span><strong>{price}</strong></div>
         <div><span>Riesgo</span><strong>{signal.maxRiskUsd != null ? `$${Math.round(signal.maxRiskUsd)}` : "N/A"}</strong></div>
+        <div className="gemini-highlight"><span>Gemini</span><strong>{signal.geminiCoach ? `${signal.geminiCoach.confidence}/100` : "Pendiente"}</strong></div>
+        <div><span>Max ganancia</span><strong>{signal.maxProfitUsd != null ? `$${Math.round(signal.maxProfitUsd)}` : "N/A"}</strong></div>
       </div>
 
       {signal.dte === 0 && signal.gammaRisk ? (
-        <div className="gamma-strip">Gamma {signal.gammaRisk.level}: {signal.gammaRisk.reason}</div>
+        <div className="gamma-strip">Gamma {signal.gammaRisk.level}: {signal.gammaRisk.reason} | Max hold: {signal.gammaRisk.maxHoldMinutes || 'N/A'}min | Evitar despuès de {signal.gammaRisk.avoidAfterTime || '3:30pm ET'}</div>
       ) : null}
 
       <div className="execution-box">
-        <p><strong>Trigger:</strong> {signal.executionPlan.entryTrigger}</p>
-        <p><strong>Stop:</strong> {signal.executionPlan.stopLoss}</p>
-        <p><strong>Target:</strong> {signal.executionPlan.takeProfit}</p>
+        <p><strong>Entrada:</strong> {signal.executionPlan.entryTrigger}</p>
+        <p><strong>Stop loss:</strong> {signal.executionPlan.stopLoss}</p>
+        <p><strong>Take profit:</strong> {signal.executionPlan.takeProfit}</p>
+        <p><strong>Tiempo límite:</strong> {signal.executionPlan.timeStop}</p>
       </div>
 
-      {signal.geminiCoach ? (
-        <div className="gemini-box"><strong>Gemini:</strong> {signal.geminiCoach.summary}</div>
-      ) : (
-        <div className="gemini-box muted">Gemini pendiente de revisar o requiere revision manual.</div>
-      )}
+      <GeminiVerdict coach={signal.geminiCoach} />
 
       <div className="signal-card__actions">
         <button className="primary" onClick={() => onView(signal)}>Ver</button>

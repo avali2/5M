@@ -83,6 +83,31 @@ export function HomePro({
         <p>{geminiBrief}</p>
       </section>
 
+      {/* === AUTO GUARDIAN STATUS === */}
+      <section className={`card auto-guardian ${alertStatus.pushEnabled ? 'active' : 'paused'}`}>
+        <div style={{ padding: 14 }}>
+          <div className="section-title">
+            <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className={`guardian-status-dot ${alertStatus.pushEnabled ? 'active' : 'paused'}`} />
+              Auto Guardian
+            </h2>
+            <span className="badge badge-gemini">{alertStatus.pushEnabled ? 'ACTIVO' : 'PAUSADO'}</span>
+          </div>
+          <div className="pulse-grid" style={{ marginTop: 10 }}>
+            <div><span>Estado</span><strong>{alertStatus.pushEnabled ? 'Escaneando' : 'Pausado'}</strong></div>
+            <div><span>Último scan</span><strong>{alertStatus.lastAlert || 'Esperando...'}</strong></div>
+            <div><span>Próximo scan</span><strong>{alertStatus.nextScan || 'Manual'}</strong></div>
+            <div><span>Modo</span><strong>{alertStatus.pushEnabled ? 'Buscando señales' : 'Solo observación'}</strong></div>
+            <div className="pulse-grid__wide"><span>Fase de mercado</span><strong>{alertStatus.lastAlert ? 'Activo' : 'Esperando datos'}</strong></div>
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <span className="badge badge-ready" style={{ fontSize: 9 }}>Market pulse: 60s</span>
+            <span className="badge badge-wait" style={{ fontSize: 9 }}>Scanner: 180s</span>
+            <span className="badge badge-gemini" style={{ fontSize: 9 }}>Gemini: ~5min</span>
+          </div>
+        </div>
+      </section>
+
       <section className="signal-feed" id="signals">
         <div className="section-title">
           <h2>Signal Feed</h2>
