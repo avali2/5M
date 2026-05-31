@@ -277,7 +277,7 @@ function buildSigmaAudit({ signal, scan, guards, settings }) {
   }));
   const score = Number(signal?.score);
   return {
-    agent: 'SIGMA_GUARDIAN',
+    agent: 'VALIDO_GUARDIAN',
     signal_id: signal?.id || 'dry-run-no-signal',
     timestamp: new Date().toISOString(),
     market_regime: scan?.market?.regime || 'NO_TRADE',
@@ -337,7 +337,7 @@ function buildSigmaAudit({ signal, scan, guards, settings }) {
       confidence: signal?.geminiGuardian?.confidence ?? (outcome.decision === 'NO_TRADE' ? 35 : 60),
       data_freshness_seconds: scan?.asOf ? Math.max(0, Math.round((Date.now() - new Date(scan.asOf).getTime()) / 1000)) : null,
       hallucination_check: signal?.geminiGuardian?.decision === 'APPROVE' ? 'PASSED' : 'FAILED',
-      reason: signal?.geminiGuardian?.summary || outcome.blockers[0] || 'Dry-run deterministic Sigma Guardian audit.'
+      reason: signal?.geminiGuardian?.summary || outcome.blockers[0] || 'Dry-run deterministic Valido Guardian audit.'
     }
   };
 }

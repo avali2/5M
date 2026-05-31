@@ -76,8 +76,34 @@ export default function AiStatusPanel({ scan }) {
         <Cell label="Uso hoy" value={`${status?.budget?.requestsUsed ?? 0} req / ${status?.budget?.dailyRequestBudget ?? '--'}`} />
         <Cell label="Tokens" value={`${status?.budget?.tokensUsed ?? 0} / ${status?.budget?.dailyTokenBudget ?? '--'}`} />
         <Cell label="Cooldown" value={Object.values(status?.budget?.cooldowns || {}).filter(Boolean)[0] || 'No'} />
-        <Cell label="Costo" value={status?.costEstimate || 'No disponible'} />
         <Cell label="Modo" value={status?.manualOnly ? 'Manual only' : 'Revisar'} />
+      </div>
+      <div className="mt-3 rounded-lg border border-sigma-line bg-sigma-soft p-3 text-xs">
+        <p className="eyebrow mb-1">Presupuesto Gemini</p>
+        <div className="flex items-center gap-2">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${Math.min(status?.budget?.usagePercent ?? 0, 100)}%`,
+                background: (status?.budget?.usagePercent ?? 0) > 80
+                  ? '#ef4444'
+                  : (status?.budget?.usagePercent ?? 0) > 50
+                    ? '#f59e0b'
+                    : '#22c55e'
+              }}
+            />
+          </div>
+          <span className="font-mono font-semibold">{status?.budget?.usagePercent ?? 0}%</span>
+        </div>
+        <p className="mt-1 text-slate-400">
+          Tokens: {status?.budget?.tokensUsed ?? 0} / {status?.budget?.dailyTokenBudget ?? 'N/A'}
+          {status?.gemini?.configured ? ' · Gemini activo' : ' · Usando fallback deterministico'}
+        </p>
+        <div className="mt-2 grid grid-cols-2 gap-1 text-slate-500">
+          <span>Requests: {status?.budget?.requestsUsed ?? 0} / {status?.budget?.dailyRequestBudget ?? '--'}</span>
+          <span>Errores: {status?.budget?.lastError || 'Ninguno'}</span>
+        </div>
       </div>
       <p className="mt-3 text-xs leading-5 text-slate-400">Gemini/OpenAI no calculan precios, Greeks, riesgo, payoff, strikes, POP ni score. Si la IA falla o llega a 429, el tutor deterministico sigue explicando y el scanner no se bloquea.</p>
       <div className="mt-3 flex flex-wrap gap-2">

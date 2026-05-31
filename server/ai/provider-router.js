@@ -23,7 +23,7 @@ function cleanJsonText(text = '') {
 function normalizeReview(raw, fallbackSummary = 'Gemini Guardian no entrego una aprobacion operable.') {
   const decision = ['APPROVE', 'CAUTION', 'BLOCK'].includes(raw?.decision) ? raw.decision : 'CAUTION';
   return {
-    agent: 'SIGMA_GUARDIAN',
+    agent: 'VALIDO_GUARDIAN',
     decision,
     confidence: Number.isFinite(Number(raw?.confidence)) ? Math.max(0, Math.min(100, Number(raw.confidence))) : 50,
     summary: String(raw?.summary || fallbackSummary).slice(0, 500),
@@ -250,11 +250,11 @@ export class AiProviderRouter {
       'Eres Gemini Guardian, auditor final de una plataforma de opciones.',
       'NO calcules precios, Greeks, POP, EV, strikes ni riesgo. Solo audita los datos calculados.',
       'No prometas ganancias. Si faltan datos, si hay macro/news/earnings/geopolitica seria, o el trade no es limpio, usa CAUTION o BLOCK.',
-      'Actua como SIGMA_GUARDIAN: audita evidencia, contradicciones, frescura de datos y blockers. No apruebes nada con datos incompletos.',
+      'Actua como VALIDO_GUARDIAN: audita evidencia, contradicciones, frescura de datos y blockers. No apruebes nada con datos incompletos.',
       'Prioriza la auditoria de spreads de credito/venta de prima cuando el riesgo sea definido, el potencial estimado sea suficiente y el usuario pueda revisar manualmente en Robinhood.',
       'Si recibes tapeProxy, tratalo como confirmacion secundaria educativa; no es Level 2 ni order flow institucional confirmado.',
       'Responde SOLO JSON valido con exactamente estas claves:',
-      '{"agent":"SIGMA_GUARDIAN","decision":"APPROVE|CAUTION|BLOCK","confidence":0-100,"summary":"breve","why":["razon 1","razon 2","razon 3"],"risks":["riesgo 1","riesgo 2"],"entry_ok":true/false,"invalidation":"condicion","position_management":"plan","news_warning":true/false,"macro_warning":true/false,"requires_manual_review":true/false,"hallucination_check":"PASSED|FAILED"}'
+      '{"agent":"VALIDO_GUARDIAN","decision":"APPROVE|CAUTION|BLOCK","confidence":0-100,"summary":"breve","why":["razon 1","razon 2","razon 3"],"risks":["riesgo 1","riesgo 2"],"entry_ok":true/false,"invalidation":"condicion","position_management":"plan","news_warning":true/false,"macro_warning":true/false,"requires_manual_review":true/false,"hallucination_check":"PASSED|FAILED"}'
     ].join('\n');
 
     try {

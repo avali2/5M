@@ -16,7 +16,7 @@ function blockedReason(review) {
   if (review.decision === 'BLOCKED') return `Gemini Guardian BLOCKED: ${review.summary}`;
   if (review.decision === 'WATCH_ONLY') return `Gemini Guardian WATCH_ONLY: ${review.summary}`;
   if (review.requires_manual_review) return `Gemini Guardian requiere revision manual: ${review.summary}`;
-  if (review.hallucination_check !== 'PASSED') return `Sigma Guardian rechazo por hallucination/data check: ${review.summary}`;
+  if (review.hallucination_check !== 'PASSED') return `Gemini Guardian rechazo por hallucination/data check: ${review.summary}`;
   if (review.macro_warning) return `Gemini Guardian detecto macro warning: ${review.summary}`;
   if (review.news_warning) return `Gemini Guardian detecto news warning: ${review.summary}`;
   return `Gemini Guardian no aprobo entrada: ${review.summary || 'revision incompleta'}`;
