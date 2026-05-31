@@ -1098,6 +1098,21 @@ function Modal({ item, onClose }) {
   );
 }
 
+function VersionBadge() {
+  const v = VALIDO_BUILD_VERSION;
+  const ts = VALIDO_BUILD_TIMESTAMP;
+  const shortTs = ts !== 'no timestamp' ? new Date(ts).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' }) : '';
+  return (
+    <a
+      href="/archivo"
+      title={`Build: ${v} | ${ts}`}
+      className="fixed right-3 top-3 z-50 rounded-full border border-sigma-line/50 bg-white/80 px-3 py-1 text-[10px] font-semibold text-slate-500 shadow-sm backdrop-blur hover:border-sigma-gold hover:text-slate-900 md:right-4 md:top-4"
+    >
+      v{v}{shortTs ? ` · ${shortTs}` : ''}
+    </a>
+  );
+}
+
 export default function App() {
   const [scan, setScan] = useState(null);
   const [explainers, setExplainers] = useState({});
@@ -1249,6 +1264,7 @@ export default function App() {
 
   return (
     <div className="pro-console">
+      <VersionBadge />
       <div className="py-3"><DesktopTabs /></div>
       {error && <div className="pro-section rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
       <HomePro
