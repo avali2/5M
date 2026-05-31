@@ -7,11 +7,17 @@ function isRateLimit(error) {
 }
 
 function cleanJsonText(text = '') {
-  return String(text)
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/```$/i, '')
+  let cleaned = String(text)
+    .replace(/```json\s*/gi, '')
+    .replace(/```/g, '')
     .trim();
+  // Strip any text before the first '{' and after the last '}'
+  const braceStart = cleaned.indexOf('{');
+  const braceEnd = cleaned.lastIndexOf('}');
+  if (braceStart !== -1 && braceEnd !== -1 && braceEnd > braceStart) {
+    cleaned = cleaned.slice(braceStart, braceEnd + 1);
+  }
+  return cleaned;
 }
 
 function normalizeReview(raw, fallbackSummary = 'Gemini Guardian no entrego una aprobacion operable.') {
