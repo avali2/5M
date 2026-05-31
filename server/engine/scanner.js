@@ -11,7 +11,7 @@ import {
   generateDefinedRiskSetups,
   generateVolatilityDebitSpread
 } from './strategies.js';
-import { scoreSetup } from './scoring.js';
+import { scoreSetup, classifySignal } from './scoring.js';
 import { createDailyAssistant, createExecutionPlan } from './guidance.js';
 import { buildDataHealth } from './data-health.js';
 import { calculateProbabilityEdge } from './probability-edge.js';

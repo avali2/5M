@@ -57,6 +57,9 @@ export function calculateProbabilityEdge(setup, timestamp = new Date().toISOStri
   const dte = Number(setup.dte);
   const hasGreeks = (setup.legs || []).every((leg) => Number.isFinite(leg.delta));
   const missing = [];
+
+  // === NUNCA INVENTAR DATOS ===
+  // Si falta algún insumo crítico, devolver no disponible
   if (!Number.isFinite(spot)) missing.push('precio subyacente');
   if (!(Number.isFinite(iv) && iv > 0)) missing.push('IV');
   if (!(Number.isFinite(dte) && dte > 0)) missing.push('DTE');
@@ -67,23 +70,44 @@ export function calculateProbabilityEdge(setup, timestamp = new Date().toISOStri
       available: false,
       label: 'No disponible',
       missing,
-      disclaimer: 'La probabilidad requiere IV, DTE, Greeks y una cadena valida.'
+      disclaimer: 'La probabilidad requiere IV, DTE, Greeks y una cadena valida. Nunca se inventan datos.'
     };
   }
+
+  // Verificar que los datos sean reales, no mock
+  const sourceQuality = setup.sourceQuality || {};
+  if (sourceQuality.marketDataSource === 'mock' || sourceQuality.optionDataSource === 'mock') {
+    return {
+      available: false,
+      label: 'No disponible - datos mock',
+      missing: ['Datos simulados detectados. No se genera probabilidad sobre datos mock.'],
+      disclaimer: 'El motor rechaza calcular probabilidad cuando los datos de mercado son simulados.'
+    };
+  }
+
   const deltaEstimate = shortDeltaProbability(setup);
   const bsEstimate = modelProbability(setup, spot, iv, dte);
   const availableModels = [deltaEstimate, bsEstimate].filter(Number.isFinite);
+
   if (!availableModels.length) {
-    return { available: false, label: 'No disponible', missing: ['break-even o modelo compatible'], disclaimer: 'No se pudo calcular POP sin supuestos excesivos.' };
+    return {
+      available: false,
+      label: 'No disponible',
+      missing: ['break-even o modelo compatible'],
+      disclaimer: 'No se pudo calcular POP sin supuestos excesivos.'
+    };
   }
+
   const pop = clamp(availableModels.reduce((sum, value) => sum + value, 0) / availableModels.length, 0.01, 0.99);
   const slippage = estimatedSlippage(setup);
   const adjustedPop = Number.isFinite(slippage) && Number.isFinite(setup.maxRisk) && setup.maxRisk > 0
     ? clamp(pop - Math.min(slippage / setup.maxRisk * 0.25, 0.08), 0.01, 0.99)
     : pop;
+
   const expectedValue = Number.isFinite(setup.maxProfit) && Number.isFinite(setup.maxRisk)
     ? round((adjustedPop * setup.maxProfit) - ((1 - adjustedPop) * setup.maxRisk) - (slippage || 0), 2)
     : null;
+
   return {
     available: true,
     label: 'Estimado por modelo',
@@ -97,10 +121,15 @@ export function calculateProbabilityEdge(setup, timestamp = new Date().toISOStri
     returnOnCapital: setup.collateralRequired > 0 ? round(setup.maxProfit / setup.collateralRequired * 100, 1) : null,
     estimatedSlippage: slippage,
     slippageRisk: !Number.isFinite(slippage) ? 'No disponible' : slippage > setup.maxProfit * 0.2 ? 'Alto' : slippage > setup.maxProfit * 0.1 ? 'Medio' : 'Bajo',
-    model: bsEstimate !== null && deltaEstimate !== null ? 'Delta short strike + lognormal/Black-Scholes aproximado hasta break-even' : bsEstimate !== null ? 'Lognormal/Black-Scholes aproximado hasta break-even' : 'Delta short strike',
+    model: bsEstimate !== null && deltaEstimate !== null
+      ? 'Delta short strike + lognormal/Black-Scholes aproximado hasta break-even'
+      : bsEstimate !== null
+        ? 'Lognormal/Black-Scholes aproximado hasta break-even'
+        : 'Delta short strike',
     inputs: ['precio subyacente', 'IV', 'DTE', 'delta', 'break-even', 'bid/ask'],
     rateAssumption: 'Tasa anual aproximada 4.3% para modelo educativo.',
+    source: sourceQuality.marketDataSource || 'live',
     timestamp,
-    disclaimer: 'Esta probabilidad es una estimacion basada en IV, DTE, delta y break-even. No garantiza resultado ni predice gaps o cambios bruscos de IV.'
+    disclaimer: 'Esta probabilidad es una estimacion basada en IV, DTE, delta y break-even. No garantiza resultado ni predice gaps o cambios bruscos de IV. Nunca se ejecuta sobre datos mock.'
   };
 }
