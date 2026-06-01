@@ -11,6 +11,22 @@ import { classifyNewsEvent } from "./services/newsImpactClassifier.ts";
 const VALIDO_VERSION = import.meta.env.VITE_VALIDO_BUILD_VERSION || "local-dev";
 const VALIDO_TIMESTAMP = import.meta.env.VITE_VALIDO_BUILD_TIMESTAMP || "";
 
+function isDateToday(dateStr) {
+  if (!dateStr) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  return d.toISOString().slice(0, 10) === today;
+}
+
+function isDateTomorrow(dateStr) {
+  if (!dateStr) return false;
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  return d.toISOString().slice(0, 10) === tomorrow;
+}
+
 function VersionBadge() {
   const shortDate = VALIDO_TIMESTAMP
     ? new Date(VALIDO_TIMESTAMP).toLocaleDateString("es-MX", { month: "short", day: "numeric" })
@@ -186,10 +202,32 @@ export default function AppPro() {
 
   const news = useMemo(() => {
     const raw = scan?.macro || {};
+    const earnings = raw?.earnings || [];
     const items = [
-      ...(raw.highImpactEvents || []).map(e => classifyNewsEvent({ title: e.title || e.event || "", eventDate: e.date, isMacro: true, isToday: true })),
-      ...(raw.softImpactEvents || []).map(e => classifyNewsEvent({ title: e.title || e.event || "", eventDate: e.date, isMacro: true })),
-      ...(raw.breakingRisk || []).map(e => classifyNewsEvent({ title: e.headline || e.title || "", source: e.source, url: e.url }))
+      ...earnings.map(e => classifyNewsEvent({
+        title: `${e.symbol} Earnings ${e.date}`,
+        symbol: e.symbol,
+        eventDate: e.date,
+        isEarnings: true,
+        isToday: isDateToday(e.date),
+        isTomorrow: isDateTomorrow(e.date)
+      })),
+      ...(raw.highImpactEvents || []).map(e => classifyNewsEvent({
+        title: e.title || e.event || "",
+        eventDate: e.date,
+        isMacro: true,
+        isToday: isDateToday(e.date)
+      })),
+      ...(raw.softImpactEvents || []).map(e => classifyNewsEvent({
+        title: e.title || e.event || "",
+        eventDate: e.date,
+        isMacro: true
+      })),
+      ...(raw.breakingRisk || []).map(e => classifyNewsEvent({
+        title: e.headline || e.title || "",
+        source: e.source,
+        url: e.url
+      }))
     ];
     return items.filter(Boolean);
   }, [scan]);

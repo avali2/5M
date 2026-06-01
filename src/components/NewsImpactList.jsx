@@ -22,8 +22,17 @@ export function NewsImpactList({ events = [] }) {
                 <div>
                   <p className="text-xs font-black text-slate-600">
                     {getNewsStars(event.stars)} {event.category}{event.symbol ? ` · ${event.symbol}` : ""}
+                    {event.eventDate ? ` · ${formatEventDate(event.eventDate)}` : ""}
                   </p>
                   <h3 className="text-sm font-black text-slate-900 mt-1">{event.title}</h3>
+                  {event.eventDate && (
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {formatEventDate(event.eventDate)}{" "}
+                      {isEarningsToday(event.eventDate) ? "— HOY" :
+                       isEarningsTomorrow(event.eventDate) ? "— MAÑANA" :
+                       isWithinDays(event.eventDate, 3) ? "— PRÓXIMO" : ""}
+                    </p>
+                  )}
                 </div>
                 <span className="pill">{event.action.replaceAll("_", " ")}</span>
               </div>
@@ -41,4 +50,46 @@ function eventClass(color) {
   if (color === "ORANGE") return "bg-orange-50 border-orange-200";
   if (color === "YELLOW") return "bg-amber-50 border-amber-200";
   return "bg-green-50 border-green-200";
+}
+
+function formatEventDate(dateStr) {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return dateStr;
+  }
+}
+
+function isEarningsToday(dateStr) {
+  if (!dateStr) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  const eventDay = getDateString(dateStr);
+  return eventDay === today;
+}
+
+function isEarningsTomorrow(dateStr) {
+  if (!dateStr) return false;
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const eventDay = getDateString(dateStr);
+  return eventDay === tomorrow;
+}
+
+function isWithinDays(dateStr, days) {
+  if (!dateStr) return false;
+  const now = new Date();
+  const eventDate = new Date(dateStr);
+  if (isNaN(eventDate.getTime())) return false;
+  const diffMs = eventDate.getTime() - now.getTime();
+  return diffMs >= 0 && diffMs <= days * 86400000;
+}
+
+function getDateString(dateStr) {
+  try {
+    return new Date(dateStr).toISOString().slice(0, 10);
+  } catch {
+    return "";
+  }
 }
