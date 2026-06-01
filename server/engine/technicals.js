@@ -112,3 +112,6 @@ export function computeTechnicals(symbol, quote, bars) {
     realizedVol: round(realizedVol(closes), 4)
   };
 }
+
+// Alias for backward compatibility
+export { computeTechnicals as deriveTechnicals };
