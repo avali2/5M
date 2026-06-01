@@ -13,9 +13,38 @@ let cooldownUntil = 0;       // ms timestamp until we can call again
 let lastResponse = null;     // cached raw text
 let lastResponseAt = 0;
 const MIN_CALL_INTERVAL = 5 * 60 * 1000;   // 5 min between calls
-const CACHE_TTL = 15 * 60 * 1000;          // 15 min cache
+const CACHE_TTL = 30 * 60 * 1000;          // 30 min cache
 const COOLDOWN_429 = 10 * 60 * 1000;       // 10 min after 429
 const COOLDOWN_503 = 5 * 60 * 1000;        // 5 min after 503
+
+export function cleanAiText(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  let text = raw
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .trim();
+  // Try to extract JSON object if text starts with { and ends with }
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try { const parsed = JSON.parse(jsonMatch[0]); return JSON.stringify(parsed); }
+    catch { /* not valid JSON, return cleaned text */ }
+  }
+  return text;
+}
+
+export function sanitizeForJsonPayload(input) {
+  if (!input) return '';
+  let s = String(input);
+  // Remove lone surrogates
+  s = s.replace(/[\uD800-\uDFFF]/g, '');
+  // Replace control chars except newline/tab
+  s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  // Normalize line endings
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  // Limit to 32k
+  if (s.length > 32000) s = s.slice(0, 32000);
+  return s;
+}
 
 export function getGeminiStatus() {
   const now = Date.now();
@@ -97,12 +126,13 @@ export async function callGemini(prompt, { maxTokens = 500, temperature = 0.7 } 
     const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!resultText) throw new Error('Gemini returned empty response');
 
-    // Cache success
-    lastResponse = resultText;
+    // Clean and cache success
+    const cleaned = cleanAiText(resultText);
+    lastResponse = cleaned;
     lastResponseAt = now;
     lastStatus = 'ok';
     lastError = null;
-    return resultText;
+    return cleaned;
   } catch (err) {
     if (err.message.startsWith('Gemini API error') || err.message.startsWith('Gemini in cooldown') || err.message.startsWith('Gemini minimum')) {
       throw err;
