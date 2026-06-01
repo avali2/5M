@@ -8,6 +8,7 @@ import { startAutonomousWorker, stopAutonomousWorker, getWorkerStatus } from "./
 import { addPosition, closePosition, getOpenPositions, getAllPositions, getPositionById } from "./db/positionsRepository.js";
 import { getEarningsRisk } from "./lib/earningsCalendar.js";
 import geminiAssistantRouter from './geminiAssistant.js';
+import { getSystemStatus } from './status.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +17,15 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
+
+app.get("/api/status", async (_req, res) => {
+  try {
+    const status = await getSystemStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get("/api/health", (_req, res) => {
   res.json({

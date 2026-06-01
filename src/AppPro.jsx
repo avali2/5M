@@ -9,6 +9,7 @@ import MarketSentiment from "./components/MarketSentiment.jsx";
 import GeminiAssistant from "./components/GeminiAssistant.jsx";
 import NotificationManager from "./components/NotificationManager.jsx";
 import LearningHub from "./components/LearningHub.jsx";
+import SystemStatus from "./components/SystemStatus.jsx";
 import { loadRiskConfig, saveRiskConfig } from "./config/riskConfig.ts";
 import { classifyNewsEvent } from "./services/newsImpactClassifier.ts";
 
@@ -268,6 +269,7 @@ export default function AppPro() {
       <div className="home-pro">
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
 
+        <SystemStatus />
         <GeminiBriefCard {...geminiBrief} />
         <GeminiAssistant />
         <MarketSentiment />
