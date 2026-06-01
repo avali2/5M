@@ -19,6 +19,8 @@ import { startAutonomousSignalWorker } from './autonomousSignalWorker.js';
 import positionsRoutes from './routes/positionsRoutes.js';
 import { getSystemStatus } from './status.js';
 import geminiAssistantRouter from './geminiAssistant.js';
+import { emptyScanPayload, normalizeScanPayload } from './safePayload.js';
+import { runInstitutionalScan } from './institutional-engine.mjs';
 
 function enabledLabel(value) {
   return value ? 'enabled' : 'disabled';

@@ -1,47 +1,35 @@
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+import { normalizeScanPayload, emptyScanPayload, asArray } from "./safeData.js";
 
-async function request(path, options) {
-  const accessKey = window.localStorage.getItem('valido-access-key') || '';
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(accessKey ? { 'X-Valido-Key': accessKey } : {}) },
+async function requestJson(path, options = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options
   });
-  const data = await response.json();
-  if (!response.ok) {
-    const error = new Error(data.detail || data.error || 'API request failed');
-    error.status = response.status;
-    throw error;
-  }
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (!res.ok) throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
   return data;
 }
 
 export const api = {
-  setAccessKey: (key) => window.localStorage.setItem('valido-access-key', key),
-  clearAccessKey: () => window.localStorage.removeItem('valido-access-key'),
-  health: () => request('/api/health'),
-  agentStatus: () => request('/api/agent/status'),
-  agentScan: () => request('/api/agent/scan', { method: 'POST' }),
-  signals: (includeRejected = false) => request(`/api/signals${includeRejected ? '?includeRejected=true' : ''}`),
-  explainSignal: (id) => request(`/api/signals/${encodeURIComponent(id)}/explain`, { method: 'POST' }),
-  scan: () => request('/api/scan'),
-  refresh: () => request('/api/scan/refresh', { method: 'POST' }),
-  explainers: () => request('/api/explainers'),
-  aiStatus: () => request('/api/ai/status'),
-  explainWithAi: () => request('/api/ai/explain', { method: 'POST' }),
-  testGemini: () => request('/api/ai/test-gemini', { method: 'POST' }),
-  journal: () => request('/api/journal'),
-  addJournal: (entry) => request('/api/journal', { method: 'POST', body: JSON.stringify(entry) }),
-  saveWatchlist: (symbols) => request('/api/watchlist', { method: 'PUT', body: JSON.stringify({ symbols }) }),
-  saveProfile: (profile) => request('/api/profile', { method: 'PUT', body: JSON.stringify(profile) }),
-  guardianStatus: () => request('/api/guardian/status'),
-  guardianEvents: () => request('/api/guardian/events'),
-  guardianLearning: () => request('/api/guardian/learning'),
-  guardianSettings: () => request('/api/guardian/settings'),
-  guardianRun: () => request('/api/guardian/run', { method: 'POST' }),
-  saveGuardianSettings: (settings) => request('/api/guardian/settings', { method: 'PUT', body: JSON.stringify(settings) }),
-  guardianFeedback: (id, feedback) => request(`/api/guardian/events/${id}/feedback`, { method: 'POST', body: JSON.stringify(feedback) }),
-  pushPublicKey: () => request('/api/push/public-key'),
-  pushSubscribe: (subscription) => request('/api/push/subscribe', { method: 'POST', body: JSON.stringify(subscription) }),
-  pushUnsubscribe: (subscription) => request('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify(subscription) }),
-  pushTest: () => request('/api/push/test', { method: 'POST' })
+  async scan() {
+    try { return normalizeScanPayload(await requestJson("/api/scan")); }
+    catch (err) { return emptyScanPayload(err?.message || "Scanner no disponible"); }
+  },
+  async refresh() {
+    try { return normalizeScanPayload(await requestJson("/api/scan/refresh")); }
+    catch (err) { return emptyScanPayload(err?.message || "Refresh no disponible"); }
+  },
+  async guardianScan() {
+    try { return normalizeScanPayload(await requestJson("/api/guardian/scan")); }
+    catch (err) { return emptyScanPayload(err?.message || "Guardian scanner no disponible"); }
+  },
+  async journal() {
+    try { const d = await requestJson("/api/journal"); return asArray(d?.entries || d); }
+    catch { return []; }
+  },
+  async status() {
+    try { return await requestJson("/api/status"); }
+    catch (err) { return { ok: false, services: [], warnings: [err?.message || "Status no disponible"] }; }
+  }
 };
