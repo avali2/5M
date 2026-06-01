@@ -9,6 +9,7 @@ import { addPosition, closePosition, getOpenPositions, getAllPositions, getPosit
 import { getEarningsRisk } from "./lib/earningsCalendar.js";
 import geminiAssistantRouter from './geminiAssistant.js';
 import { getSystemStatus } from './status.js';
+import positionsRoutes from './routes/positionsRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -120,3 +121,4 @@ app.listen(PORT, () => {
 });
 
 app.use('/api/gemini', geminiAssistantRouter);
+app.use('/api/positions', positionsRoutes);

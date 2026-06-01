@@ -1,7 +1,7 @@
 import { getNewsStars } from "../services/newsImpactClassifier";
 
-export function NewsImpactList({ events = [] }) {
-  const sorted = [...events].sort((a, b) => b.stars - a.stars).slice(0, 10);
+export function NewsImpactList({ news = [] }) {
+  const safeNews = Array.isArray(news) ? news : [];
 
   return (
     <section className="news-card p-4 space-y-3">
@@ -10,14 +10,14 @@ export function NewsImpactList({ events = [] }) {
         <span className="pill">Impacto primero</span>
       </div>
 
-      {sorted.length === 0 ? (
+      {safeNews.length === 0 ? (
         <div className="rounded-2xl bg-green-50 border border-green-200 p-3">
           <p className="text-sm text-green-700">No hay eventos críticos detectados.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {sorted.map(event => (
-            <article key={event.id} className={`rounded-2xl border p-3 ${eventClass(event.color)}`}>
+          {safeNews.map(event => (
+            <article key={event.id || Math.random()} className={`rounded-2xl border p-3 ${eventClass(event.color)}`}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-black text-slate-600">
@@ -34,9 +34,9 @@ export function NewsImpactList({ events = [] }) {
                     </p>
                   )}
                 </div>
-                <span className="pill">{event.action.replaceAll("_", " ")}</span>
+                {event.action && <span className="pill">{event.action.replaceAll("_", " ")}</span>}
               </div>
-              <p className="text-xs text-slate-600 mt-2">{event.whyItMatters}</p>
+              {event.whyItMatters && <p className="text-xs text-slate-600 mt-2">{event.whyItMatters}</p>}
             </article>
           ))}
         </div>
@@ -58,23 +58,19 @@ function formatEventDate(dateStr) {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
     return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
-  } catch {
-    return dateStr;
-  }
+  } catch { return dateStr; }
 }
 
 function isEarningsToday(dateStr) {
   if (!dateStr) return false;
   const today = new Date().toISOString().slice(0, 10);
-  const eventDay = getDateString(dateStr);
-  return eventDay === today;
+  return getDateString(dateStr) === today;
 }
 
 function isEarningsTomorrow(dateStr) {
   if (!dateStr) return false;
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  const eventDay = getDateString(dateStr);
-  return eventDay === tomorrow;
+  return getDateString(dateStr) === tomorrow;
 }
 
 function isWithinDays(dateStr, days) {
@@ -87,9 +83,6 @@ function isWithinDays(dateStr, days) {
 }
 
 function getDateString(dateStr) {
-  try {
-    return new Date(dateStr).toISOString().slice(0, 10);
-  } catch {
-    return "";
-  }
+  try { return new Date(dateStr).toISOString().slice(0, 10); }
+  catch { return ""; }
 }
