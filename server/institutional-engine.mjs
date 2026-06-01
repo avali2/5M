@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { round, mean } from './engine/math.js';
 import { computeTechnicals } from './engine/technicals.js';
@@ -49,6 +48,9 @@ export { DEFAULT_SETTINGS, DEFAULT_UNIVERSE };
 
 async function scanSymbol(symbol, settings = DEFAULT_SETTINGS) {
   const warnings = [];
+  if (!process.env.TRADIER_TOKEN && !process.env.VITE_TRADIER_TOKEN) {
+    throw new Error(`${symbol}: TRADIER_TOKEN no configurado.`);
+  }
   const quote = await getQuote(symbol);
   const bars = await getTimesales(symbol);
   if (!bars.length) throw new Error(`${symbol}: sin OHLCV intradía.`);

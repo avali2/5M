@@ -771,11 +771,22 @@ export async function startServer() {
       res.setHeader('Cache-Control', 'no-store');
       res.sendFile(path.join(dist, 'institutional-os.html'));
     });
+    // Catch-all SPA fallback — any non-API GET sends the React app
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      res.setHeader('Cache-Control', 'no-store');
+      res.sendFile(path.join(dist, 'institutional-os.html'));
+    });
   } catch {
     app.get('/', (_req, res) => res.json({
       service: 'Valido 1M API',
       message: 'Run npm run dev for the React client or npm run build before production start.'
     }));
+    // Fallback for non‑built environment
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      res.json({ service: 'Valido 1M API', note: 'Frontend not built. Run npm run build.' });
+    });
   }
   return app.listen(config.port, config.host, () => {
     console.log(`Valido 1M API listening on http://${config.host}:${config.port}`);
