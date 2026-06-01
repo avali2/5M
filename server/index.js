@@ -771,8 +771,8 @@ export async function startServer() {
       res.setHeader('Cache-Control', 'no-store');
       res.sendFile(path.join(dist, 'institutional-os.html'));
     });
-    // Catch-all SPA fallback — any non-API GET sends the React app
-    app.get('*', (req, res, next) => {
+    // Catch-all SPA fallback — Express 5 uses /{*path} not *
+    app.get('/{*path}', (req, res, next) => {
       if (req.path.startsWith('/api')) return next();
       res.setHeader('Cache-Control', 'no-store');
       res.sendFile(path.join(dist, 'institutional-os.html'));
@@ -782,8 +782,7 @@ export async function startServer() {
       service: 'Valido 1M API',
       message: 'Run npm run dev for the React client or npm run build before production start.'
     }));
-    // Fallback for non‑built environment
-    app.get('*', (req, res, next) => {
+    app.get('/{*path}', (req, res, next) => {
       if (req.path.startsWith('/api')) return next();
       res.json({ service: 'Valido 1M API', note: 'Frontend not built. Run npm run build.' });
     });
