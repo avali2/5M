@@ -150,7 +150,7 @@ export default function AppPro() {
   useEffect(() => { load(); loadJournal(); }, []);
 
   const signals = useMemo(() => {
-    const opps = scan?.opportunities || [];
+    const opps = Array.isArray(scan?.opportunities) ? scan.opportunities : [];
     return opps.map(s => ({
       ...s,
       rating: s.geminiReview?.verdict === "APPROVED" ? "A" : s.rating || s.score > 80 ? "B+" : "WATCH_ONLY",
@@ -219,7 +219,6 @@ export default function AppPro() {
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
 
         {/* Show all content regardless of active tab */}
-        <SystemStatus />
 
         {activeTab === 'inicio' && (
           <>
@@ -254,6 +253,7 @@ export default function AppPro() {
           Educational / decision-support only. No auto-trading enabled.
           <span className="block mt-1">v{VALIDO_VERSION} | {scan?.refreshSeconds || 300}s refresh</span>
         </footer>
+        <SystemStatus />
       </div>
 
       {/* Bottom Nav */}

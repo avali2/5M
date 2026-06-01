@@ -369,7 +369,13 @@ export function createApp(settings = config, customProviders = null, options = {
   app.use(express.json({ limit: '64kb' }));
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
-    if (req.path === '/health') return next();
+    const publicPaths = [
+      '/health', '/status', '/doctor', '/debug/env',
+      '/gemini/daily-summary', '/market/sentiment',
+      '/scan', '/guardian/scan', '/refresh', '/journal',
+      '/ping'
+    ];
+    if (publicPaths.some(p => req.path === p || req.path === p + '/')) return next();
     if (settings.security?.requireAccessKey && !settings.security?.accessKey) {
       return res.status(503).json({
         error: 'Private access is not configured',
@@ -751,6 +757,79 @@ export function createApp(settings = config, customProviders = null, options = {
       res.json(status);
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/doctor', async (_req, res) => {
+    try {
+      const status = await getSystemStatus();
+      res.json(status);
+    } catch (err) {
+      res.json({ ok: false, services: [], warnings: [err.message], timestamp: new Date().toISOString() });
+    }
+  });
+
+  app.get('/api/debug/env', (_req, res) => {
+    res.json({
+      nodeEnv: process.env.NODE_ENV || 'development',
+      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+      hasTradierToken: Boolean(process.env.TRADIER_TOKEN),
+      hasPolygonKey: Boolean(process.env.POLYGON_API_KEY),
+      hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+      hasVapidKeys: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
+      hasAccessKey: Boolean(settings.security?.accessKey),
+      port: config.port,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  app.get('/api/ping', (_req, res) => res.json({ pong: true, timestamp: new Date().toISOString() }));
+
+  app.get('/api/market/sentiment', async (_req, res) => {
+    try {
+      const scan = await scheduler.snapshot();
+      const spyResult = scan?.results?.find(r => r.symbol === 'SPY');
+      if (spyResult?.technicals) {
+        const t = spyResult.technicals;
+        const wyckoff = spyResult.wyckoff || { bias: 'NEUTRAL' };
+        let overall = 'NEUTRAL';
+        let bias = 'NEUTRAL';
+        if (t.trend === 'BULL_TREND' && wyckoff.bias === 'BULLISH') { overall = 'BULLISH'; bias = 'ALCISTA'; }
+        else if (t.trend === 'BEAR_TREND' && wyckoff.bias === 'BEARISH') { overall = 'BEARISH'; bias = 'BAJISTA'; }
+        else if (t.trend === 'RANGE') { overall = 'RANGE'; bias = 'NEUTRAL'; }
+        return res.json({
+          ok: true,
+          overall,
+          bias,
+          confidence: 70,
+          details: `SPY ${t.trend}, RSI ${t.rsi14}, VWAP ${t.vwapBias}, VIX ${scan?.results?.find(r => r.symbol === 'VIX')?.quote?.price || 'N/A'}`
+        });
+      }
+      res.json({
+        ok: true,
+        overall: 'SIN DATOS',
+        bias: 'NEUTRAL',
+        confidence: null,
+        details: 'Sentimiento real pendiente de datos de mercado.'
+      });
+    } catch (err) {
+      res.json({
+        ok: true,
+        overall: 'SIN DATOS',
+        bias: 'NEUTRAL',
+        confidence: null,
+        details: 'Sentimiento real pendiente de datos de mercado.'
+      });
+    }
+  });
+
+  app.post('/api/refresh', async (_req, res, next) => {
+    try {
+      const scan = await scheduler.run(true);
+      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+    } catch (error) {
+      next(error);
     }
   });
 

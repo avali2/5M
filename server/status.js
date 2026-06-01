@@ -1,21 +1,12 @@
 export async function getSystemStatus() {
-  const status = {
-    timestamp: new Date().toISOString(),
-    services: {
-      gemini: { configured: false, working: false, message: '' },
-      tradier: { configured: false, working: false, message: '' },
-      polygon: { configured: false, working: false, message: '' },
-      alphaVantage: { configured: false, working: false, message: '' },
-      postgresql: { configured: false, working: false, message: '' },
-      webpush: { configured: false, working: false, message: '' },
-      scheduler: { running: false, lastScan: null, message: '' }
-    },
-    environment: process.env.NODE_ENV || 'development'
-  };
+  const services = [];
+  const warnings = [];
 
-  const geminiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  // Gemini check
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  let geminiOk = false;
+  let geminiMessage = '';
   if (geminiKey) {
-    status.services.gemini.configured = true;
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`, {
         method: 'POST',
@@ -23,62 +14,121 @@ export async function getSystemStatus() {
         body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Respond with "OK"' }] }] }),
         signal: AbortSignal.timeout(5000)
       });
-      if (res.ok) status.services.gemini.working = true;
-      else status.services.gemini.message = `HTTP ${res.status}`;
-    } catch (err) { status.services.gemini.message = err.message; }
-  } else { status.services.gemini.message = 'API key missing'; }
+      if (res.ok) {
+        geminiOk = true;
+        geminiMessage = 'operational';
+      } else {
+        geminiMessage = `HTTP ${res.status}`;
+      }
+    } catch (err) { geminiMessage = err.message; }
+  } else {
+    geminiMessage = 'API key missing';
+  }
+  services.push({ name: 'gemini', ok: geminiOk, message: geminiMessage, required: false });
+  if (!geminiOk) warnings.push(`Gemini: ${geminiMessage}`);
 
-  if (process.env.TRADIER_TOKEN || process.env.VITE_TRADIER_TOKEN) {
-    status.services.tradier.configured = true;
+  // Tradier check
+  const tradierToken = process.env.TRADIER_TOKEN;
+  let tradierOk = false;
+  let tradierMessage = '';
+  if (tradierToken) {
     try {
-      const token = process.env.TRADIER_TOKEN || process.env.VITE_TRADIER_TOKEN;
       const res = await fetch('https://api.tradier.com/v1/markets/quotes?symbols=SPY', {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        headers: { Authorization: `Bearer ${tradierToken}`, Accept: 'application/json' },
         signal: AbortSignal.timeout(5000)
       });
-      if (res.ok) status.services.tradier.working = true;
-      else status.services.tradier.message = `HTTP ${res.status}`;
-    } catch (err) { status.services.tradier.message = err.message; }
-  } else { status.services.tradier.message = 'TRADIER_TOKEN missing'; }
+      if (res.ok) {
+        tradierOk = true;
+        tradierMessage = 'operational';
+      } else {
+        tradierMessage = `HTTP ${res.status}`;
+      }
+    } catch (err) { tradierMessage = err.message; }
+  } else {
+    tradierMessage = 'TRADIER_TOKEN missing';
+  }
+  services.push({ name: 'tradier', ok: tradierOk, message: tradierMessage, required: true });
+  if (!tradierOk) warnings.push(`Tradier: ${tradierMessage}`);
 
+  // Polygon check
+  let polygonOk = false;
+  let polygonMessage = '';
   if (process.env.POLYGON_API_KEY) {
-    status.services.polygon.configured = true;
     try {
       const res = await fetch(`https://api.polygon.io/v1/meta/symbols/SPX/company?apiKey=${process.env.POLYGON_API_KEY}`, { signal: AbortSignal.timeout(5000) });
-      if (res.ok) status.services.polygon.working = true;
-      else status.services.polygon.message = `HTTP ${res.status}`;
-    } catch (err) { status.services.polygon.message = err.message; }
-  } else { status.services.polygon.message = 'POLYGON_API_KEY missing (optional)'; }
+      if (res.ok) {
+        polygonOk = true;
+        polygonMessage = 'operational';
+      } else {
+        polygonMessage = `HTTP ${res.status}`;
+      }
+    } catch (err) { polygonMessage = err.message; }
+  } else {
+    polygonMessage = 'POLYGON_API_KEY missing (optional)';
+  }
+  services.push({ name: 'polygon', ok: polygonOk, message: polygonMessage, required: false });
+  if (!polygonOk && process.env.POLYGON_API_KEY) warnings.push(`Polygon: ${polygonMessage}`);
 
+  // Alpha Vantage check
+  let avOk = false;
+  let avMessage = '';
   if (process.env.ALPHA_VANTAGE_API_KEY) {
-    status.services.alphaVantage.configured = true;
     try {
       const res = await fetch(`https://www.alphavantage.co/query?function=SYMBOL_SEARCH&keywords=SPY&apikey=${process.env.ALPHA_VANTAGE_API_KEY}`, { signal: AbortSignal.timeout(5000) });
-      if (res.ok) status.services.alphaVantage.working = true;
-      else status.services.alphaVantage.message = `HTTP ${res.status}`;
-    } catch (err) { status.services.alphaVantage.message = err.message; }
-  } else { status.services.alphaVantage.message = 'ALPHA_VANTAGE_API_KEY missing (optional)'; }
+      if (res.ok) {
+        avOk = true;
+        avMessage = 'operational';
+      } else {
+        avMessage = `HTTP ${res.status}`;
+      }
+    } catch (err) { avMessage = err.message; }
+  } else {
+    avMessage = 'ALPHA_VANTAGE_API_KEY missing (optional)';
+  }
+  services.push({ name: 'alphaVantage', ok: avOk, message: avMessage, required: false });
 
+  // PostgreSQL check
+  let pgOk = false;
+  let pgMessage = '';
   if (process.env.DATABASE_URL) {
-    status.services.postgresql.configured = true;
     try {
       const { default: pg } = await import('pg');
       const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 3000 });
       await pool.query('SELECT 1');
-      status.services.postgresql.working = true;
+      pgOk = true;
+      pgMessage = 'operational';
       await pool.end();
-    } catch (err) { status.services.postgresql.message = err.message; }
-  } else { status.services.postgresql.message = 'DATABASE_URL missing'; }
+    } catch (err) { pgMessage = err.message; }
+  } else {
+    pgMessage = 'DATABASE_URL missing';
+  }
+  services.push({ name: 'postgresql', ok: pgOk, message: pgMessage, required: false });
+  if (!pgOk && process.env.DATABASE_URL) warnings.push(`PostgreSQL: ${pgMessage}`);
 
-  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-    status.services.webpush.configured = true;
-    status.services.webpush.working = true;
-  } else { status.services.webpush.message = 'VAPID keys missing'; }
+  // WebPush check
+  const webPushOk = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+  services.push({
+    name: 'webpush',
+    ok: webPushOk,
+    message: webPushOk ? 'operational' : 'VAPID keys missing',
+    required: false
+  });
 
-  if (typeof globalThis.workerStarted !== 'undefined' && globalThis.workerStarted) {
-    status.services.scheduler.running = true;
-    status.services.scheduler.lastScan = globalThis.lastScanTime || null;
-  } else { status.services.scheduler.message = 'Scheduler not started'; }
+  // Scheduler check
+  const schedulerRunning = typeof globalThis.workerStarted !== 'undefined' && globalThis.workerStarted;
+  services.push({
+    name: 'scheduler',
+    ok: schedulerRunning,
+    message: schedulerRunning ? 'operational' : 'Scheduler not started',
+    required: false
+  });
 
-  return status;
+  const ok = services.filter(s => s.required).every(s => s.ok);
+
+  return {
+    ok,
+    services,
+    warnings,
+    timestamp: new Date().toISOString()
+  };
 }

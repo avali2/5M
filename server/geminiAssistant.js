@@ -4,7 +4,7 @@ import { runInstitutionalScan } from './institutional-engine.mjs';
 const router = express.Router();
 
 async function callGemini(prompt) {
-  const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('Gemini API key not configured');
 
   const res = await fetch(
@@ -33,11 +33,11 @@ async function callGemini(prompt) {
 
 router.get('/daily-summary', async (_req, res) => {
   try {
-    const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
     if (!apiKey) {
       return res.json({
-        marketOverview: 'Gemini Guardian no está configurado. Agrega VITE_GEMINI_API_KEY en las variables de entorno de Render.',
+        marketOverview: 'Gemini Guardian no está configurado. Agrega GEMINI_API_KEY en las variables de entorno de Render.',
         tip: 'Sin Gemini, las señales se basan solo en el motor cuantitativo. Revisa los credit spreads manualmente.',
         source: 'local_fallback'
       });
