@@ -60,6 +60,25 @@ export function createGuardianRouter({ guardianScheduler, repository }) {
       next(error);
     }
   });
+  router.get('/scan', async (req, res, next) => {
+    try {
+      const symbolsParam = String(req.query.symbols || 'SPY,VIX,QQQ');
+      const symbols = symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+      const scan = await guardianScheduler.scanScheduler.run(true);
+      const results = symbols.map(symbol => {
+        const result = scan?.results?.find(r => r.symbol === symbol);
+        return result || { symbol, quote: null, technicals: null, wyckoff: null, tape: null };
+      });
+      res.json({
+        results,
+        asOf: scan.asOf || new Date().toISOString(),
+        marketDataMode: scan.marketDataMode || 'live',
+        dataHealth: scan.dataHealth || {}
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
   router.post('/events/:id/feedback', async (req, res, next) => {
     try {
       const entry = await repository.addGuardianFeedback({ ...req.body, eventId: req.params.id });

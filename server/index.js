@@ -785,7 +785,15 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.get('/api/ping', (_req, res) => res.json({ pong: true, timestamp: new Date().toISOString() }));
 
-  app.get('/api/market/sentiment', async (_req, res) => {
+  async function serveMarketSentiment(_req, res) {
+    const fallback = {
+      ok: true,
+      overall: 'SIN DATOS',
+      bias: 'NEUTRAL',
+      confidence: null,
+      details: 'Sentimiento real pendiente de datos de mercado.',
+      timestamp: new Date().toISOString()
+    };
     try {
       const scan = await scheduler.snapshot();
       const spyResult = scan?.results?.find(r => r.symbol === 'SPY');
@@ -802,26 +810,18 @@ export function createApp(settings = config, customProviders = null, options = {
           overall,
           bias,
           confidence: 70,
-          details: `SPY ${t.trend}, RSI ${t.rsi14}, VWAP ${t.vwapBias}, VIX ${scan?.results?.find(r => r.symbol === 'VIX')?.quote?.price || 'N/A'}`
+          details: `SPY ${t.trend}, RSI ${t.rsi14}, VWAP ${t.vwapBias}, VIX ${scan?.results?.find(r => r.symbol === 'VIX')?.quote?.price || 'N/A'}`,
+          timestamp: new Date().toISOString()
         });
       }
-      res.json({
-        ok: true,
-        overall: 'SIN DATOS',
-        bias: 'NEUTRAL',
-        confidence: null,
-        details: 'Sentimiento real pendiente de datos de mercado.'
-      });
-    } catch (err) {
-      res.json({
-        ok: true,
-        overall: 'SIN DATOS',
-        bias: 'NEUTRAL',
-        confidence: null,
-        details: 'Sentimiento real pendiente de datos de mercado.'
-      });
+      res.json(fallback);
+    } catch {
+      res.json(fallback);
     }
-  });
+  }
+  app.get('/api/market/sentiment', serveMarketSentiment);
+  app.get('/api/market-sentiment', serveMarketSentiment);
+  app.get('/api/sentiment', serveMarketSentiment);
 
   app.post('/api/refresh', async (_req, res, next) => {
     try {
