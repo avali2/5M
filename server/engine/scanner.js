@@ -30,11 +30,11 @@ function deterministicSummary(scan) {
   if (scan.decision.status === 'conditional_edge') {
     const best = scan.guardianEdge?.dailyBest;
     return best
-      ? `EDGE CONDICIONAL: Guardian detecto ${best.symbol} ${best.strategy} (${best.classification}) con POP estimada ${best.popEstimated ?? 'No disponible'}%. Requiere gatillo, cadena y riesgo verificados manualmente.`
-      : 'EDGE CONDICIONAL: existen candidatos educativos/condicionales, pero ningun trade real validado.';
+      ? `EDGE CONDICIONAL: Guardian detectó ${best.symbol} ${best.strategy} (${best.classification}) con POP estimada ${best.popEstimated ?? 'No disponible'}%. Requiere gatillo, cadena y riesgo verificados manualmente.`
+      : 'EDGE CONDICIONAL: existen candidatos educativos/condicionales, pero ningún trade real validado.';
   }
   if (scan.decision.status !== 'eligible') {
-    return `NO TRADE REAL: ${scan.decision.reasons.join(' ')} La recoleccion permanece activa para construir IV Rank y snapshots.`;
+    return `No ejecutar sin revisión: ${scan.decision.reasons.join(' ')} La recolección permanece activa para construir IV Rank y snapshots.`;
   }
   const best = scan.opportunities[0];
   return `${scan.market.regime} con VIX ${scan.market.vix}. Mejor plan filtrado: ${best.symbol} ${best.strategy}, confianza ${best.confidenceScore}/100 y riesgo maximo $${best.maxRisk}.`;
@@ -355,6 +355,19 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   const limit = pLimit(3);
   const results = await Promise.all(symbols.map((symbol) => limit(() => scanSymbol({ symbol, providers, market, macro, policy, profile }))));
   const spyGamma = results.find((result) => result.symbol === 'SPY')?.gamma;
+  // Build tape reading proxy for the overall market
+  market.tapeReading = {
+    arrow: market.regime === 'BULL_TREND' ? '⬆️' : market.regime === 'BEAR_TREND' ? '⬇️' : '↔️',
+    label: market.regime === 'BULL_TREND' ? 'Instituciones comprando' : market.regime === 'BEAR_TREND' ? 'Instituciones vendiendo' : 'Flujo mixto',
+    explanation: market.regime === 'BULL_TREND' ? 'Tape proxy alcista por regimen de mercado, tendencia y breadth.' : market.regime === 'BEAR_TREND' ? 'Tape proxy bajista por regimen de mercado, tendencia y breadth.' : 'Sin lectura clara de tape. Flujo mixto.',
+    confidence: market.breadth != null ? Math.abs(market.breadth - 50) * 2 : 40,
+    signals: [
+      `Regimen: ${market.regime}`,
+      `Breadth: ${market.breadth != null ? market.breadth.toFixed(1) + '%' : 'N/A'}`,
+      `VIX: ${market.vix != null ? market.vix.toFixed(1) : 'N/A'}`
+    ],
+    institutionalFlow: market.regime === 'BULL_TREND' ? 'BUYING' : market.regime === 'BEAR_TREND' ? 'SELLING' : 'MIXED'
+  };
   market.gamma = spyGamma || null;
   market.regime = detectMarketRegime({
     vix: market.vix,

@@ -14,6 +14,8 @@ import { GuardianPushStore } from './pushStore.js';
 import { GuardianPushService } from './push.js';
 import { GuardianScheduler } from './guardianScheduler.js';
 import { createGuardianRouter, createPushRouter } from './guardianRoutes.js';
+import { registerPushRoutes } from './pushRoutes.js';
+import { startAutonomousSignalWorker } from './autonomousSignalWorker.js';
 
 function enabledLabel(value) {
   return value ? 'enabled' : 'disabled';
@@ -731,6 +733,8 @@ export function createApp(settings = config, customProviders = null, options = {
     }
   });
 
+  registerPushRoutes(app);
+  startAutonomousSignalWorker({ scheduler, guardianScheduler, pushService, repository });
   app.use('/api/guardian', createGuardianRouter({ guardianScheduler, repository }));
   app.use('/api/push', createPushRouter({ pushService }));
 
