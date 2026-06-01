@@ -848,6 +848,50 @@ export function createApp(settings = config, customProviders = null, options = {
     });
   });
 
+  app.get('/api/debug/polygon', async (_req, res) => {
+    const apiKey = process.env.POLYGON_API_KEY;
+    if (!apiKey) {
+      return res.json({
+        ok: false,
+        configured: false,
+        testedTicker: 'SPY',
+        status: null,
+        message: 'POLYGON_API_KEY missing',
+        sampleResultsCount: null,
+        timestamp: new Date().toISOString()
+      });
+    }
+    try {
+      const today = new Date();
+      const to = today.toISOString().slice(0, 10);
+      const fromDate = new Date(today.getTime() - 10 * 24 * 60 * 60 * 1000);
+      const from = fromDate.toISOString().slice(0, 10);
+      const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent('SPY')}/range/1/day/${from}/${to}?adjusted=true&sort=desc&limit=5&apiKey=${apiKey}`;
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const json = await r.json().catch(() => ({}));
+      const results = json?.results;
+      res.json({
+        ok: r.ok,
+        configured: true,
+        testedTicker: 'SPY',
+        status: r.status,
+        message: r.ok ? 'operational' : `HTTP ${r.status}`,
+        sampleResultsCount: Array.isArray(results) ? results.length : null,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      res.json({
+        ok: false,
+        configured: true,
+        testedTicker: 'SPY',
+        status: null,
+        message: err?.message || 'Polygon request failed',
+        sampleResultsCount: null,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   app.post('/api/refresh', async (_req, res, next) => {
     try {
       const scan = await scheduler.run(true);
