@@ -17,6 +17,8 @@ import { createGuardianRouter, createPushRouter } from './guardianRoutes.js';
 import { registerPushRoutes } from './pushRoutes.js';
 import { startAutonomousSignalWorker } from './autonomousSignalWorker.js';
 import positionsRoutes from './routes/positionsRoutes.js';
+import { getSystemStatus } from './status.js';
+import geminiAssistantRouter from './geminiAssistant.js';
 
 function enabledLabel(value) {
   return value ? 'enabled' : 'disabled';
@@ -739,6 +741,16 @@ export function createApp(settings = config, customProviders = null, options = {
   app.use('/api/guardian', createGuardianRouter({ guardianScheduler, repository }));
   app.use('/api/push', createPushRouter({ pushService }));
   app.use('/api/positions', positionsRoutes);
+  app.use('/api/gemini', geminiAssistantRouter);
+
+  app.get('/api/status', async (_req, res) => {
+    try {
+      const status = await getSystemStatus();
+      res.json(status);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   app.use((error, _req, res, _next) => {
     const status = error.status && error.status >= 400 ? error.status : 503;
