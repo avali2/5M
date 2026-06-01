@@ -16,6 +16,7 @@ import { GuardianScheduler } from './guardianScheduler.js';
 import { createGuardianRouter, createPushRouter } from './guardianRoutes.js';
 import { registerPushRoutes } from './pushRoutes.js';
 import { startAutonomousSignalWorker } from './autonomousSignalWorker.js';
+import positionsRoutes from './routes/positionsRoutes.js';
 
 function enabledLabel(value) {
   return value ? 'enabled' : 'disabled';
@@ -737,6 +738,7 @@ export function createApp(settings = config, customProviders = null, options = {
   startAutonomousSignalWorker({ scheduler, guardianScheduler, pushService, repository });
   app.use('/api/guardian', createGuardianRouter({ guardianScheduler, repository }));
   app.use('/api/push', createPushRouter({ pushService }));
+  app.use('/api/positions', positionsRoutes);
 
   app.use((error, _req, res, _next) => {
     const status = error.status && error.status >= 400 ? error.status : 503;

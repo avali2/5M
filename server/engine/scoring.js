@@ -44,3 +44,32 @@ export function institutionalScore({ optionsScore, volScore, techScore, tapeScor
     (macroScore || 70) * 0.10
   );
 }
+
+// Backward compatibility aliases for server/engine/scanner.js
+export function scoreSetup({ setup, ivRank, trend, macroBlocked, gamma, flowBias, regime, technicals, riskAllowed, edge }) {
+  const baseScore = 40;
+  let score = baseScore;
+  const factors = {
+    primaryTrend: trend === 'bullish' ? 85 : trend === 'bearish' ? 45 : 70,
+    optionsLiquidity: (setup?.liquidityScore || 5) * 10,
+    volatilityEdge: ivRank != null ? (ivRank >= 50 ? 80 : 50) : 50,
+    newsEarningsMacro: macroBlocked ? 20 : 75,
+    riskRewardSizing: riskAllowed ? 80 : 40
+  };
+
+  if (gamma?.regime === 'positive') score += 10;
+  if (gamma?.regime === 'negative') score -= 5;
+  if (flowBias === 'aligned') score += 5;
+  if (regime === 'BULL_TREND' || regime === 'BEAR_TREND') score += 5;
+
+  const confidenceScore = clamp(score + (factors.primaryTrend - 50) * 0.2, 0, 100);
+  return { score: clamp(Math.round(score), 0, 100), confidenceScore, factors, weights: { trend: 0.3, liquidity: 0.25, volatility: 0.20, macro: 0.15, risk: 0.10 } };
+}
+
+export function classifySignal(setup, regime = 'neutral') {
+  const score = setup?.confidenceScore || setup?.score || 50;
+  if (score >= 80) return 'strong_buy';
+  if (score >= 65) return 'buy';
+  if (score >= 45) return 'neutral';
+  return 'no_trade';
+}
