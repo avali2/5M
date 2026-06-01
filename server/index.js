@@ -370,8 +370,8 @@ export function createApp(settings = config, customProviders = null, options = {
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
     const publicPaths = [
-      '/health', '/status', '/doctor', '/debug/env',
-      '/gemini/daily-summary', '/market/sentiment',
+      '/health', '/status', '/doctor', '/debug/env', '/debug/providers',
+      '/gemini/daily-summary', '/market/sentiment', '/market-sentiment', '/sentiment',
       '/scan', '/guardian/scan', '/refresh', '/journal',
       '/ping'
     ];
@@ -786,17 +786,20 @@ export function createApp(settings = config, customProviders = null, options = {
   app.get('/api/ping', (_req, res) => res.json({ pong: true, timestamp: new Date().toISOString() }));
 
   async function serveMarketSentiment(_req, res) {
-    const fallback = {
+    const fallback = (warnings = []) => ({
       ok: true,
       overall: 'SIN DATOS',
       bias: 'NEUTRAL',
       confidence: null,
       details: 'Sentimiento real pendiente de datos de mercado.',
+      warnings,
       timestamp: new Date().toISOString()
-    };
+    });
+    const warnings = [];
     try {
       const scan = await scheduler.snapshot();
-      const spyResult = scan?.results?.find(r => r.symbol === 'SPY');
+      const results = Array.isArray(scan?.results) ? scan.results : [];
+      const spyResult = results.find(r => r.symbol === 'SPY');
       if (spyResult?.technicals) {
         const t = spyResult.technicals;
         const wyckoff = spyResult.wyckoff || { bias: 'NEUTRAL' };
@@ -810,18 +813,40 @@ export function createApp(settings = config, customProviders = null, options = {
           overall,
           bias,
           confidence: 70,
-          details: `SPY ${t.trend}, RSI ${t.rsi14}, VWAP ${t.vwapBias}, VIX ${scan?.results?.find(r => r.symbol === 'VIX')?.quote?.price || 'N/A'}`,
+          details: `SPY ${t.trend}, RSI ${t.rsi14}, VWAP ${t.vwapBias}, VIX ${results.find(r => r.symbol === 'VIX')?.quote?.price || 'N/A'}`,
+          warnings,
           timestamp: new Date().toISOString()
         });
       }
-      res.json(fallback);
-    } catch {
-      res.json(fallback);
+      if (!results.length) warnings.push('No market data from scan engine');
+      res.json(fallback(warnings));
+    } catch (err) {
+      warnings.push(`Scan engine: ${err?.message || 'unknown error'}`);
+      res.json(fallback(warnings));
     }
   }
   app.get('/api/market/sentiment', serveMarketSentiment);
   app.get('/api/market-sentiment', serveMarketSentiment);
   app.get('/api/sentiment', serveMarketSentiment);
+
+  app.get('/api/debug/providers', (_req, res) => {
+    res.json({
+      ok: true,
+      env: {
+        tradier: Boolean(process.env.TRADIER_TOKEN),
+        gemini: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+        polygon: Boolean(process.env.POLYGON_API_KEY),
+        alphaVantage: Boolean(process.env.ALPHA_VANTAGE_API_KEY),
+        database: Boolean(process.env.DATABASE_URL)
+      },
+      providers: [
+        { name: 'tradier', required: true, ok: Boolean(providers?.tradier?.configured), message: providers?.tradier?.configured ? 'configured' : 'missing' },
+        { name: 'gemini', required: false, ok: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY), message: (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? 'configured' : 'GEMINI_API_KEY missing' },
+        { name: 'polygon', required: false, ok: Boolean(process.env.POLYGON_API_KEY), message: process.env.POLYGON_API_KEY ? 'configured' : 'POLYGON_API_KEY missing' }
+      ],
+      timestamp: new Date().toISOString()
+    });
+  });
 
   app.post('/api/refresh', async (_req, res, next) => {
     try {

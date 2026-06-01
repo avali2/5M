@@ -2,30 +2,16 @@ export async function getSystemStatus() {
   const services = [];
   const warnings = [];
 
-  // Gemini check
+  // Gemini check — solo verificar existencia de key, no hacer API call real
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  let geminiOk = false;
-  let geminiMessage = '';
-  if (geminiKey) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Respond with "OK"' }] }] }),
-        signal: AbortSignal.timeout(5000)
-      });
-      if (res.ok) {
-        geminiOk = true;
-        geminiMessage = 'operational';
-      } else {
-        geminiMessage = `HTTP ${res.status}`;
-      }
-    } catch (err) { geminiMessage = err.message; }
-  } else {
-    geminiMessage = 'API key missing';
-  }
-  services.push({ name: 'gemini', ok: geminiOk, message: geminiMessage, required: false });
-  if (!geminiOk) warnings.push(`Gemini: ${geminiMessage}`);
+  const geminiOk = Boolean(geminiKey);
+  services.push({
+    name: 'gemini',
+    ok: geminiOk,
+    message: geminiOk ? 'API key configurada' : 'GEMINI_API_KEY missing',
+    required: false
+  });
+  if (!geminiOk) warnings.push('Gemini: GEMINI_API_KEY no configurada (opcional)');
 
   // Tradier check
   const tradierToken = process.env.TRADIER_TOKEN;
@@ -50,12 +36,14 @@ export async function getSystemStatus() {
   services.push({ name: 'tradier', ok: tradierOk, message: tradierMessage, required: true });
   if (!tradierOk) warnings.push(`Tradier: ${tradierMessage}`);
 
-  // Polygon check
+  // Polygon check — usar endpoint correcto para stocks (SPY), no SPX company
   let polygonOk = false;
   let polygonMessage = '';
   if (process.env.POLYGON_API_KEY) {
     try {
-      const res = await fetch(`https://api.polygon.io/v1/meta/symbols/SPX/company?apiKey=${process.env.POLYGON_API_KEY}`, { signal: AbortSignal.timeout(5000) });
+      const today = new Date().toISOString().slice(0, 10);
+      const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent('SPY')}/prev?adjusted=true&apiKey=${process.env.POLYGON_API_KEY}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (res.ok) {
         polygonOk = true;
         polygonMessage = 'operational';
@@ -114,7 +102,7 @@ export async function getSystemStatus() {
     required: false
   });
 
-  // Scheduler check
+  // Scheduler check (optional)
   const schedulerRunning = typeof globalThis.workerStarted !== 'undefined' && globalThis.workerStarted;
   services.push({
     name: 'scheduler',

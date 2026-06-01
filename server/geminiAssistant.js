@@ -3,6 +3,10 @@ import { runInstitutionalScan } from './institutional-engine.mjs';
 
 const router = express.Router();
 
+// 15-minute cache for Gemini to prevent 429 rate limit
+let geminiCache = { data: null, timestamp: 0 };
+const GEMINI_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
 async function callGemini(prompt) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('Gemini API key not configured');
@@ -22,6 +26,11 @@ async function callGemini(prompt) {
   if (!res.ok) {
     const text = await res.text();
     console.error(`Gemini API error ${res.status}: ${text.slice(0, 200)}`);
+    // If 429 rate limit and we have cache, use it
+    if (res.status === 429 && geminiCache.data) {
+      console.warn('Gemini 429 — using cached summary');
+      return geminiCache.data;
+    }
     throw new Error(`Gemini API error ${res.status}`);
   }
 
@@ -84,9 +93,16 @@ router.get('/daily-summary', async (_req, res) => {
           tip: parts[1]?.trim() || 'Prioriza credit spreads con riesgo definido y gestión estricta.'
         };
       }
-      res.json({ ...parsed, source: 'gemini' });
+      const resultData = { ...parsed, source: 'gemini' };
+      geminiCache = { data: JSON.stringify(resultData), timestamp: Date.now() };
+      res.json(resultData);
     } catch (geminiErr) {
       console.error('Gemini call failed:', geminiErr.message);
+      // Try cache on 429 or any failure
+      if (geminiCache.data && (Date.now() - geminiCache.timestamp < GEMINI_CACHE_TTL)) {
+        console.warn('Using cached Gemini summary due to error');
+        try { return res.json({ ...JSON.parse(geminiCache.data), source: 'gemini_cached' }); } catch {}
+      }
       res.json({
         marketOverview: `El motor cuantitativo detecta tendencia ${spyTrend} con VIX en ${vix}.`,
         tip: 'Sin auditoría Gemini. Revisa manualmente las señales credit spread y confirma liquidez antes de operar.',
