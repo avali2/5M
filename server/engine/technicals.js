@@ -1,123 +1,114 @@
-import { round, trendFromHistory } from '../lib/math.js';
+import { mean, round } from './math.js';
 
-function ema(values, period) {
-  if (values.length < period) return null;
-  const multiplier = 2 / (period + 1);
-  let current = values.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
-  values.slice(period).forEach((value) => {
-    current = (value - current) * multiplier + current;
-  });
-  return round(current);
+export function ema(values, period) {
+  const clean = values.map(Number).filter(Number.isFinite);
+  if (clean.length < period) return null;
+  const k = 2 / (period + 1);
+  let e = mean(clean.slice(0, period));
+  for (let i = period; i < clean.length; i++) e = clean[i] * k + e * (1 - k);
+  return e;
 }
 
-function rsi(values, period = 14) {
-  if (values.length < period + 1) return null;
-  const changes = values.slice(-period - 1).slice(1).map((value, index) => value - values.slice(-period - 1)[index]);
-  const gain = changes.reduce((sum, value) => sum + Math.max(value, 0), 0) / period;
-  const loss = changes.reduce((sum, value) => sum + Math.max(-value, 0), 0) / period;
-  if (loss === 0) return 100;
-  return round(100 - (100 / (1 + gain / loss)), 1);
+export function rsi(values, period = 14) {
+  const clean = values.map(Number).filter(Number.isFinite);
+  if (clean.length <= period) return null;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = clean[i] - clean[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  for (let i = period + 1; i < clean.length; i++) {
+    const diff = clean[i] - clean[i - 1];
+    avgGain = (avgGain * (period - 1) + Math.max(diff, 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(-diff, 0)) / period;
+  }
+  if (avgLoss === 0) return 100;
+  return 100 - 100 / (1 + avgGain / avgLoss);
 }
 
-function macd(values) {
-  if (values.length < 35) return { line: null, signal: null, histogram: null };
-  const lines = values.map((_, index) => {
-    const subset = values.slice(0, index + 1);
-    const fast = ema(subset, 12);
-    const slow = ema(subset, 26);
-    return Number.isFinite(fast) && Number.isFinite(slow) ? fast - slow : null;
-  }).filter(Number.isFinite);
-  const line = lines.at(-1);
-  const signal = ema(lines, 9);
+export function macd(values) {
+  const e12 = ema(values, 12);
+  const e26 = ema(values, 26);
+  if (e12 == null || e26 == null) return null;
+  const clean = values.map(Number).filter(Number.isFinite);
+  const macdSeries = [];
+  for (let i = 26; i <= clean.length; i++) {
+    const sub = clean.slice(0, i);
+    const a = ema(sub, 12), b = ema(sub, 26);
+    if (a != null && b != null) macdSeries.push(a - b);
+  }
+  const signal = ema(macdSeries, 9);
   return {
-    line: Number.isFinite(line) ? round(line, 3) : null,
-    signal: Number.isFinite(signal) ? round(signal, 3) : null,
-    histogram: Number.isFinite(line) && Number.isFinite(signal) ? round(line - signal, 3) : null
+    line: round(e12 - e26, 4),
+    signal: signal == null ? null : round(signal, 4),
+    histogram: signal == null ? null : round(e12 - e26 - signal, 4)
   };
 }
 
-function atr(bars, period = 14) {
-  if (bars.length < period + 1) return null;
-  const ranges = bars.slice(1).map((bar, index) => {
-    const previousClose = bars[index].close;
-    return Math.max(bar.high - bar.low, Math.abs(bar.high - previousClose), Math.abs(bar.low - previousClose));
-  });
-  return round(ranges.slice(-period).reduce((sum, value) => sum + value, 0) / period);
+export function vwap(bars) {
+  let pv = 0, vol = 0;
+  for (const b of bars) {
+    const typical = ((b.high ?? b.close) + (b.low ?? b.close) + b.close) / 3;
+    const v = Number(b.volume || 0);
+    if (Number.isFinite(typical) && v > 0) { pv += typical * v; vol += v; }
+  }
+  return vol > 0 ? pv / vol : null;
 }
 
-function relativeVolume(bars, period = 20) {
-  const usable = bars.filter((bar) => Number.isFinite(bar.volume) && bar.volume > 0);
-  if (usable.length < period + 1) return null;
-  const baseline = usable.slice(-(period + 1), -1).reduce((sum, bar) => sum + bar.volume, 0) / period;
-  return baseline > 0 ? round(usable.at(-1).volume / baseline, 2) : null;
+import { std } from './math.js';
+export function realizedVol(closes, barsPerYear = 252) {
+  const returns = [];
+  for (let i = 1; i < closes.length; i++) {
+    if (closes[i] > 0 && closes[i - 1] > 0) returns.push(Math.log(closes[i] / closes[i - 1]));
+  }
+  const s = std(returns);
+  return s == null ? null : s * Math.sqrt(barsPerYear);
 }
 
-function rollingVwap(bars, period = 20) {
-  const recent = bars.slice(-period).filter((bar) => Number.isFinite(bar.volume) && bar.volume > 0);
-  const volume = recent.reduce((sum, bar) => sum + bar.volume, 0);
-  if (!volume) return null;
-  return round(recent.reduce((sum, bar) => sum + ((bar.high + bar.low + bar.close) / 3) * bar.volume, 0) / volume);
+export function detectStructure(bars) {
+  const last = bars.slice(-20);
+  if (last.length < 10) return "UNKNOWN";
+  const highs = last.map(b => Number(b.high || b.close));
+  const lows = last.map(b => Number(b.low || b.close));
+  const fh = mean(highs.slice(0, 5)), lh = mean(highs.slice(-5));
+  const fl = mean(lows.slice(0, 5)), ll = mean(lows.slice(-5));
+  if (lh > fh && ll > fl) return "HH_HL";
+  if (lh < fh && ll < fl) return "LH_LL";
+  return "RANGE";
 }
 
-function realizedVolatility(bars, period = 20) {
-  const closes = bars.slice(-(period + 1)).map((bar) => bar.close);
-  if (closes.length < period + 1) return null;
-  const returns = closes.slice(1).map((close, index) => Math.log(close / closes[index]));
-  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
-  const variance = returns.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / (returns.length - 1);
-  return round(Math.sqrt(variance) * Math.sqrt(252) * 100, 1);
-}
+export function computeTechnicals(symbol, quote, bars) {
+  const closes = bars.map(b => Number(b.close)).filter(Number.isFinite);
+  const volumes = bars.map(b => Number(b.volume || 0));
+  const last = quote.price || closes.at(-1);
+  const vw = vwap(bars);
+  const e9 = ema(closes, 9), e21 = ema(closes, 21), e50 = ema(closes, 50), e200 = ema(closes, 200);
+  const r = rsi(closes, 14);
+  const m = macd(closes);
+  const recentHigh = Math.max(...bars.slice(-50).map(b => Number(b.high || b.close)));
+  const recentLow = Math.min(...bars.slice(-50).map(b => Number(b.low || b.close)));
+  const avgVol20 = mean(volumes.slice(-20));
+  const lastVol = volumes.at(-1) || 0;
+  const relVol = avgVol20 ? lastVol / avgVol20 : null;
 
-function priceLevels(bars) {
-  const recent = bars.slice(-20);
-  if (!recent.length) return { support: null, resistance: null };
+  let trend = "RANGE";
+  if (e9 && e21 && e50 && last > e9 && e9 > e21 && e21 > e50) trend = "BULL_TREND";
+  if (e9 && e21 && e50 && last < e9 && e9 < e21 && e21 < e50) trend = "BEAR_TREND";
+
+  let momentum = "neutral";
+  if (r != null && r > 55 && m?.histogram != null && m.histogram > 0) momentum = "bullish";
+  if (r != null && r < 45 && m?.histogram != null && m.histogram < 0) momentum = "bearish";
+
   return {
-    support: round(Math.min(...recent.map((bar) => bar.low))),
-    resistance: round(Math.max(...recent.map((bar) => bar.high)))
-  };
-}
-
-function volumeProfile(bars) {
-  const usable = bars.slice(-40).filter((bar) => Number.isFinite(bar.volume) && bar.volume > 0);
-  if (!usable.length) return [];
-  const range = Math.max(...usable.map((bar) => bar.high)) - Math.min(...usable.map((bar) => bar.low));
-  const bucketSize = Math.max(range / 10, 0.01);
-  const buckets = new Map();
-  usable.forEach((bar) => {
-    const typical = (bar.high + bar.low + bar.close) / 3;
-    const level = Math.round(typical / bucketSize) * bucketSize;
-    buckets.set(level, (buckets.get(level) || 0) + bar.volume);
-  });
-  return [...buckets.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([price, volume]) => ({
-    price: round(price),
-    volume
-  }));
-}
-
-export function deriveTechnicals(bars) {
-  const closeBars = bars.filter((bar) => Number.isFinite(bar.close));
-  const valid = bars.filter((bar) => [bar.close, bar.high, bar.low].every(Number.isFinite));
-  const closes = closeBars.map((bar) => bar.close);
-  const levels = priceLevels(valid);
-  return {
-    trend: trendFromHistory(closes),
-    ema8: ema(closes, 8),
-    ema9: ema(closes, 9),
-    ema21: ema(closes, 21),
-    ema50: ema(closes, 50),
-    ema200: ema(closes, 200),
-    rsi14: rsi(closes),
-    macd: macd(closes),
-    atr14: atr(valid),
-    vwap20: rollingVwap(valid),
-    relativeVolume20: relativeVolume(valid),
-    realizedVolatility20: realizedVolatility(valid),
-    support: levels.support,
-    resistance: levels.resistance,
-    volumeProfile: volumeProfile(valid),
-    intradayTrend: null,
-    intradayVwap: null,
-    source: 'daily OHLCV provider bars',
-    limitations: ['VWAP mostrado es proxy rolling diario; VWAP intradia requiere barras intradia.', 'Tendencia intradia no disponible con la consulta diaria actual.']
+    symbol, price: round(last, 2),
+    ema9: round(e9, 2), ema21: round(e21, 2), ema50: round(e50, 2), ema200: round(e200, 2),
+    rsi14: round(r, 2), macd: m,
+    vwap: round(vw, 2), vwapBias: vw == null ? "VWAP_UNKNOWN" : last >= vw ? "ABOVE_VWAP" : "BELOW_VWAP",
+    relativeVolume: round(relVol, 2), volumeSpike: relVol != null && relVol >= 1.7,
+    support: round(recentLow, 2), resistance: round(recentHigh, 2),
+    trend, momentum, structure: detectStructure(bars),
+    realizedVol: round(realizedVol(closes), 4)
   };
 }
