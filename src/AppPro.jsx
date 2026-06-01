@@ -16,7 +16,7 @@ function VersionBadge() {
     ? new Date(VALIDO_TIMESTAMP).toLocaleDateString("es-MX", { month: "short", day: "numeric" })
     : "";
   return (
-    <a href="/" title={`Build: ${VALIDO_VERSION}`} className="fixed right-3 top-3 z-50 pill hover:border-blue-400 hover:text-white transition">
+    <a href="/" title={`Build: ${VALIDO_VERSION}`} className="fixed right-3 top-3 z-50 pill hover:border-blue-400 hover:text-slate-900 transition">
       v{VALIDO_VERSION}{shortDate ? ` · ${shortDate}` : ""}
     </a>
   );
@@ -25,16 +25,16 @@ function VersionBadge() {
 function BottomNav() {
   const items = [
     ["inicio", "Inicio"],
-    ["signals", "Senales"],
+    ["signals", "Señales"],
     ["news", "Noticias"],
     ["risk", "Riesgo"],
     ["journal", "Journal"],
     ["settings", "Config"]
   ];
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-white/10 bg-[#08111f]/95 px-1 py-3 backdrop-blur">
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
       {items.map(([target, label]) => (
-        <a className="rounded-lg px-3 py-2 text-xs font-bold text-slate-400 hover:text-white transition" href={`#${target}`} key={target}>{label}</a>
+        <a className="rounded-lg px-3 py-2 text-xs font-bold text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition" href={`#${target}`} key={target}>{label}</a>
       ))}
     </nav>
   );
@@ -43,15 +43,15 @@ function BottomNav() {
 function TopSignalsList({ signals }) {
   if (!signals?.length) return (
     <section className="signal-card p-4 space-y-3">
-      <h2 className="text-xl font-black text-white">Senales del momento</h2>
-      <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3">
-        <p className="text-sm text-slate-300">No hay senales aprobadas ahora. El scanner sigue vigilando.</p>
+      <h2 className="text-xl font-black text-slate-900">Señales del momento</h2>
+      <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
+        <p className="text-sm text-slate-500">No hay señales aprobadas ahora. El scanner sigue vigilando.</p>
       </div>
     </section>
   );
   return (
     <section id="signals" className="space-y-4">
-      <h2 className="text-xl font-black text-white px-1">Senales del momento</h2>
+      <h2 className="text-xl font-black text-slate-900 px-1">Señales del momento</h2>
       {signals.slice(0, 5).map((s, i) => <SignalCard signal={s} key={s.id || i} />)}
     </section>
   );
@@ -65,7 +65,7 @@ function RiskDesk({ profile, riskConfig, onSave }) {
 
   return (
     <section id="risk" className="risk-card p-4 space-y-3">
-      <h2 className="text-xl font-black text-white">Mesa de riesgo</h2>
+      <h2 className="text-xl font-black text-slate-900">Mesa de riesgo</h2>
       <div className="grid grid-cols-2 gap-3">
         <Metric label="Cuenta" value={`$${cfg.accountValue}`} />
         <Metric label="Riesgo/trade" value={`$${tradeBudget} (${cfg.defaultRiskPct}%)`} />
@@ -82,9 +82,9 @@ function RiskDesk({ profile, riskConfig, onSave }) {
 
 function Metric({ label, value }) {
   return (
-    <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3">
-      <p className="text-xs text-slate-400 font-bold">{label}</p>
-      <p className="text-base text-white font-black mt-1">{value}</p>
+    <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
+      <p className="text-xs text-slate-500 font-bold">{label}</p>
+      <p className="text-base text-slate-900 font-black mt-1">{value}</p>
     </div>
   );
 }
@@ -92,15 +92,15 @@ function Metric({ label, value }) {
 function TradeJournal({ entries }) {
   return (
     <section id="journal" className="risk-card p-4 space-y-3">
-      <h2 className="text-xl font-black text-white">Journal</h2>
+      <h2 className="text-xl font-black text-slate-900">Journal</h2>
       {entries?.length ? entries.slice(0, 6).map((e) => (
-        <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3 text-sm" key={e.id}>
-          <strong className="text-white">{e.symbol} - {e.strategy}</strong>
-          <p className="text-slate-300 mt-1">{e.outcome} | {new Date(e.createdAt || e.created_at).toLocaleDateString()}</p>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3 text-sm" key={e.id}>
+          <strong className="text-slate-900">{e.symbol} - {e.strategy}</strong>
+          <p className="text-slate-500 mt-1">{e.outcome} | {new Date(e.createdAt || e.created_at).toLocaleDateString()}</p>
         </div>
       )) : (
-        <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3">
-          <p className="text-sm text-slate-300">Aun sin decisiones registradas.</p>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
+          <p className="text-sm text-slate-500">Aun sin decisiones registradas.</p>
         </div>
       )}
     </section>
@@ -117,37 +117,37 @@ function SettingsPanel({ riskConfig, onSaveRisk }) {
 
   return (
     <section id="settings" className="risk-card p-4 space-y-3">
-      <h2 className="text-xl font-black text-white">Configuracion de cuenta</h2>
+      <h2 className="text-xl font-black text-slate-900">Configuración de cuenta</h2>
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3">
-          <p className="text-xs text-slate-400 font-bold">Valor cuenta</p>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
+          <p className="text-xs text-slate-500 font-bold">Valor cuenta</p>
           <input className="input mt-1" type="number" value={cfg.accountValue} onChange={e => setCfg({ ...cfg, accountValue: Number(e.target.value) })} />
         </div>
-        <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3">
-          <p className="text-xs text-slate-400 font-bold">Riesgo %</p>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
+          <p className="text-xs text-slate-500 font-bold">Riesgo %</p>
           <input className="input mt-1" type="number" value={cfg.defaultRiskPct} onChange={e => setCfg({ ...cfg, defaultRiskPct: Number(e.target.value) })} />
         </div>
-        <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3">
-          <p className="text-xs text-slate-400 font-bold">Max riesgo A+ %</p>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
+          <p className="text-xs text-slate-500 font-bold">Max riesgo A+ %</p>
           <input className="input mt-1" type="number" value={cfg.maxRiskPct} onChange={e => setCfg({ ...cfg, maxRiskPct: Number(e.target.value) })} />
         </div>
-        <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3">
-          <p className="text-xs text-slate-400 font-bold">Max colateral %</p>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
+          <p className="text-xs text-slate-500 font-bold">Max colateral %</p>
           <input className="input mt-1" type="number" value={cfg.collateralCapPct} onChange={e => setCfg({ ...cfg, collateralCapPct: Number(e.target.value) })} />
         </div>
-        <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3">
-          <p className="text-xs text-slate-400 font-bold">Max trades</p>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
+          <p className="text-xs text-slate-500 font-bold">Max trades</p>
           <input className="input mt-1" type="number" value={cfg.maxOpenTrades} onChange={e => setCfg({ ...cfg, maxOpenTrades: Number(e.target.value) })} />
         </div>
-        <div className="rounded-2xl bg-slate-950/30 border border-white/10 p-3">
-          <p className="text-xs text-slate-400 font-bold">PDT</p>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
+          <p className="text-xs text-slate-500 font-bold">PDT</p>
           <select className="input mt-1" value={cfg.pdtProtected ? "true" : "false"} onChange={e => setCfg({ ...cfg, pdtProtected: e.target.value === "true" })}>
             <option value="true">Protegido</option>
             <option value="false">Sin proteccion</option>
           </select>
         </div>
       </div>
-      <button className="primary-button w-full" onClick={handleSave}>Guardar configuracion</button>
+      <button className="primary-button w-full" onClick={handleSave}>Guardar configuración</button>
     </section>
   );
 }
@@ -211,20 +211,20 @@ export default function AppPro() {
       mood: news.some(n => n.stars >= 5) ? "EVENT_RISK" : scan?.market?.regime === "BULL_TREND" ? "RISK_ON" : scan?.market?.regime === "BEAR_TREND" ? "RISK_OFF" : "CHOP",
       mode: approved.length ? "BUSCAR_ENTRADAS" : "ESPERAR",
       summary: approved.length
-        ? `Se detectaron ${approved.length} senal(es) con edge real y aprobacion Gemini. Revisar senales abajo.`
-        : `No hay senales aprobadas ahora. Se requiere mas datos de mercado o condiciones mas claras.`,
+        ? `Se detectaron ${approved.length} señal(es) con edge real y aprobación Gemini. Revisar señales abajo.`
+        : `No hay señales aprobadas ahora. Se requiere más datos de mercado o condiciones más claras.`,
       bullets: approved.slice(0, 5).map(s => `${s.symbol} ${s.strategy} - Score ${s.score || "?"}`),
       bestSymbols: approved.map(s => s.symbol).slice(0, 3),
       blockedSymbols: (scan?.rejected || []).slice(0, 3).map(s => s.symbol),
-      education: approved[0]?.geminiReview?.educationNote ? { title: "Leccion pro", lesson: approved[0].geminiReview.educationNote, proTip: "Riesgo definido, salida clara." } : undefined
+      education: approved[0]?.geminiReview?.educationNote ? { title: "Lección pro", lesson: approved[0].geminiReview.educationNote, proTip: "Riesgo definido, salida clara." } : undefined
     };
   }, [signals, news, scan]);
 
   return (
-    <div className="pro-console">
+    <div className="pro-console bg-slate-50">
       <VersionBadge />
       <div className="home-pro">
-        {error && <div className="bg-red-500/10 border border-red-400/20 rounded-2xl p-4 text-sm text-red-200">{error}</div>}
+        {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
 
         <NotificationStatusCard />
         <GeminiBriefCard {...geminiBrief} />
