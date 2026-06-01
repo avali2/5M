@@ -1,7 +1,8 @@
-# VALIDO 1M — Complete Project Report v3.0
+# VALIDO 1M — Complete Project Report v4.0
 
-> Generated: 2026-05-31 | GitHub: https://github.com/avali2/2M | Live: https://valido-1m.onrender.com
-> Architecture: React 19 + Vite 7 + Express 5 + Tailwind CSS v4 + TypeScript + Gemini 2.5 Flash
+> **Generated**: 2026-06-01 | **GitHub**: https://github.com/avali2/2M | **Live**: https://valido-1m.onrender.com
+> **Architecture**: React 19 + Vite 7 + TypeScript + Tailwind CSS v4 + Express 5 + Node 22
+> **AI**: Google Gemini 2.5 Flash Lite | **Data**: Tradier API, Polygon.io, Yahoo Finance, Alpha Vantage
 
 ---
 
@@ -20,9 +21,10 @@
 11. [API Endpoints](#api-endpoints)
 12. [Frontend Components](#frontend-components)
 13. [Notification System](#notification-system)
-14. [Environment Variables](#environment-variables)
-15. [Deployment](#deployment)
-16. [Commits History](#commits-history)
+14. [Database & Historical Data](#database--historical-data)
+15. [Environment Variables](#environment-variables)
+16. [Deployment](#deployment)
+17. [Commits History](#commits-history)
 
 ---
 
@@ -34,14 +36,14 @@
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 19, TypeScript, Vite 7, Tailwind CSS v4, Recharts |
+| Frontend | React 19, TypeScript, Vite 7, Tailwind CSS v4, Recharts, Motion |
 | Backend | Express 5, Node 22, ES Modules |
-| Data | Tradier API (quotes, chains, timesales, greeks), Polygon.io (tape) |
+| Data | Tradier API (quotes, chains, timesales, greeks), Polygon.io (tape), Yahoo Finance (history), Alpha Vantage (earnings) |
 | AI | Google Gemini 2.5 Flash Lite (via `generateContent` API) |
-| Storage | SQLite/PostgreSQL (repository), `data/iv-history.json` |
+| Storage | PostgreSQL (schema.sql), SQLite/local fallback, `data/iv-history.json` |
 | Push | Web Push API + Service Worker + VAPID keys |
 | Scheduler | Built-in `setInterval` — every 3 minutes during market hours |
-| Deployment | Render (free tier compatible) |
+| Deployment | Render (free tier) |
 
 ### Core Principles
 
@@ -49,10 +51,12 @@
 2. **Credit Spread Priority**: Bull Put Credit Spread = #1, Bear Call Credit Spread = #2
 3. **Gemini as Auditor**: AI reviews tickets but never invents prices, Greeks, or POP
 4. **Defined Risk Only**: Naked options and undefined risk strategies are BLOCKED or EDUCATIONAL_ONLY
-5. **Market Session Awareness**: Scans only during market hours, with session-specific rules
+5. **Market Session Awareness**: Scans only during market hours, with session-specific rules (pre, open-risky, optimal, midday, late, closing, post)
 6. **White Theme**: Professional light UI, mobile-first responsive
 7. **Autonomous Background Scanning**: Every 3 minutes during market hours
 8. **Rate-Limited Push Notifications**: 5/hour, 12/day per device
+9. **Position Monitoring**: Gemini advises on open positions every 5-10 minutes
+10. **Historical Backtesting**: PostgreSQL tables for price history, IV history, earnings, and closed signals
 
 ---
 
@@ -62,95 +66,106 @@
 2M/
 ├── .env.example                    # Template with API key instructions
 ├── institutional-os.html           # Vite entry HTML
-├── package.json                    # Dependencies: react, express, recharts, web-push, motion
-├── render.yaml                     # Render deployment config (Node 22)
-├── vite.config.js                  # Vite + React + Tailwind v4 plugin
+├── package.json                    # Dependencies + scripts
+├── render.yaml                     # Render deployment config
+├── vite.config.js                  # Vite + React + Tailwind v4
 ├── tailwind.config.js              # Sigma color palette (light theme)
+├── PROJECT_REPORT.md               # This file
 │
-├── data/                           # Runtime IV history storage
-│   └── iv-history.json
+├── data/                           # Runtime data storage
+│   └── iv-history.json             # IV Rank fallback file
 │
-├── public/                         # Static assets
-│   ├── sw.js                       # Service Worker for push notifications
+├── public/
+│   ├── sw.js                       # Service Worker for push
 │   ├── manifest.webmanifest
 │   └── valido-mark.svg
 │
-├── server/                         # Express backend (ES Modules)
-│   ├── index.mjs                   # MAIN API entry (17 endpoints)
+├── scripts/
+│   ├── downloadHistoricalData.js   # Yahoo Finance → PostgreSQL
+│   ├── updateEarnings.js           # Alpha Vantage → PostgreSQL
+│   ├── backtestGuardian.js
+│   └── guardianYahooScan.js
+│
+├── server/                         # Express backend
+│   ├── index.js                    # MAIN entry point (npm start)
+│   ├── index.mjs                   # Alternative entry (institutional engine)
 │   ├── institutional-engine.mjs    # runInstitutionalScan() orchestrator
-│   ├── strategy-suite.js           # buildCreditVerticals() with catalog
+│   ├── geminiAssistant.js          # GET /api/gemini/daily-summary
+│   ├── strategy-suite.js           # buildCreditVerticals() + catalog
 │   ├── strategy-permissions.mjs    # enforceStrategyPermission()
-│   ├── config.js                   # Server config & universe
-│   ├── explainers.js               # AI explainer constants
-│   ├── push.js / pushRoutes.js     # Web Push service
-│   ├── pushStore.js                # Subscription storage
+│   ├── config.js / explainers.js
+│   ├── push.js / pushRoutes.js / pushStore.js
 │   │
-│   ├── engine/                     # Modular scanner
+│   ├── engine/                     # Modular scanner (12 files)
 │   │   ├── math.js                 # round(), clamp(), mean(), std()
-│   │   ├── technicals.js           # ema(), rsi(), macd(), vwap(), computeTechnicals()
-│   │   ├── wyckoff.js              # detectWyckoff() — Spring, Upthrust, SOS, SOW
+│   │   ├── technicals.js           # ema/rsi/macd/vwap/computeTechnicals/deriveTechnicals
+│   │   ├── wyckoff.js              # detectWyckoff()
 │   │   ├── tape-polygon.js         # getPolygonTape(), evaluateTape()
-│   │   ├── tradier-api.js          # getQuote(), getTimesales(), getChain(), normalizeOption()
-│   │   ├── ticket-creator.js       # createTicket(), classifyTicket(), makeLeg(), netPremium(), netGreeksProd(), estimatePop()
-│   │   ├── strategy-builders.js    # buildCreditVerticals(), buildIronCondors(), buildDebitSpreads()
-│   │   ├── scoring.js              # institutionalScore(), technicalScoreForBias(), volatilityRegimeScore()
-│   │   ├── iv-history.js           # updateIvHistory() — IV Rank persistence
-│   │   ├── entryTimingEngine.js    # evaluateEntryTiming() — session, earnings, VWAP checks
-│   │   └── exitTimingEngine.js     # evaluateExitTiming() — TP, SL, theta, gamma
+│   │   ├── tradier-api.js          # getQuote/Chain/Expirations/Timesales
+│   │   ├── ticket-creator.js       # createTicket/classifyTicket/makeLeg/netGreeks
+│   │   ├── strategy-builders.js    # buildCreditVerticals/IronCondors/DebitSpreads
+│   │   ├── scoring.js              # scoreSetup/classifySignal/technicalScore/institutionalScore
+│   │   ├── iv-history.js           # updateIvHistory() – PostgreSQL + JSON fallback
+│   │   ├── entryTimingEngine.js    # evaluateEntryTiming()
+│   │   ├── exitTimingEngine.js     # evaluateExitTiming()
+│   │   ├── backtestSimulator.js    # simulateSignal()
+│   │   └── market-intelligence.js  # classifyEventRisk/classifySoftEventRisk
 │   │
-│   ├── lib/                        # Server utilities
+│   ├── lib/
 │   │   ├── marketSessionClock.js   # getCurrentSession(), isTradingAllowed()
-│   │   ├── earningsCalendar.js     # getEarningsRisk() with mock data
-│   │   ├── geminiCache.js          # In-memory Map cache, TTL 10min
-│   │   ├── math.js / cache.js / store.js
+│   │   ├── earningsCalendar.js     # getEarningsRisk() – DB real + mock fallback
+│   │   ├── geminiCache.js          # In-memory cache, TTL 10min
+│   │   └── ...
 │   │
 │   ├── scheduler/
 │   │   └── autonomousWorker.js    # Background scanner every 3min + push
 │   │
 │   ├── db/
-│   │   ├── positionsRepository.js  # Open positions: add, close, get
-│   │   └── repository.js           # PostgreSQL/SQLite persistence
+│   │   ├── schema.sql              # PostgreSQL tables
+│   │   ├── historyRepository.js    # price/iv/earnings/closed_signals
+│   │   ├── positionsRepository.js  # Open positions CRUD
+│   │   └── repository.js           # Main repository
 │   │
 │   ├── push/
-│   │   └── rateLimiter.js          # 5/hour, 12/day per endpoint
+│   │   └── rateLimiter.js          # 5/hour, 12/day
 │   │
-│   ├── ai/                         # AI provider router
-│   │   ├── provider-router.js      # AiProviderRouter with Gemini + OpenAI fallback
-│   │   ├── deterministic-tutor.js
-│   │   └── budget-manager.js
+│   ├── routes/
+│   │   └── positionsRoutes.js      # /api/positions CRUD + Gemini analysis
 │   │
-│   └── services/
-│       └── scheduler.js            # ScanScheduler class
+│   ├── ai/                         # provider-router, deterministic-tutor, budget-manager
+│   └── services/                   # scheduler, providers
 │
-├── src/                            # React frontend (TypeScript + JSX)
-│   ├── main.jsx                    # Entry: imports AppPro + index.css + theme.css
+├── src/                            # React frontend
+│   ├── main.jsx                    # Entry: imports AppPro
 │   ├── AppPro.jsx                  # MAIN app: all sections
-│   ├── App.jsx                     # Legacy app (not imported)
-│   ├── index.css                   # Tailwind imports + Tailwind v4 theme
-│   ├── styles/theme.css            # Component CSS (signal-card, market-card, etc.)
+│   ├── App.jsx                     # Legacy app
+│   ├── index.css                   # Tailwind + theme
+│   ├── styles/theme.css            # Component classes
 │   │
-│   ├── components/
-│   │   ├── GeminiBriefCard.tsx     # Gemini Guardian protagonizt card
+│   ├── components/                 # 12 components
+│   │   ├── GeminiBriefCard.tsx     # Gemini Guardian card
+│   │   ├── GeminiAssistant.jsx     # Daily summaries 3x/day
+│   │   ├── MarketSentiment.jsx     # Real-time sentiment
+│   │   ├── MarketPulseCard.jsx     # "Pulso del Mercado"
 │   │   ├── SignalCard.jsx          # Signal ticket display
-│   │   ├── MarketPulseCard.jsx     # Market pulse + tape reading
-│   │   ├── NewsImpactList.jsx      # News with star ratings ⭐
-│   │   ├── NotificationStatusCard.jsx  # Push notification controls
+│   │   ├── NewsImpactList.jsx      # News with stars + dates
+│   │   ├── NotificationManager.jsx # Push notification controls
+│   │   ├── NotificationStatusCard.jsx # Notification status
+│   │   ├── InfoTooltip.jsx         # ? explanatory tooltips
+│   │   ├── LearningHub.jsx         # Mini lessons
 │   │   └── HomePro.tsx             # Home dashboard
 │   │
 │   ├── config/
 │   │   ├── marketUniverse.ts       # CORE (29), WATCHLIST (92), INDEX (9), SECTOR (16)
-│   │   ├── strategyCatalog.ts      # 23 strategies with REAL_SIGNAL/WATCHLIST/BLOCKED
-│   │   └── riskConfig.ts           # Risk settings persistence
+│   │   ├── strategyCatalog.ts      # 23 strategies with permissions
+│   │   └── riskConfig.ts           # Risk settings
 │   │
 │   ├── lib/
 │   │   ├── api.js                  # API client
 │   │   └── guardian/
-│   │       └── geminiGuardian.ts   # auditTicketsWithGemini() frontend client
+│   │       └── geminiGuardian.ts   # Frontend Gemini client
 │   │
-│   └── services/
-│       ├── notifications.js        # Service worker registration
-│       ├── notificationClient.js   # Local notification test
-│       └── newsImpactClassifier.ts # News star classification
+│   └── services/                   # notifications, newsImpactClassifier, proAlertEngine
 │
 └── tests/                          # Test files
 ```
@@ -160,263 +175,155 @@
 ## Architecture & Data Flow
 
 ```
-User clicks "Scan" → fetch POST /api/guardian/scan
-  → runInstitutionalScan()
-    → For each symbol in CORE (29 symbols):
-      ├── getQuote(symbol)            → Tradier API /markets/quotes
-      ├── getTimesales(symbol)        → Tradier API /markets/timesales (1min OHLCV)
-      ├── computeTechnicals()         → EMA 9/21/50/200, RSI 14, MACD 12/26/9, VWAP, Realized Vol
-      ├── detectWyckoff(bars)         → Spring, Upthrust, SOS, SOW, Accumulation, Distribution
-      ├── getPolygonTape(symbol)      → Polygon.io trades + quotes (real buy/sell pressure)
-      ├── getExpirations(symbol)      → Tradier API /markets/options/expirations
-      ├── getOptionChain(symbol, exp) → Tradier API /markets/options/chains?greeks=true
-      ├── updateIvHistory(symbol, iv) → Persist IV to .data/iv-history.json, compute IV Rank
-      ├── volatilityRegimeScore()     → IV vs HV, VIX range check
-      │
-      ├── buildCreditVerticals()      → PRIORITY #1: Bull Put + Bear Call Credit Spreads
-      ├── buildIronCondors()          → PRIORITY #2: Iron Condor (bull put + bear call)
-      ├── buildDebitSpreads()         → PRIORITY #3: Call/Put Debit Spreads
-      │
-      ├── createTicket() for each candidate
-      │   → netPremium(), netGreeksProd(), estimatePop()
-      │   → institutionalScore() = Options×0.25 + Vol×0.20 + Tech×0.20 + Tape×0.15 + Wyckoff×0.10 + Macro×0.10
-      │
-      ├── classifyTicket() → ENTRAR_AHORA / ESPERAR_CONFIRMACION / WATCHLIST / NO_TRADE
-      │
-      └── Sort by: classification rank + strategy priority + score + POP
-    │
-    └── Return scan results with geminiInput for frontend audit
+SCAN FLOW (manual or automatic):
+  POST /api/guardian/scan
+    → runInstitutionalScan()
+      → For each symbol in CORE (29 symbols):
+        → getQuote(symbol)          [Tradier API]
+        → getTimesales(symbol)      [Tradier API - 1min OHLCV]
+        → computeTechnicals()       [EMA 9/21/50/200, RSI, MACD, VWAP]
+        → detectWyckoff()           [Spring, Upthrust, SOS, SOW]
+        → getPolygonTape(symbol)    [Polygon.io - real trades/quotes]
+        → getExpirations(symbol)    [Tradier API]
+        → getOptionChain(symbol)    [Tradier API - greeks=true]
+        → updateIvHistory()         [PostgreSQL first, JSON fallback]
+        → volatilityRegimeScore()   [IV vs HV, VIX range check]
 
-Scheduler (background, every 3min):
-  → runInstitutionalScan()
-  → Filter ENTRAR_AHORA tickets
-  → Gemini cache check (skip duplicates within same hour)
-  → sendPushToAll() with rate limiter (5/hour, 12/day)
+        → buildCreditVerticals()    #1 priority (Bull Put + Bear Call)
+        → buildIronCondors()        #2 priority
+        → buildDebitSpreads()       #3 priority
 
-Frontend:
-  → auditTicketsWithGemini() → Gemini 2.5 Flash API → JSON schema validated
-  → Render: GeminiBriefCard + SignalCard + MarketPulseCard + NewsImpactList
+        → createTicket() → netPremium, netGreeks, estimatePop
+        → classifyTicket() → ENTRAR_AHORA / ESPERAR_CONFIRMACION / WATCHLIST / NO_TRADE
+        → Sort by: priority × classification × score × POP
+
+      → Return scan results + geminiInput for frontend audit
+
+SCHEDULER (background, every 3min):
+  autonomousWorker.js
+    → runInstitutionalScan()
+    → Filter ENTRAR_AHORA tickets
+    → Gemini cache check (deduplicate)
+    → sendPushToAll() with rate limiter (5/hour, 12/day)
+
+POSITION MONITORING:
+  GET /api/positions/:id/analysis
+    → getQuote(symbol)
+    → Calculate P&L
+    → Gemini analyzes position status (SEGURA/VIGILANCIA/RIESGO/CRITICO)
+    → Suggests MANTENER/AJUSTAR/CERRAR/HEDGE
+
+GEMINI ASSISTANT:
+  GET /api/gemini/daily-summary
+    → runInstitutionalScan(['SPY', 'QQQ', 'VIX'])
+    → Gemini generates market overview + tip of the day
+    → Frontend displays in GeminiAssistant component
 ```
 
 ---
 
-## Server Engine Modules
+## Server Engine Modules (12 files)
 
 ### `server/engine/math.js`
-```js
-export function round(n, d = 2)     // safe rounding
-export function clamp(n, min, max)  // value bounding
-export function mean(arr)           // array average
-export function std(arr)            // standard deviation
-```
+`round()`, `clamp()`, `mean()`, `std()`
 
 ### `server/engine/technicals.js`
-```js
-export function ema(values, period)         // Exponential Moving Average
-export function rsi(values, period = 14)    // Relative Strength Index
-export function macd(values)                // { line, signal, histogram }
-export function vwap(bars)                  // Volume-Weighted Average Price
-export function realizedVol(closes)         // Historical realized volatility
-export function computeTechnicals(symbol, quote, bars)  // Full technical analysis
-```
-Computes: `{ symbol, price, ema9, ema21, ema50, ema200, rsi14, macd, vwap, vwapBias, relativeVolume, volumeSpike, support, resistance, trend, momentum, structure, realizedVol }`
+`ema()`, `rsi()`, `macd()`, `vwap()`, `realizedVol()`, `computeTechnicals()`, `deriveTechnicals()` (alias)
 
 ### `server/engine/wyckoff.js`
-```js
-export function detectWyckoff(bars, technicals)
-// Returns: { phase, bias, score, evidence, volumeExpansion }
-// Phases: SPRING, UPTHRUST, SIGN_OF_STRENGTH, SIGN_OF_WEAKNESS, ACCUMULATION, DISTRIBUTION, RANGE, NO_DATA
-```
+`detectWyckoff()` — Spring, Upthrust, Sign of Strength, Sign of Weakness
 
 ### `server/engine/tape-polygon.js`
-```js
-export async function getPolygonTape(symbol)  // Polygon.io real trades + quotes
-export function evaluateTape(symbol, prints)  // Buy/sell pressure, large trade detection
-// Returns: { symbol, status, score, momentum, buyPressure%, sellPressure%, printsPerSecond, largeTradeDetected, summary }
-```
+`getPolygonTape()`, `evaluateTape()` — Real buy/sell pressure from Polygon.io
 
 ### `server/engine/tradier-api.js`
-```js
-export async function getQuote(symbol)         // Real-time price, bid, ask, volume
-export async function getTimesales(symbol)     // 1-min OHLCV bars for the day
-export async function getExpirations(symbol)   // Available expiration dates
-export async function getOptionChain(symbol, exp)  // Full chain with greeks=true
-export function normalizeOption(raw)           // Standardize option object
-```
+`getQuote()`, `getTimesales()`, `getExpirations()`, `getOptionChain()`, `normalizeOption()`
 
 ### `server/engine/ticket-creator.js`
-```js
-export function createTicket({ symbol, strategy, legs, spot, ... })  // Full ticket builder
-export function classifyTicket(ticket, settings)   // ENTRAR_AHORA / ESPERAR_CONFIRMACION / WATCHLIST / NO_TRADE
-export function makeLeg(action, option)            // Standard leg format
-export function netPremium(legs)                    // Net credit or debit
-export function netGreeksProd(legs)                 // Combined { delta, gamma, theta, vega }
-export function estimatePop(strategy, legs)         // Delta-based POP approximation
-export function optionQuality(legs, settings)       // Liquidity scoring
-export function dte(expiration)                    // Days to expiry
-```
+`createTicket()`, `classifyTicket()`, `makeLeg()`, `netPremium()`, `netGreeksProd()`, `estimatePop()`, `optionQuality()`, `dte()`
 
 ### `server/engine/strategy-builders.js`
-```js
-export function buildCreditVerticals(ctx)   // Bull Put + Bear Call Credit Spreads (#1 priority)
-export function buildIronCondors(ctx)       // Iron Condors (combined credit spreads)
-export function buildDebitSpreads(ctx)      // Call/Put Debit Spreads
-```
+`buildCreditVerticals()`, `buildIronCondors()`, `buildDebitSpreads()`
 
 ### `server/engine/scoring.js`
-```js
-export function institutionalScore({ optionsScore, volScore, techScore, tapeScore, wyckoffScore, macroScore })
-// = optionsScore×0.25 + volScore×0.20 + techScore×0.20 + tapeScore×0.15 + wyckoffScore×0.10 + macroScore×0.10
-
-export function technicalScoreForBias(technicals, bias)  // 50 base + trend/momentum/structure bonuses
-export function volatilityRegimeScore({ iv, ivRank, vix, realizedVol })  // 50 base + IV/HV/Vix adjustments
-```
-
-### `server/engine/iv-history.js`
-```js
-export async function updateIvHistory(symbol, currentIv)
-// Persists IV to .data/iv-history.json, returns { ivRank, ivPercentile }
-```
+`scoreSetup()`, `classifySignal()`, `technicalScoreForBias()`, `volatilityRegimeScore()`, `institutionalScore()`
 
 ### `server/engine/entryTimingEngine.js`
-```js
-export function evaluateEntryTiming(ticket)
-// Checks: market session, earnings risk, VWAP chase distance, bid/ask spread quality
-// Returns: { allowed: boolean, reason: string, context }
-```
+Session check, earnings check, VWAP chase distance, bid/ask quality
 
 ### `server/engine/exitTimingEngine.js`
-```js
-export function evaluateExitTiming(position, currentPrice, currentGreeks, timeToExpiry)
-// Checks: take profit (40%+), stop loss (80% maxRisk), time decay, gamma risk, VWAP break
-// Returns: { action: 'TAKE_PROFIT_40PCT' | 'STOP_LOSS' | 'CLOSE_BEFORE_EXPIRY' | 'HOLD', reason }
-```
+Take profit (40%+), stop loss (80% maxRisk), theta decay, gamma risk
+
+### `server/engine/backtestSimulator.js`
+`simulateSignal()` — Entry at open, exit at TP/SL/expiration
+
+### `server/engine/iv-history.js`
+`updateIvHistory()` — PostgreSQL first, JSON file fallback, IV Rank calculation
 
 ---
 
 ## Server Infrastructure
 
 ### `server/lib/marketSessionClock.js`
-```js
-export function getCurrentSession()    // Returns: 'pre', 'open-risky', 'optimal', 'midday', 'late', 'closing', 'post', 'closed', 'weekend'
-export function isTradingAllowed(strategy, dte, session)  // Session-specific trading rules
-```
-**Session rules:**
+- **pre** (before 9:30): No signals
 - **open-risky** (9:30-9:40): No signals
 - **optimal** (9:45-11:15): All allowed
-- **midday** (11:15-13:45): Only credit spreads with DTE > 7
+- **midday** (11:15-13:45): Only credit spreads DTE > 7
 - **late** (13:45-15:20): No new 0DTE credit spreads
 - **closing** (15:20-16:00): No credit spreads 0DTE
+- **post/closed/weekend**: No signals
 
 ### `server/lib/earningsCalendar.js`
-```js
-export function getEarningsRisk(symbol)
-// Returns: { risk: 'BLOCK' | 'HIGH' | 'WATCH' | 'CLEAR', daysUntil, nextEarningsDate, reason }
-```
-Mock data for 17 symbols (AAPL, MSFT, NVDA, AMZN, META, GOOGL, TSLA, JPM, BAC, AMD, SOFI, NFLX, COST, MCD, SPY, QQQ, IWM, DIA).
+PostgreSQL first → Alpha Vantage data → Mock fallback for 17 symbols
 
 ### `server/lib/geminiCache.js`
-```js
-export function getCacheKey(symbol, strategy)  // `${symbol}-${strategy}-${hour}`
-export function getCached(key)                 // Returns cached value or null if expired
-export function setCached(key, value)          // Sets value with TTL (default 10 min)
-export function clearCache()                   // Clear all cache
-```
+In-memory Map, TTL 10 minutes, key = `${symbol}-${strategy}-${hour}`
 
 ### `server/db/positionsRepository.js`
-```js
-export function addPosition(position)         // Creates open position with ID
-export function closePosition(id, result)     // Marks closed with result
-export function getOpenPositions()            // Filter status === 'open'
-export function getAllPositions()             // Return all
-export function getPositionById(id)           // Find by ID
-```
+`addPosition()`, `closePosition()`, `getOpenPositions()`, `getAllPositions()`
 
 ### `server/push/rateLimiter.js`
-```js
-export function canSend(endpoint)             // Check if within limits (5/hour, 12/day)
-export function recordSend(endpoint)          // Record a send timestamp
-export function getStats(endpoint)            // { hour: count, day: count }
-```
+`canSend()`, `recordSend()`, 5/hour, 12/day per endpoint
 
 ---
 
-## Scheduler & Autonomous Worker
+## Strategy Catalog (23 strategies)
 
-### `server/scheduler/autonomousWorker.js`
-```js
-export function startAutonomousWorker({ onSignal, pushService })
-// Starts setInterval every 3 minutes
-// During market hours: runs runInstitutionalScan()
-// Filters ENTRAR_AHORA tickets → checks Gemini cache → sends push with rate limiter
-
-export function stopAutonomousWorker()  // Clears interval
-export function getWorkerStatus()       // { started, scanCount, session }
-```
-
-### Schedule Intervals
-
-| Session | Frequency | Action |
-|---------|-----------|--------|
-| market open (9:30-16:00) | Every 3 min | Full scan → push signals |
-| closed / weekend | No scan | Idle |
-| Scan with no signals | Every 3 min | Log only |
-
----
-
-## Strategy Catalog
-
-| Priority | ID | Type | Permission | Risk |
-|----------|-----|------|-----------|------|
-| **100** | BULL_PUT_CREDIT_SPREAD | Credit | **REAL_SIGNAL** | DEFINED_RISK |
-| **98** | BEAR_CALL_CREDIT_SPREAD | Credit | **REAL_SIGNAL** | DEFINED_RISK |
-| 94 | IRON_CONDOR | Credit | **REAL_SIGNAL** | DEFINED_RISK |
-| 92 | IRON_BUTTERFLY | Credit | **REAL_SIGNAL** | DEFINED_RISK |
-| 90 | BROKEN_WING_CONDOR | Credit | **REAL_SIGNAL** | DEFINED_RISK |
-| 88 | BROKEN_WING_BUTTERFLY | Credit | **REAL_SIGNAL** | DEFINED_RISK |
-| 86 | CASH_SECURED_PUT | Cash Secured | **REAL_SIGNAL** | CASH_SECURED |
-| 84 | COVERED_CALL | Covered | **REAL_SIGNAL** | COVERED |
-| 82 | WHEEL | Assignment | **REAL_SIGNAL** | ASSIGNMENT |
-| 78 | COLLAR | Protection | **REAL_SIGNAL** | DEFINED_RISK |
-| 76 | PROTECTIVE_PUT | Protection | **REAL_SIGNAL** | DEFINED_RISK |
-| 72 | BULL_CALL_DEBIT_SPREAD | Debit | **REAL_SIGNAL** | DEFINED_RISK |
-| 70 | BEAR_PUT_DEBIT_SPREAD | Debit | **REAL_SIGNAL** | DEFINED_RISK |
-| 55 | LONG_CALL | Debit | **WATCHLIST_ONLY** | DEFINED_RISK |
-| 54 | LONG_PUT | Debit | **WATCHLIST_ONLY** | DEFINED_RISK |
-| 50 | LONG_STRADDLE | Volatility | **WATCHLIST_ONLY** | DEFINED_RISK |
-| 48 | LONG_STRANGLE | Volatility | **WATCHLIST_ONLY** | DEFINED_RISK |
-| 46 | REVERSE_IRON_CONDOR | Volatility | **WATCHLIST_ONLY** | DEFINED_RISK |
-| 5 | SHORT_CALL (Naked) | Credit | **BLOCKED** | UNDEFINED_RISK |
-| 5 | SHORT_PUT (Naked) | Credit | **BLOCKED** | UNDEFINED_RISK |
-| 4 | SHORT_STRADDLE | Credit | **PAPER_ONLY** | UNDEFINED_RISK |
-| 4 | SHORT_STRANGLE | Credit | **PAPER_ONLY** | UNDEFINED_RISK |
+| Priority | Strategy | Permission | Risk Type |
+|----------|----------|-----------|------------|
+| **100** | Bull Put Credit Spread | REAL_SIGNAL | DEFINED_RISK |
+| **98** | Bear Call Credit Spread | REAL_SIGNAL | DEFINED_RISK |
+| 94 | Iron Condor | REAL_SIGNAL | DEFINED_RISK |
+| 92 | Iron Butterfly | REAL_SIGNAL | DEFINED_RISK |
+| 90 | Broken Wing Condor | REAL_SIGNAL | DEFINED_RISK |
+| 88 | Broken Wing Butterfly | REAL_SIGNAL | DEFINED_RISK |
+| 86 | Cash Secured Put | REAL_SIGNAL | CASH_SECURED |
+| 84 | Covered Call | REAL_SIGNAL | COVERED |
+| 82 | Wheel | REAL_SIGNAL | ASSIGNMENT |
+| 78 | Collar | REAL_SIGNAL | DEFINED_RISK |
+| 76 | Protective Put | REAL_SIGNAL | DEFINED_RISK |
+| 72 | Bull Call Debit Spread | REAL_SIGNAL | DEFINED_RISK |
+| 70 | Bear Put Debit Spread | REAL_SIGNAL | DEFINED_RISK |
+| 55 | Long Call | WATCHLIST_ONLY | DEFINED_RISK |
+| 54 | Long Put | WATCHLIST_ONLY | DEFINED_RISK |
+| 50 | Long Straddle | WATCHLIST_ONLY | DEFINED_RISK |
+| 48 | Long Strangle | WATCHLIST_ONLY | DEFINED_RISK |
+| 46 | Reverse Iron Condor | WATCHLIST_ONLY | DEFINED_RISK |
+| 5 | Naked Short Call | BLOCKED | UNDEFINED_RISK |
+| 5 | Naked Short Put | BLOCKED | UNDEFINED_RISK |
+| 4 | Short Straddle | PAPER_ONLY | UNDEFINED_RISK |
+| 4 | Short Strangle | PAPER_ONLY | UNDEFINED_RISK |
 
 ---
 
-## Market Universe
-
-### `src/config/marketUniverse.ts`
+## Market Universe (146 symbols)
 
 | Mode | Count | Examples |
 |------|-------|---------|
-| `CORE` | 29 | SPY, QQQ, IWM, DIA, AAPL, MSFT, NVDA, TSLA, SOFI, SMH, XLK, XLF, TLT... |
-| `WATCHLIST` | 92 | JPM, BAC, JNJ, PG, DIS, WMT, V, BRK.B, MA... |
-| `INDEX_CONTEXT` | 9 | SPX, XSP, NDX, RUT, VIX, VIX9D, VXN, RVX, VXST |
-| `SECTOR` | 16 | XLK, XLF, XLE, XLV, XLY, SMH, TLT, GLD, SLV, USO... |
-
-### `server/strategy-permissions.mjs`
-
-```js
-REAL_SIGNAL_ALLOWED  = [BULL_PUT_CREDIT_SPREAD, BEAR_CALL_CREDIT_SPREAD, IRON_CONDOR, IRON_BUTTERFLY,
-                        BROKEN_WING_CONDOR, BROKEN_WING_BUTTERFLY, CASH_SECURED_PUT, COVERED_CALL,
-                        WHEEL, COLLAR, PROTECTIVE_PUT, BULL_CALL_DEBIT_SPREAD, BEAR_PUT_DEBIT_SPREAD]
-
-WATCHLIST_ONLY       = [LONG_CALL, LONG_PUT, LONG_STRADDLE, LONG_STRANGLE,
-                        REVERSE_IRON_CONDOR, PMCC, CALENDAR_SPREAD, DIAGONAL_SPREAD]
-
-BLOCKED_OR_PAPER     = [SHORT_CALL, SHORT_PUT, SHORT_STRADDLE, SHORT_STRANGLE,
-                        NAKED_CALL, NAKED_PUT, COVERED_PUT, RATIO_SPREAD_UNPROTECTED]
-```
+| CORE | 29 | SPY, QQQ, IWM, DIA, AAPL, MSFT, NVDA, AMZN, META, GOOGL, TSLA, SOFI, SMH, XLK, TLT... |
+| WATCHLIST | 92 | JPM, BAC, JNJ, PG, DIS, WMT, V, BRK.B, MA... |
+| INDEX_CONTEXT | 9 | SPX, XSP, NDX, RUT, VIX, VIX9D, VXN, RVX, VXST |
+| SECTOR | 16 | XLK, XLF, XLE, XLV, SLEEP, TLT, GLD, SLV, USO... |
 
 ---
 
@@ -431,98 +338,138 @@ institutionalScore = OptionsQuality × 0.25
                    + Macro × 0.10
 ```
 
-### Classification Thresholds
+### Classification
 
 | Score | POP | Classification |
 |-------|-----|----------------|
-| >= 78 | >= 70% | **ENTRAR_AHORA** |
-| >= 68 | >= 65% | **ESPERAR_CONFIRMACION** |
-| >= 58 | — | **WATCHLIST** |
-| < 58 | — | **NO_TRADE** |
+| >= 78 | >= 70% | ENTRAR_AHORA |
+| >= 68 | >= 65% | ESPERAR_CONFIRMACION |
+| >= 58 | — | WATCHLIST |
+| < 58 | — | NO_TRADE |
 
-### FAIL-CLOSED Conditions
+### Stricter Rules (v4.0)
 
-Any of these downgrade the signal to NO_TRADE:
-- No real Greeks (delta, gamma, theta, vega)
-- No bid/ask or invalid bid/ask
-- `maxRisk > accountSize × maxRiskPct`
-- Collateral > `accountSize × maxCollateralPct`
-- Options quality score < 60
-- Strategy is UNDEFINED_RISK
-- Market session blocked (open-risky, closed)
-- Earnings within 2 days (for credit strategies)
+- **maxBidAskPct**: 12% (was 18%)
+- **minOpenInterest**: 200 (was 100)
+- **minOptionVolume**: 10 (was 5)
+- **VWAP chase**: Block if > 2 × ATR from VWAP
+- **Earnings**: Block credit strategies within 2 days
+- **IV Rank insufficient**: Degrade to WATCHLIST
+- **No real Greeks**: No signal
 
 ---
 
 ## Gemini Guardian
 
 ### Frontend Client: `src/lib/guardian/geminiGuardian.ts`
+Calls Gemini 2.5 Flash with structured JSON schema (`approve`, `finalDecision`, `riskNotes`, `simpleExplanation`). Falls back to WATCHLIST if no API key.
 
-```ts
-export async function auditTicketsWithGemini(input: GeminiAuditInput): Promise<GeminiAuditResult[]>
-// Calls Gemini 2.5 Flash Lite with structured JSON schema
-// responseSchema: { approve, finalDecision, downgradeReason, riskNotes, simpleExplanation }
-// Returns WATCHLIST if no API key configured
-// Throws if Gemini returns invalid JSON
-```
+### Backend Integration:
+- **Cache**: 10-minute TTL per symbol+strategy+hour
+- **Daily Summaries**: `GET /api/gemini/daily-summary` — market overview + tip
+- **Position Analysis**: `GET /api/positions/:id/analysis` — status + recommendation
+- **Scheduler**: Only pushes new ENTRAR_AHORA tickets (deduplication via cache)
 
-### Backend Integration
-
-- **Cache**: `server/lib/geminiCache.js` — 10-minute TTL per symbol+strategy+hour
-- **Scheduler**: Only sends cached-rejected signals when there's a NEW ENTRAR_AHORA ticket
-- **Prompt**: Gemini receives full market context (VIX, session, earnings, IV Rank, technicals, Greeks)
+### Gemini Prompt Rules:
+- Gemini NEVER calculates prices, Greeks, POP, or EV
+- Gemini ONLY audits data already calculated by the quantitative engine
+- Missing data → automatic downgrade
+- Invalid JSON → FAIL-CLOSED
 
 ---
 
-## API Endpoints
-
-### `server/index.mjs` — 17 endpoints
+## API Endpoints (21 total)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/health` | Server status + worker status + session |
-| POST | `/api/guardian/scan` | Full institutional scan with custom symbols/settings |
+| GET | `/api/health` | Server + worker + session status |
+| POST | `/api/guardian/scan` | Full scan with custom symbols/settings |
 | GET | `/api/guardian/scan` | Quick scan with query params |
-| POST | `/api/guardian/scan/auto` | Auto scan (for scheduler testing) |
-| GET | `/api/scheduler/status` | Worker started? scan count? session? |
-| POST | `/api/scheduler/start` | Start background scheduler |
-| POST | `/api/scheduler/stop` | Stop background scheduler |
-| POST | `/api/positions/add` | Add open position |
-| POST | `/api/positions/:id/close` | Close position with result |
-| GET | `/api/positions` | List open + all positions |
-| GET | `/api/positions/:id` | Get position by ID |
-| GET | `/api/earnings/:symbol` | Get earnings risk for symbol |
+| POST | `/api/guardian/scan/auto` | Auto scan for scheduler |
+| GET | `/api/gemini/daily-summary` | Gemini market overview + tip |
+| GET | `/api/scheduler/status` | Worker status + scan count |
+| POST | `/api/scheduler/start` | Start scheduler |
+| POST | `/api/scheduler/stop` | Stop scheduler |
+| GET | `/api/positions` | List open positions |
+| POST | `/api/positions` | Add new position |
+| PUT | `/api/positions/:id` | Close/update position |
+| GET | `/api/positions/:id/analysis` | Gemini position analysis |
+| GET | `/api/earnings/:symbol` | Earnings risk for symbol |
 | GET | `/api/explainers` | AI explainer texts |
 | GET | `/api/ai/status` | Gemini/OpenAI status |
 | POST | `/api/ai/explain` | Ask Gemini to explain scan |
 | POST | `/api/ai/test-gemini` | Test Gemini connection |
 | POST | `/api/push/subscribe` | Register push subscription |
+| GET | `/api/signals` | Approved + rejected signals |
+| GET | `/api/scan` | Scan snapshot |
+| POST | `/api/journal` | Add journal entry |
+
+---
+
+## Frontend Components (12)
+
+| Component | Purpose |
+|-----------|---------|
+| `AppPro.jsx` | Main app layout, dark/light toggle |
+| `GeminiBriefCard.tsx` | Gemini Guardian brief (protagonist card) |
+| `GeminiAssistant.jsx` | Daily summaries 3x/day + tips |
+| `MarketSentiment.jsx` | Real-time market sentiment (SPY, VIX, RSI, VWAP, tape) |
+| `MarketPulseCard.jsx` | "Pulso del Mercado" + tape reading |
+| `SignalCard.jsx` | Signal ticket with all risk data |
+| `NewsImpactList.jsx` | News with star ratings + event dates |
+| `NotificationManager.jsx` | Push notification controls + VAPID |
+| `NotificationStatusCard.jsx` | Notification status display |
+| `InfoTooltip.jsx` | ? explanatory tooltip for each metric |
+| `LearningHub.jsx` | 5 mini lessons on options trading |
+| `HomePro.tsx` | Home dashboard |
 
 ---
 
 ## Notification System
 
-### Architecture
-
 ```
 Autonomous Worker (every 3 min)
   → runInstitutionalScan()
   → Filter ENTRAR_AHORA tickets
-  → Gemini cache check (deduplicate)
+  → Gemini cache deduplication
   → sendPushToAll({ title, body, tag, url })
        ↓
   Service Worker (public/sw.js)
        ↓
-  Browser shows notification
-  Click → opens app at /archivo
+  Browser notification → click opens app at /archivo
 ```
 
-### Rate Limiting
+**Rate Limiting**: 5 notifications/hour, 12/day per endpoint
 
-- **5 notifications per hour** per subscription endpoint
-- **12 notifications per day** per subscription endpoint
-- Implemented in `server/push/rateLimiter.js`
-- `canSend(endpoint)` + `recordSend(endpoint)`
+---
+
+## Database & Historical Data
+
+### PostgreSQL Tables (schema.sql)
+
+```sql
+price_history    — Daily OHLCV data (Yahoo Finance)
+iv_history       — ATM IV per day
+earnings         — Earnings calendar (Alpha Vantage)
+closed_signals   — Backtesting results
+user_positions   — User portfolio positions
+position_alerts  — Gemini position monitoring alerts
+```
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `node scripts/downloadHistoricalData.js` | Download 1 year of prices from Yahoo Finance → PostgreSQL |
+| `node scripts/updateEarnings.js` | Fetch earnings from Alpha Vantage → PostgreSQL |
+| `node scripts/backtestGuardian.js` | Run backtest on closed signals |
+
+### Backtesting
+
+`server/engine/backtestSimulator.js` simulates signal outcomes:
+- Entry: opening price after signal
+- Exit: TP 40% credit / SL 80% max risk / expiration
+- Stores results in `closed_signals` table
 
 ---
 
@@ -530,27 +477,29 @@ Autonomous Worker (every 3 min)
 
 ### Required
 
-| Variable | Source | Purpose |
-|----------|--------|---------|
-| `TRADIER_TOKEN` | https://brokerage.tradier.com/settings/api | Real-time quotes, chains, Greeks |
-| `VITE_GEMINI_API_KEY` | https://aistudio.google.com/apikey | Gemini Guardian AI audit |
+| Variable | Source |
+|----------|--------|
+| `TRADIER_TOKEN` | https://brokerage.tradier.com/settings/api |
+| `VITE_GEMINI_API_KEY` | https://aistudio.google.com/apikey |
 
 ### Optional
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `POLYGON_API_KEY` | — | Real tape reading (Trades + Quotes) |
-| `ACCOUNT_SIZE` | 2500 | Simulation account size |
-| `MAX_RISK_PCT` | 0.02 | Max risk per trade (2%) |
-| `MAX_COLLATERAL_PCT` | 0.35 | Max collateral (35%) |
-| `SCHEDULER_ENABLED` | true | Auto-start background scanner |
-| `GEMINI_CACHE_TTL_MINUTES` | 10 | Gemini result cache duration |
+| `POLYGON_API_KEY` | — | Real tape reading |
+| `ALPHA_VANTAGE_API_KEY` | — | Real earnings data |
+| `DATABASE_URL` | — | PostgreSQL connection |
+| `ACCOUNT_SIZE` | 2500 | Account size |
+| `MAX_RISK_PCT` | 0.02 | Max risk per trade |
+| `MAX_COLLATERAL_PCT` | 0.35 | Max collateral |
+| `SCHEDULER_ENABLED` | true | Auto-start scanner |
+| `GEMINI_CACHE_TTL_MINUTES` | 10 | Cache TTL |
 
 ---
 
 ## Deployment
 
-### Render (`render.yaml`)
+### Render (render.yaml)
 
 ```yaml
 services:
@@ -574,34 +523,39 @@ services:
 
 ---
 
-## Commits History (Latest 12)
+## Commits History (Latest 15)
 
 ```
+18eabf4  fix: Render deploy — add classifySignal/scoreSetup/deriveTechnicals exports + positions routes
+6b14073  fix: add deriveTechnicals alias in technicals.js for market-intelligence.js compatibility
+b20da18  feat: UI components — InfoTooltip, MarketSentiment, GeminiAssistant, NotificationManager, LearningHub + Gemini API endpoint
+3410e6b  feat: VALIDO 1M v4.0 — PostgreSQL schema, history repository, backtest simulator, earnings Alpha Vantage, IV history DB, tighter liquidity rules
+4f788ce  feat: mostrar fechas en noticias y eventos — HOY / MAÑANA / PRÓXIMO + earnings calendar integrado
+2775957  docs: regenerate PROJECT_REPORT.md v3.0
 fdf050a  feat: FASES 2-7 — session clock, earnings, entry/exit timing, Gemini cache, scheduler, rate limiter, positions repo
-01b6340  refactor: FASE 1 — modularizar escáner en 8 módulos (math, technicals, wyckoff, tape-polygon, tradier-api, strategy-builders, ticket-creator, scoring)
+01b6340  refactor: FASE 1 — modularizar escáner en 8 módulos
 51df23e  feat: market universe classification + strategy catalog with permissions
 1da7a91  docs: .env.example with API key instructions
-f4c9304  feat: institutional engine (Tradier, Wyckoff, Polygon, Credit Verticals, Gemini TS client)
+f4c9304  feat: institutional engine (Tradier, Wyckoff, Polygon)
 ef3cf3e  feat: strategy-suite.js with buildCreditVerticals
-c747f2e  fix: 4 components converted to white theme (MarketPulse, Gemini, SignalCard, NewsImpact)
+c747f2e  fix: 4 components converted to white theme
 ab5957b  fix: notification buttons at bottom + white colors
-a3f3643  fix: ROOT CAUSE — removed dark theme from theme.css + AppPro
-b87a9f2  fix: white theme + autonomous worker + pipeline
+a3f3643  fix: ROOT CAUSE — removed dark theme
 ```
 
 ---
 
 ### Project Statistics
 
-- **Total files**: ~80
-- **Server modules**: 25
-- **API endpoints**: 17
-- **React components**: 6 (plus legacy)
+- **Total files**: ~110
+- **Server modules**: 30+
+- **API endpoints**: 21
+- **React components**: 12
 - **Strategies**: 23 (13 REAL_SIGNAL, 5 WATCHLIST_ONLY, 5 BLOCKED)
-- **Universe**: 146 symbols (CORE 29, WATCHLIST 92, INDEX 9, SECTOR 16)
+- **Universe**: 146 symbols
 - **Scoring layers**: 6 (Options, Volatility, Technical, Tape, Wyckoff, Macro)
-- **Build**: 0 errors, 41 modules, 206 KB JS + 28 KB CSS
+- **Build**: 0 errors, 45 modules, 217 KB JS + 31 KB CSS
 
 ---
 
-_End of PROJECT_REPORT.md — Generated for VALIDO 1M v3.0_
+_End of PROJECT_REPORT.md — VALIDO 1M v4.0_
