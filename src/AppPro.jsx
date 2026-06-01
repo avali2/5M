@@ -5,6 +5,10 @@ import { MarketPulseCard } from "./components/MarketPulseCard.jsx";
 import { NewsImpactList } from "./components/NewsImpactList.jsx";
 import { NotificationStatusCard } from "./components/NotificationStatusCard.jsx";
 import { SignalCard } from "./components/SignalCard.jsx";
+import MarketSentiment from "./components/MarketSentiment.jsx";
+import GeminiAssistant from "./components/GeminiAssistant.jsx";
+import NotificationManager from "./components/NotificationManager.jsx";
+import LearningHub from "./components/LearningHub.jsx";
 import { loadRiskConfig, saveRiskConfig } from "./config/riskConfig.ts";
 import { classifyNewsEvent } from "./services/newsImpactClassifier.ts";
 
@@ -265,12 +269,15 @@ export default function AppPro() {
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
 
         <GeminiBriefCard {...geminiBrief} />
+        <GeminiAssistant />
+        <MarketSentiment />
         <MarketPulseCard pulse={marketPulse} />
         <TopSignalsList signals={signals} />
         <NewsImpactList events={news} />
         <RiskDesk profile={scan?.profile} riskConfig={riskConfig} />
-        <TradeJournal entries={entries} />
+        <LearningHub />
         <SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} />
+        <NotificationManager />
         <NotificationStatusCard />
 
         <footer className="text-xs text-slate-500 text-center py-4">

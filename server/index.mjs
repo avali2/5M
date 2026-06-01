@@ -7,6 +7,7 @@ import { getCurrentSession } from "./lib/marketSessionClock.js";
 import { startAutonomousWorker, stopAutonomousWorker, getWorkerStatus } from "./scheduler/autonomousWorker.js";
 import { addPosition, closePosition, getOpenPositions, getAllPositions, getPositionById } from "./db/positionsRepository.js";
 import { getEarningsRisk } from "./lib/earningsCalendar.js";
+import geminiAssistantRouter from './geminiAssistant.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -107,3 +108,5 @@ app.listen(PORT, () => {
   console.log(`VALIDO 1M server running on port ${PORT}. Scheduler: ${process.env.SCHEDULER_ENABLED !== 'false' ? 'ON' : 'OFF'}`);
   if (process.env.SCHEDULER_ENABLED !== 'false') startAutonomousWorker();
 });
+
+app.use('/api/gemini', geminiAssistantRouter);
