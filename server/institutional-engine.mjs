@@ -1,0 +1,700 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const TRADIER_BASE = process.env.TRADIER_BASE_URL || "https://api.tradier.com/v1";
+const TRADIER_TOKEN = process.env.TRADIER_TOKEN || process.env.VITE_TRADIER_TOKEN;
+const POLYGON_KEY = process.env.POLYGON_API_KEY || process.env.VITE_POLYGON_API_KEY;
+const DATA_DIR = path.resolve(process.cwd(), ".data");
+const IV_HISTORY_FILE = path.join(DATA_DIR, "iv-history.json");
+
+const DEFAULT_UNIVERSE = [
+  "SPY", "QQQ", "IWM", "DIA",
+  "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "SOFI"
+];
+
+const DEFAULT_SETTINGS = {
+  accountSize: Number(process.env.ACCOUNT_SIZE || 2500),
+  maxRiskPct: Number(process.env.MAX_RISK_PCT || 0.02),
+  maxCollateralPct: Number(process.env.MAX_COLLATERAL_PCT || 0.35),
+  minPopReady: 70,
+  minPopCandidate: 65,
+  maxBidAskPct: 18,
+  minOpenInterest: 100,
+  minOptionVolume: 5,
+  maxSignalsPerScan: 12,
+  creditDeltaMin: 0.14,
+  creditDeltaMax: 0.32,
+  ironCondorDeltaMin: 0.10,
+  ironCondorDeltaMax: 0.22,
+  preferDteMin: 7,
+  preferDteMax: 45,
+  idealDte: 21,
+  zeroDteMaxRiskPct: 0.005
+};
+
+function round(n, d = 2) {
+  if (!Number.isFinite(Number(n))) return null;
+  const m = 10 ** d;
+  return Math.round(Number(n) * m) / m;
+}
+
+function clamp(n, min, max) {
+  if (!Number.isFinite(Number(n))) return min;
+  return Math.max(min, Math.min(max, Number(n)));
+}
+
+function mean(arr) {
+  const x = arr.filter(Number.isFinite);
+  return x.length ? x.reduce((a, b) => a + b, 0) / x.length : null;
+}
+
+function std(arr) {
+  const m = mean(arr);
+  if (m == null) return null;
+  const x = arr.filter(Number.isFinite);
+  if (x.length < 2) return null;
+  return Math.sqrt(x.reduce((s, v) => s + (v - m) ** 2, 0) / (x.length - 1));
+}
+
+function ema(values, period) {
+  const clean = values.map(Number).filter(Number.isFinite);
+  if (clean.length < period) return null;
+  const k = 2 / (period + 1);
+  let e = mean(clean.slice(0, period));
+  for (let i = period; i < clean.length; i++) e = clean[i] * k + e * (1 - k);
+  return e;
+}
+
+function rsi(values, period = 14) {
+  const clean = values.map(Number).filter(Number.isFinite);
+  if (clean.length <= period) return null;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = clean[i] - clean[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  for (let i = period + 1; i < clean.length; i++) {
+    const diff = clean[i] - clean[i - 1];
+    avgGain = (avgGain * (period - 1) + Math.max(diff, 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(-diff, 0)) / period;
+  }
+  if (avgLoss === 0) return 100;
+  return 100 - 100 / (1 + avgGain / avgLoss);
+}
+
+function macd(values) {
+  const e12 = ema(values, 12);
+  const e26 = ema(values, 26);
+  if (e12 == null || e26 == null) return null;
+  const clean = values.map(Number).filter(Number.isFinite);
+  const macdSeries = [];
+  for (let i = 26; i <= clean.length; i++) {
+    const sub = clean.slice(0, i);
+    const a = ema(sub, 12);
+    const b = ema(sub, 26);
+    if (a != null && b != null) macdSeries.push(a - b);
+  }
+  const signal = ema(macdSeries, 9);
+  return {
+    line: round(e12 - e26, 4),
+    signal: signal == null ? null : round(signal, 4),
+    histogram: signal == null ? null : round(e12 - e26 - signal, 4)
+  };
+}
+
+function vwap(bars) {
+  let pv = 0, vol = 0;
+  for (const b of bars) {
+    const typical = ((b.high ?? b.close) + (b.low ?? b.close) + b.close) / 3;
+    const volume = Number(b.volume || 0);
+    if (Number.isFinite(typical) && volume > 0) { pv += typical * volume; vol += volume; }
+  }
+  return vol > 0 ? pv / vol : null;
+}
+
+function realizedVol(closes, barsPerYear = 252) {
+  const returns = [];
+  for (let i = 1; i < closes.length; i++) {
+    if (closes[i] > 0 && closes[i - 1] > 0) returns.push(Math.log(closes[i] / closes[i - 1]));
+  }
+  const s = std(returns);
+  return s == null ? null : s * Math.sqrt(barsPerYear);
+}
+
+function dte(expiration) {
+  const exp = new Date(`${expiration}T16:00:00-04:00`);
+  return Math.max(0, Math.ceil((exp.getTime() - Date.now()) / 86_400_000));
+}
+
+function tradierHeaders() {
+  if (!TRADIER_TOKEN) throw new Error("Falta TRADIER_TOKEN en variables de entorno.");
+  return { Authorization: `Bearer ${TRADIER_TOKEN}`, Accept: "application/json" };
+}
+
+async function fetchJson(url, opts = {}) {
+  const res = await fetch(url, opts);
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
+  try { return JSON.parse(text); } catch { throw new Error(`Respuesta no JSON: ${text.slice(0, 300)}`); }
+}
+
+function toArray(x) { if (!x) return []; return Array.isArray(x) ? x : [x]; }
+
+async function getQuote(symbol) {
+  const url = `${TRADIER_BASE}/markets/quotes?symbols=${encodeURIComponent(symbol)}`;
+  const json = await fetchJson(url, { headers: tradierHeaders() });
+  const q = toArray(json?.quotes?.quote)[0];
+  if (!q) throw new Error(`Sin quote para ${symbol}`);
+  return {
+    symbol,
+    price: Number(q.last || q.close || q.bid || q.ask),
+    bid: Number(q.bid), ask: Number(q.ask),
+    volume: Number(q.volume || 0),
+    changePct: Number(q.change_percentage || 0),
+    raw: q
+  };
+}
+
+async function getTimesales(symbol, interval = "1min") {
+  const end = new Date();
+  const start = new Date(Date.now() - 6.5 * 60 * 60 * 1000);
+  const qs = new URLSearchParams({
+    symbol, interval,
+    start: start.toISOString().slice(0, 19),
+    end: end.toISOString().slice(0, 19),
+    session_filter: "open"
+  });
+  const url = `${TRADIER_BASE}/markets/timesales?${qs}`;
+  const json = await fetchJson(url, { headers: tradierHeaders() });
+  return toArray(json?.series?.data).map(b => ({
+    time: b.time,
+    timestamp: Number(b.timestamp) * 1000 || new Date(b.time).getTime(),
+    open: Number(b.open), high: Number(b.high), low: Number(b.low),
+    close: Number(b.close || b.price), price: Number(b.price || b.close),
+    volume: Number(b.volume || 0), vwap: Number(b.vwap)
+  })).filter(b => Number.isFinite(b.close));
+}
+
+async function getExpirations(symbol) {
+  const url = `${TRADIER_BASE}/markets/options/expirations?symbol=${encodeURIComponent(symbol)}&includeAllRoots=true&strikes=false`;
+  const json = await fetchJson(url, { headers: tradierHeaders() });
+  return toArray(json?.expirations?.date).filter(Boolean);
+}
+
+async function getOptionChain(symbol, expiration) {
+  const url = `${TRADIER_BASE}/markets/options/chains?symbol=${encodeURIComponent(symbol)}&expiration=${expiration}&greeks=true`;
+  const json = await fetchJson(url, { headers: tradierHeaders() });
+  return toArray(json?.options?.option).map(normalizeOption).filter(Boolean);
+}
+
+function normalizeOption(o) {
+  const bid = Number(o.bid);
+  const ask = Number(o.ask);
+  const last = Number(o.last);
+  const mid = Number.isFinite(bid) && Number.isFinite(ask) && ask >= bid ? (bid + ask) / 2 : Number.isFinite(last) ? last : null;
+  const g = o.greeks || {};
+  const type = String(o.option_type || o.type || "").toUpperCase();
+  if (!["CALL", "PUT"].includes(type)) return null;
+  return {
+    symbol: o.symbol, underlying: o.root_symbol, expiration: o.expiration_date,
+    strike: Number(o.strike), type, bid, ask, last, mid,
+    volume: Number(o.volume || 0), openInterest: Number(o.open_interest || 0),
+    delta: Number(g.delta), gamma: Number(g.gamma), theta: Number(g.theta),
+    vega: Number(g.vega), rho: Number(g.rho), iv: Number(g.mid_iv || g.iv || g.smv_vol || 0), raw: o
+  };
+}
+
+function computeTechnicals(symbol, quote, bars) {
+  const closes = bars.map(b => Number(b.close)).filter(Number.isFinite);
+  const volumes = bars.map(b => Number(b.volume || 0));
+  const last = quote.price || closes.at(-1);
+  const vw = vwap(bars);
+  const ema9 = ema(closes, 9), ema21 = ema(closes, 21), ema50 = ema(closes, 50), ema200 = ema(closes, 200);
+  const r = rsi(closes, 14);
+  const m = macd(closes);
+  const recentHigh = Math.max(...bars.slice(-50).map(b => Number(b.high || b.close)));
+  const recentLow = Math.min(...bars.slice(-50).map(b => Number(b.low || b.close)));
+  const avgVol20 = mean(volumes.slice(-20));
+  const lastVol = volumes.at(-1) || 0;
+  const relVol = avgVol20 ? lastVol / avgVol20 : null;
+
+  let trend = "RANGE";
+  if (ema9 && ema21 && ema50 && last > ema9 && ema9 > ema21 && ema21 > ema50) trend = "BULL_TREND";
+  if (ema9 && ema21 && ema50 && last < ema9 && ema9 < ema21 && ema21 < ema50) trend = "BEAR_TREND";
+
+  let momentum = "neutral";
+  if (r != null && r > 55 && m?.histogram != null && m.histogram > 0) momentum = "bullish";
+  if (r != null && r < 45 && m?.histogram != null && m.histogram < 0) momentum = "bearish";
+
+  const structure = detectStructure(bars);
+
+  return {
+    symbol, price: round(last, 2),
+    ema9: round(ema9, 2), ema21: round(ema21, 2), ema50: round(ema50, 2), ema200: round(ema200, 2),
+    rsi14: round(r, 2), macd: m,
+    vwap: round(vw, 2), vwapBias: vw == null ? "VWAP_UNKNOWN" : last >= vw ? "ABOVE_VWAP" : "BELOW_VWAP",
+    relativeVolume: round(relVol, 2), volumeSpike: relVol != null && relVol >= 1.7,
+    support: round(recentLow, 2), resistance: round(recentHigh, 2),
+    trend, momentum, structure,
+    realizedVol: round(realizedVol(closes), 4)
+  };
+}
+
+function detectStructure(bars) {
+  const last = bars.slice(-20);
+  if (last.length < 10) return "UNKNOWN";
+  const highs = last.map(b => Number(b.high || b.close));
+  const lows = last.map(b => Number(b.low || b.close));
+  const firstHigh = mean(highs.slice(0, 5)), lastHigh = mean(highs.slice(-5));
+  const firstLow = mean(lows.slice(0, 5)), lastLow = mean(lows.slice(-5));
+  if (lastHigh > firstHigh && lastLow > firstLow) return "HH_HL";
+  if (lastHigh < firstHigh && lastLow < firstLow) return "LH_LL";
+  return "RANGE";
+}
+
+function detectWyckoff(bars, technicals) {
+  const recent = bars.slice(-80);
+  if (recent.length < 30) return { phase: "NO_DATA", bias: "NEUTRAL", score: 0, evidence: ["No hay barras suficientes."] };
+  const highs = recent.map(b => Number(b.high || b.close));
+  const lows = recent.map(b => Number(b.low || b.close));
+  const closes = recent.map(b => Number(b.close));
+  const vols = recent.map(b => Number(b.volume || 0));
+  const rangeHigh = Math.max(...highs), rangeLow = Math.min(...lows);
+  const rangePct = (rangeHigh - rangeLow) / closes.at(-1);
+  const avgVol = mean(vols.slice(0, -5)) || 1;
+  const lastVol = mean(vols.slice(-5)) || 0;
+  const volExpansion = lastVol / avgVol;
+  const lastClose = closes.at(-1);
+  const spring = lows.at(-1) < rangeLow * 1.01 && lastClose > rangeLow * 1.015 && volExpansion > 1.2;
+  const upthrust = highs.at(-1) > rangeHigh * 0.99 && lastClose < rangeHigh * 0.985 && volExpansion > 1.2;
+  const sos = technicals.structure === "HH_HL" && volExpansion > 1.15 && lastClose > technicals.vwap;
+  const sow = technicals.structure === "LH_LL" && volExpansion > 1.15 && lastClose < technicals.vwap;
+
+  let phase = "RANGE", bias = "NEUTRAL";
+  const evidence = [];
+  if (rangePct < 0.08) evidence.push("Rango compacto.");
+  if (spring) { phase = "SPRING"; bias = "BULLISH"; evidence.push("Spring: barrida bajo soporte y recuperación con volumen."); }
+  else if (upthrust) { phase = "UPTHRUST"; bias = "BEARISH"; evidence.push("Upthrust: ruptura falsa sobre resistencia con rechazo."); }
+  else if (sos) { phase = "SIGN_OF_STRENGTH"; bias = "BULLISH"; evidence.push("SOS: estructura HH/HL con volumen y precio sobre VWAP."); }
+  else if (sow) { phase = "SIGN_OF_WEAKNESS"; bias = "BEARISH"; evidence.push("SOW: estructura LH/LL con volumen y precio bajo VWAP."); }
+  else if (technicals.trend === "BULL_TREND") { phase = "ACCUMULATION_OR_MARKUP"; bias = "BULLISH"; evidence.push("Sesgo alcista por tendencia y estructura."); }
+  else if (technicals.trend === "BEAR_TREND") { phase = "DISTRIBUTION_OR_MARKDOWN"; bias = "BEARISH"; evidence.push("Sesgo bajista por tendencia y estructura."); }
+  const score = bias === "BULLISH" || bias === "BEARISH" ? 72 : 52;
+  return { phase, bias, score, evidence, volumeExpansion: round(volExpansion, 2) };
+}
+
+async function getPolygonTape(symbol) {
+  if (!POLYGON_KEY) {
+    return { status: "NO_POLYGON_KEY", prints: [], score: 0, summary: "Sin POLYGON_API_KEY: tape real no disponible. Usando solo OHLCV/Tradier. Señal degradada." };
+  }
+  const nowNs = BigInt(Date.now()) * 1_000_000n;
+  const startNs = nowNs - 10n * 60n * 1_000_000_000n;
+  const tradeUrl = `https://api.polygon.io/v3/trades/${symbol}?timestamp.gte=${startNs}&timestamp.lte=${nowNs}&limit=5000&sort=timestamp&order=asc&apiKey=${POLYGON_KEY}`;
+  const quoteUrl = `https://api.polygon.io/v3/quotes/${symbol}?timestamp.gte=${startNs}&timestamp.lte=${nowNs}&limit=5000&sort=timestamp&order=asc&apiKey=${POLYGON_KEY}`;
+  try {
+    const [tradesJson, quotesJson] = await Promise.all([fetchJson(tradeUrl), fetchJson(quoteUrl)]);
+    const trades = toArray(tradesJson.results);
+    const quotes = toArray(quotesJson.results);
+    const prints = trades.map(t => {
+      const ts = Number(t.sip_timestamp || t.participant_timestamp || t.timestamp);
+      const price = Number(t.price);
+      const size = Number(t.size || 0);
+      const q = nearestQuote(quotes, ts);
+      let side = "mid";
+      if (q) {
+        if (Number.isFinite(q.ask_price) && price >= Number(q.ask_price)) side = "ask";
+        else if (Number.isFinite(q.bid_price) && price <= Number(q.bid_price)) side = "bid";
+      }
+      return { timestamp: ts, price, size, notional: price * size, side };
+    }).filter(p => Number.isFinite(p.price));
+    return evaluateTape(symbol, prints, "POLYGON_REAL_TAPE");
+  } catch (e) {
+    return { status: "TAPE_ERROR", prints: [], score: 0, summary: `Error tape Polygon: ${e.message}` };
+  }
+}
+
+function nearestQuote(quotes, ts) {
+  if (!quotes.length) return null;
+  let best = null;
+  for (const q of quotes) {
+    const qt = Number(q.sip_timestamp || q.participant_timestamp || q.timestamp);
+    if (qt <= ts) best = q; else break;
+  }
+  return best;
+}
+
+function evaluateTape(symbol, prints, status = "REAL") {
+  if (!prints.length) return { symbol, status: "NO_DATA", score: 0, buyPressure: 0, sellPressure: 0, printsPerSecond: 0, largeTradeDetected: false, summary: "Sin prints recientes." };
+  const ask = prints.filter(p => p.side === "ask");
+  const bid = prints.filter(p => p.side === "bid");
+  const askNotional = ask.reduce((s, p) => s + p.notional, 0);
+  const bidNotional = bid.reduce((s, p) => s + p.notional, 0);
+  const total = askNotional + bidNotional || 1;
+  const buyPressure = askNotional / total;
+  const sellPressure = bidNotional / total;
+  const largeTradeDetected = prints.some(p => p.notional >= 500_000);
+  const timestamps = prints.map(p => Number(p.timestamp)).filter(Number.isFinite);
+  const seconds = Math.max(1, (Math.max(...timestamps) - Math.min(...timestamps)) / 1e9);
+  const printsPerSecond = prints.length / seconds;
+  let score = 50 + (buyPressure - sellPressure) * 40;
+  if (printsPerSecond > 2) score += 5;
+  if (largeTradeDetected) score += 5;
+  const momentum = buyPressure > sellPressure + 0.10 ? "BUY_PRESSURE" : sellPressure > buyPressure + 0.10 ? "SELL_PRESSURE" : "BALANCED";
+  return {
+    symbol, status, score: Math.round(clamp(score, 0, 100)), momentum,
+    buyPressure: round(buyPressure * 100, 1), sellPressure: round(sellPressure * 100, 1),
+    printsPerSecond: round(printsPerSecond, 2), largeTradeDetected,
+    summary: `${momentum}: compra ${round(buyPressure * 100, 1)}% vs venta ${round(sellPressure * 100, 1)}%. Grande: ${largeTradeDetected ? "SÍ" : "NO"}.`
+  };
+}
+
+async function updateIvHistory(symbol, currentIv) {
+  if (!Number.isFinite(currentIv) || currentIv <= 0) return { ivRank: null, ivPercentile: null };
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  let db = {};
+  try { db = JSON.parse(await fs.readFile(IV_HISTORY_FILE, "utf8")); } catch { db = {}; }
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = db[symbol] || [];
+  const filtered = rows.filter(r => r.date !== today);
+  filtered.push({ date: today, iv: currentIv });
+  db[symbol] = filtered.slice(-252);
+  await fs.writeFile(IV_HISTORY_FILE, JSON.stringify(db, null, 2));
+  const hist = db[symbol].map(r => Number(r.iv)).filter(Number.isFinite);
+  if (hist.length < 20) return { ivRank: null, ivPercentile: null, note: "IV history insuficiente." };
+  const minIv = Math.min(...hist);
+  const maxIv = Math.max(...hist);
+  const ivRank = maxIv > minIv ? ((currentIv - minIv) / (maxIv - minIv)) * 100 : null;
+  const ivPercentile = hist.filter(v => v <= currentIv).length / hist.length * 100;
+  return { ivRank: round(ivRank, 1), ivPercentile: round(ivPercentile, 1) };
+}
+
+function avgIv(options) {
+  const ivs = options.map(o => Number(o.iv)).filter(v => Number.isFinite(v) && v > 0);
+  return mean(ivs);
+}
+
+function chooseExpirations(expirations) {
+  return expirations.map(exp => ({ exp, dte: dte(exp) }))
+    .filter(x => x.dte >= 0 && x.dte <= 365)
+    .sort((a, b) => Math.abs(a.dte - DEFAULT_SETTINGS.idealDte) - Math.abs(b.dte - DEFAULT_SETTINGS.idealDte));
+}
+
+function optionQuality(legs, settings) {
+  let score = 100;
+  const reasons = [];
+  for (const leg of legs) {
+    const mid = leg.mid;
+    const spreadPct = mid ? ((leg.ask - leg.bid) / mid) * 100 : 999;
+    if (!Number.isFinite(leg.delta) || !Number.isFinite(leg.gamma) || !Number.isFinite(leg.theta) || !Number.isFinite(leg.vega)) {
+      score -= 35; reasons.push(`Greeks incompletos en ${leg.symbol}.`);
+    }
+    if (!mid || mid <= 0 || leg.ask < leg.bid) { score -= 35; reasons.push(`Bid/ask inválido en ${leg.symbol}.`); }
+    if (spreadPct > settings.maxBidAskPct) { score -= 20; reasons.push(`Bid/ask amplio ${round(spreadPct, 1)}% en ${leg.symbol}.`); }
+    if ((leg.openInterest || 0) < settings.minOpenInterest) { score -= 10; reasons.push(`OI bajo en ${leg.symbol}.`); }
+    if ((leg.volume || 0) < settings.minOptionVolume) { score -= 5; reasons.push(`Volumen bajo en ${leg.symbol}.`); }
+  }
+  return { score: clamp(score, 0, 100), reasons };
+}
+
+function makeLeg(action, option, qty = 1) {
+  return {
+    action, quantity: qty, symbol: option.symbol, expiration: option.expiration,
+    strike: option.strike, type: option.type, bid: option.bid, ask: option.ask,
+    mid: option.mid, delta: option.delta, gamma: option.gamma, theta: option.theta,
+    vega: option.vega, iv: option.iv, openInterest: option.openInterest, volume: option.volume
+  };
+}
+
+function netPremium(legs) {
+  return legs.reduce((sum, l) => {
+    const px = Number(l.mid || 0);
+    return sum + (l.action === "SELL" ? px : -px) * l.quantity;
+  }, 0);
+}
+
+function netGreeksProd(legs) {
+  const sign = l => l.action === "SELL" ? -1 : 1;
+  return {
+    delta: round(legs.reduce((s, l) => s + sign(l) * Number(l.delta || 0) * l.quantity, 0), 4),
+    gamma: round(legs.reduce((s, l) => s + sign(l) * Number(l.gamma || 0) * l.quantity, 0), 4),
+    theta: round(legs.reduce((s, l) => s + sign(l) * Number(l.theta || 0) * l.quantity, 0), 4),
+    vega: round(legs.reduce((s, l) => s + sign(l) * Number(l.vega || 0) * l.quantity, 0), 4)
+  };
+}
+
+function estimatePop(strategy, legs) {
+  const shortPut = legs.find(l => l.action === "SELL" && l.type === "PUT");
+  const shortCall = legs.find(l => l.action === "SELL" && l.type === "CALL");
+  if ((strategy === "BULL_PUT_CREDIT_SPREAD" || strategy === "CASH_SECURED_PUT") && shortPut?.delta != null) return round((1 - Math.abs(shortPut.delta)) * 100, 1);
+  if (strategy === "BEAR_CALL_CREDIT_SPREAD" && shortCall?.delta != null) return round((1 - Math.abs(shortCall.delta)) * 100, 1);
+  if (strategy.includes("IRON") && shortPut?.delta != null && shortCall?.delta != null) return round((1 - Math.abs(shortPut.delta) - Math.abs(shortCall.delta)) * 100, 1);
+  return null;
+}
+
+function institutionalScore({ optionsScore, volScore, techScore, tapeScore, wyckoffScore, macroScore }) {
+  return Math.round(optionsScore * 0.25 + volScore * 0.20 + techScore * 0.20 + tapeScore * 0.15 + wyckoffScore * 0.10 + macroScore * 0.10);
+}
+
+function technicalScoreForBias(technicals, bias) {
+  let score = 50;
+  if (bias === "BULLISH") {
+    if (technicals.trend === "BULL_TREND") score += 20;
+    if (technicals.vwapBias === "ABOVE_VWAP") score += 10;
+    if (technicals.momentum === "bullish") score += 10;
+    if (technicals.structure === "HH_HL") score += 10;
+  }
+  if (bias === "BEARISH") {
+    if (technicals.trend === "BEAR_TREND") score += 20;
+    if (technicals.vwapBias === "BELOW_VWAP") score += 10;
+    if (technicals.momentum === "bearish") score += 10;
+    if (technicals.structure === "LH_LL") score += 10;
+  }
+  if (bias === "NEUTRAL") {
+    if (technicals.trend === "RANGE") score += 20;
+    if (technicals.rsi14 && technicals.rsi14 > 40 && technicals.rsi14 < 60) score += 10;
+  }
+  return clamp(score, 0, 100);
+}
+
+function volatilityRegimeScore({ avgIvValue, ivRank, ivPercentile, realizedVolValue, vix }) {
+  let score = 50;
+  const reasons = [];
+  if (ivRank != null) {
+    if (ivRank >= 50) { score += 25; reasons.push("IV Rank alto: favorece estrategias de crédito con riesgo definido."); }
+    else if (ivRank <= 20) { score -= 10; reasons.push("IV Rank bajo: menor edge para vender prima."); }
+    else { score += 10; reasons.push("IV Rank normal."); }
+  } else { reasons.push("IV Rank aún sin suficiente historial."); }
+  if (avgIvValue && realizedVolValue && avgIvValue > realizedVolValue * 1.05) { score += 10; reasons.push("IV > HV: prima relativamente alta."); }
+  if (vix && vix >= 12 && vix <= 25) score += 5;
+  if (vix && vix > 30) score -= 15;
+  return { score: clamp(score, 0, 100), reasons };
+}
+
+function classifyTicket(ticket, settings) {
+  const blocked = [...(ticket.blockedReasons || [])];
+  const maxTradeRisk = settings.accountSize * settings.maxRiskPct;
+  const maxCollateral = settings.accountSize * settings.maxCollateralPct;
+  if (!ticket.dataQuality.realData) blocked.push("Sin datos reales suficientes.");
+  if (ticket.maxRisk == null || ticket.maxRisk <= 0) blocked.push("Riesgo máximo inválido.");
+  if (ticket.maxRisk > maxTradeRisk) blocked.push(`Riesgo ${ticket.maxRisk} supera límite por trade ${round(maxTradeRisk, 2)}.`);
+  if (ticket.collateral && ticket.collateral > maxCollateral) blocked.push(`Colateral ${ticket.collateral} supera límite ${round(maxCollateral, 2)}.`);
+  if ((ticket.optionsQuality?.score || 100) < 60) blocked.push("Calidad de opciones insuficiente.");
+  if (ticket.strategyRisk === "UNDEFINED_RISK") blocked.push("Riesgo indefinido bloqueado.");
+  if (blocked.length) return { ...ticket, classification: ticket.strategyRisk === "UNDEFINED_RISK" ? "EDUCATIONAL_ONLY" : "NO_TRADE", blockedReasons: blocked };
+  if (ticket.score >= 78 && ticket.pop >= settings.minPopReady) return { ...ticket, classification: "ENTRAR_AHORA" };
+  if (ticket.score >= 68 && ticket.pop >= settings.minPopCandidate) return { ...ticket, classification: "ESPERAR_CONFIRMACION" };
+  if (ticket.score >= 58) return { ...ticket, classification: "WATCHLIST" };
+  return { ...ticket, classification: "NO_TRADE", blockedReasons: ["Score insuficiente."] };
+}
+
+function createTicket({ symbol, strategy, bias, strategyRisk = "DEFINED_RISK", legs, spot, technicals, wyckoff, tape, volatility, settings, notes = [] }) {
+  const premium = netPremium(legs);
+  const credit = premium > 0 ? premium : 0;
+  const debit = premium < 0 ? Math.abs(premium) : 0;
+  const strikes = legs.map(l => l.strike);
+  const width = Math.max(...strikes) - Math.min(...strikes);
+  const isCredit = credit > 0;
+  const maxProfit = isCredit ? credit * 100 : Math.max(0, (width - debit) * 100);
+  const maxRisk = isCredit ? Math.max(0, (width - credit) * 100) : debit * 100;
+  const collateral = maxRisk;
+  let breakEven = null;
+  if (strategy === "BULL_PUT_CREDIT_SPREAD") { const short = legs.find(l => l.action === "SELL" && l.type === "PUT"); breakEven = short ? short.strike - credit : null; }
+  else if (strategy === "BEAR_CALL_CREDIT_SPREAD") { const short = legs.find(l => l.action === "SELL" && l.type === "CALL"); breakEven = short ? short.strike + credit : null; }
+  else { breakEven = "MULTI_LEG_RANGE"; }
+  const pop = estimatePop(strategy, legs) ?? 50;
+  const expectedProfit = isCredit ? maxProfit * 0.5 : maxProfit * 0.6;
+  const expectedLoss = isCredit ? Math.min(maxRisk, credit * 200) : maxRisk * 0.5;
+  const ev = (pop / 100) * expectedProfit - (1 - pop / 100) * expectedLoss;
+  const optionsQualityResult = optionQuality(legs, settings);
+  const techScore = technicalScoreForBias(technicals, bias);
+  const volScore = volatility.score;
+  const tapeScore = tape.score || 0;
+  const wyckoffScore = wyckoff.score || 0;
+  const macroScore = 70;
+  const score = institutionalScore({ optionsScore: optionsQualityResult.score, volScore, techScore, tapeScore, wyckoffScore, macroScore });
+  const entry = isCredit ? `Vender por crédito límite ≥ $${round(credit, 2)}` : `Comprar por débito límite ≤ $${round(debit, 2)}`;
+  const takeProfit = isCredit ? `Tomar ganancia al recomprar entre 40%-60% del crédito recibido. Objetivo: $${round(credit * 0.45, 2)} a $${round(credit * 0.60, 2)}.` : "Tomar ganancia al 50%-70% del beneficio potencial o cuando el momentum pierda fuerza.";
+  const stopLoss = isCredit ? `Cerrar si el spread vale 1.8x-2.0x el crédito recibido: zona $${round(credit * 1.8, 2)}-$${round(credit * 2, 2)}.` : `Cerrar si pierde 40%-50% del débito pagado.`;
+  const invalidation = bias === "BULLISH" ? `Invalida si pierde VWAP ${technicals.vwap} o soporte ${technicals.support} con volumen.` : bias === "BEARISH" ? `Invalida si rompe VWAP ${technicals.vwap} o resistencia ${technicals.resistance} con volumen.` : `Invalida si rompe rango ${technicals.support}-${technicals.resistance} con expansión de volumen.`;
+  const ticket = {
+    id: `${symbol}-${strategy}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+    symbol, strategy, strategyRisk, bias, spot,
+    expiration: legs[0]?.expiration, dte: legs[0]?.expiration ? dte(legs[0].expiration) : null,
+    legs, entry, orderType: isCredit ? "LIMIT_CREDIT" : "LIMIT_DEBIT",
+    credit: round(credit, 2), debit: round(debit, 2),
+    maxRisk: round(maxRisk, 2), maxProfit: round(maxProfit, 2), collateral: round(collateral, 2),
+    breakEven: typeof breakEven === "number" ? round(breakEven, 2) : breakEven,
+    pop: round(pop, 1), ev: round(ev, 2), greeks: netGreeksProd(legs),
+    score, optionsQuality: optionsQualityResult, volatility, technicals, wyckoff, tape,
+    takeProfit, stopLoss, invalidation, notes,
+    dataQuality: {
+      realData: true,
+      hasGreeks: legs.every(l => Number.isFinite(l.delta) && Number.isFinite(l.gamma) && Number.isFinite(l.theta) && Number.isFinite(l.vega)),
+      hasBidAsk: legs.every(l => Number.isFinite(l.bid) && Number.isFinite(l.ask)),
+      source: "Tradier + optional Polygon"
+    },
+    warnings: [], blockedReasons: [], createdAt: new Date().toISOString()
+  };
+  return classifyTicket(ticket, settings);
+}
+
+function findLongBelow(shortOpt, puts, minWidth = 1, maxWidth = 20) {
+  return puts.filter(p => p.strike < shortOpt.strike)
+    .filter(p => shortOpt.strike - p.strike >= minWidth && shortOpt.strike - p.strike <= maxWidth)
+    .sort((a, b) => Math.abs(shortOpt.strike - a.strike - 5) - Math.abs(shortOpt.strike - b.strike - 5))[0];
+}
+
+function findLongAbove(shortOpt, calls, minWidth = 1, maxWidth = 20) {
+  return calls.filter(c => c.strike > shortOpt.strike)
+    .filter(c => c.strike - shortOpt.strike >= minWidth && c.strike - shortOpt.strike <= maxWidth)
+    .sort((a, b) => Math.abs(a.strike - shortOpt.strike - 5) - Math.abs(b.strike - shortOpt.strike - 5))[0];
+}
+
+function byAbsDeltaTarget(target) {
+  return (a, b) => Math.abs(Math.abs(a.delta) - target) - Math.abs(Math.abs(b.delta) - target);
+}
+
+function buildCreditVerticals(ctx) {
+  const { symbol, chain, spot, technicals, wyckoff, tape, volatility, settings } = ctx;
+  const puts = chain.filter(o => o.type === "PUT" && o.strike < spot && o.mid > 0.03).sort(byAbsDeltaTarget(0.22));
+  const calls = chain.filter(o => o.type === "CALL" && o.strike > spot && o.mid > 0.03).sort(byAbsDeltaTarget(0.22));
+  const tickets = [];
+  const bullishOk = technicals.trend !== "BEAR_TREND" && wyckoff.bias !== "BEARISH";
+  const bearishOk = technicals.trend !== "BULL_TREND" && wyckoff.bias !== "BULLISH";
+  if (bullishOk) {
+    for (const shortPut of puts.filter(p => Math.abs(p.delta) >= settings.creditDeltaMin && Math.abs(p.delta) <= settings.creditDeltaMax).slice(0, 5)) {
+      const longPut = findLongBelow(shortPut, puts);
+      if (!longPut) continue;
+      tickets.push(createTicket({ symbol, strategy: "BULL_PUT_CREDIT_SPREAD", bias: "BULLISH", legs: [makeLeg("SELL", shortPut), makeLeg("BUY", longPut)], spot, technicals, wyckoff, tape, volatility, settings, notes: ["Prioridad #1: credit spread con riesgo definido."] }));
+    }
+  }
+  if (bearishOk) {
+    for (const shortCall of calls.filter(c => Math.abs(c.delta) >= settings.creditDeltaMin && Math.abs(c.delta) <= settings.creditDeltaMax).slice(0, 5)) {
+      const longCall = findLongAbove(shortCall, calls);
+      if (!longCall) continue;
+      tickets.push(createTicket({ symbol, strategy: "BEAR_CALL_CREDIT_SPREAD", bias: "BEARISH", legs: [makeLeg("SELL", shortCall), makeLeg("BUY", longCall)], spot, technicals, wyckoff, tape, volatility, settings, notes: ["Prioridad #2: credit spread bajista con riesgo definido."] }));
+    }
+  }
+  return tickets;
+}
+
+function buildIronCondors(ctx) {
+  const { symbol, chain, spot, technicals, wyckoff, tape, volatility, settings } = ctx;
+  if (technicals.trend !== "RANGE" && technicals.momentum !== "neutral") return [];
+  const puts = chain.filter(o => o.type === "PUT" && o.strike < spot).sort(byAbsDeltaTarget(0.16));
+  const calls = chain.filter(o => o.type === "CALL" && o.strike > spot).sort(byAbsDeltaTarget(0.16));
+  const tickets = [];
+  for (const sp of puts.slice(0, 3)) {
+    const lp = findLongBelow(sp, puts);
+    if (!lp) continue;
+    for (const sc of calls.slice(0, 3)) {
+      const lc = findLongAbove(sc, calls);
+      if (!lc) continue;
+      tickets.push(createTicket({ symbol, strategy: "IRON_CONDOR", bias: "NEUTRAL", legs: [makeLeg("BUY", lp), makeLeg("SELL", sp), makeLeg("SELL", sc), makeLeg("BUY", lc)], spot, technicals, wyckoff, tape, volatility, settings, notes: ["Iron Condor: bull put + bear call credit spreads."] }));
+    }
+  }
+  return tickets;
+}
+
+function buildIronButterfly(ctx) {
+  const { symbol, chain, spot, technicals, wyckoff, tape, volatility, settings } = ctx;
+  if (technicals.trend !== "RANGE") return [];
+  const puts = chain.filter(o => o.type === "PUT").sort((a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot));
+  const calls = chain.filter(o => o.type === "CALL").sort((a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot));
+  const shortPut = puts[0], shortCall = calls[0];
+  if (!shortPut || !shortCall) return [];
+  const longPut = findLongBelow(shortPut, puts, 1, 15);
+  const longCall = findLongAbove(shortCall, calls, 1, 15);
+  if (!longPut || !longCall) return [];
+  return [createTicket({ symbol, strategy: "IRON_BUTTERFLY", bias: "NEUTRAL", legs: [makeLeg("BUY", longPut), makeLeg("SELL", shortPut), makeLeg("SELL", shortCall), makeLeg("BUY", longCall)], spot, technicals, wyckoff, tape, volatility, settings, notes: ["Crédito alto, pero más gamma risk que iron condor."] })];
+}
+
+function buildDebitSpreads(ctx) {
+  const { symbol, chain, spot, technicals, wyckoff, tape, volatility, settings } = ctx;
+  const tickets = [];
+  if (technicals.trend === "BULL_TREND" || wyckoff.bias === "BULLISH") {
+    const calls = chain.filter(o => o.type === "CALL" && o.strike >= spot).sort(byAbsDeltaTarget(0.55));
+    const longCall = calls[0], shortCall = calls.find(c => longCall && c.strike > longCall.strike);
+    if (longCall && shortCall) tickets.push(createTicket({ symbol, strategy: "CALL_DEBIT_SPREAD", bias: "BULLISH", legs: [makeLeg("BUY", longCall), makeLeg("SELL", shortCall)], spot, technicals, wyckoff, tape, volatility, settings, notes: ["Usar cuando IV Rank bajo o momentum direccional fuerte."] }));
+  }
+  if (technicals.trend === "BEAR_TREND" || wyckoff.bias === "BEARISH") {
+    const puts = chain.filter(o => o.type === "PUT" && o.strike <= spot).sort(byAbsDeltaTarget(0.55));
+    const longPut = puts[0], shortPut = puts.find(p => longPut && p.strike < longPut.strike);
+    if (longPut && shortPut) tickets.push(createTicket({ symbol, strategy: "PUT_DEBIT_SPREAD", bias: "BEARISH", legs: [makeLeg("BUY", longPut), makeLeg("SELL", shortPut)], spot, technicals, wyckoff, tape, volatility, settings, notes: ["Usar cuando IV Rank bajo o breakdown técnico claro."] }));
+  }
+  return tickets;
+}
+
+function buildCashSecuredPutAndWheel(ctx) {
+  const { symbol, chain, spot, technicals, wyckoff, tape, volatility, settings } = ctx;
+  if (technicals.trend === "BEAR_TREND" || wyckoff.bias === "BEARISH") return [];
+  const puts = chain.filter(o => o.type === "PUT" && o.strike < spot).sort(byAbsDeltaTarget(0.25));
+  const shortPut = puts[0];
+  if (!shortPut) return [];
+  const leg = makeLeg("SELL", shortPut);
+  const ticket = createTicket({ symbol, strategy: "CASH_SECURED_PUT", strategyRisk: "CASH_SECURED_ASSIGNMENT_RISK", bias: "BULLISH", legs: [leg], spot, technicals, wyckoff, tape, volatility, settings, notes: ["Wheel fase 1: vender put cash secured solo si aceptarías assignment."] });
+  ticket.maxRisk = round(shortPut.strike * 100 - (shortPut.mid || 0) * 100, 2);
+  ticket.collateral = round(shortPut.strike * 100, 2);
+  ticket.takeProfit = "Cerrar al 50%-70% del crédito o rolear si se acerca a ITM con tesis válida.";
+  return [classifyTicket(ticket, settings)];
+}
+
+function buildEducationalBlockedStrategies(symbol, spot) {
+  return ["SHORT_STRADDLE", "SHORT_STRANGLE", "NAKED_CALL", "NAKED_PUT", "RATIO_SPREAD_UNPROTECTED"].map(strategy => ({
+    id: `${symbol}-${strategy}-EDU`, symbol, strategy, classification: "EDUCATIONAL_ONLY",
+    strategyRisk: "UNDEFINED_RISK", spot, blockedReasons: ["Riesgo indefinido bloqueado para señales reales."],
+    notes: ["Solo educación o paper trading. No mostrar como ENTRAR_AHORA."]
+  }));
+}
+
+async function scanSymbol(symbol, settings = DEFAULT_SETTINGS) {
+  const warnings = [];
+  const quote = await getQuote(symbol);
+  const bars = await getTimesales(symbol);
+  if (!bars.length) throw new Error(`${symbol}: sin OHLCV intradía.`);
+  const technicals = computeTechnicals(symbol, quote, bars);
+  const wyckoff = detectWyckoff(bars, technicals);
+  const tape = await getPolygonTape(symbol);
+  const expirations = chooseExpirations(await getExpirations(symbol));
+  if (!expirations.length) throw new Error(`${symbol}: sin expiraciones.`);
+  const primaryExpiration = expirations.find(x => x.dte >= settings.preferDteMin && x.dte <= settings.preferDteMax) || expirations[0];
+  const chain = await getOptionChain(symbol, primaryExpiration.exp);
+  if (!chain.length) throw new Error(`${symbol}: option chain vacía.`);
+  if (!chain.some(o => Number.isFinite(o.delta) && Number.isFinite(o.gamma) && Number.isFinite(o.theta) && Number.isFinite(o.vega)))
+    throw new Error(`${symbol}: sin Greeks reales.`);
+  const avgIvValue = avgIv(chain);
+  const ivHistory = await updateIvHistory(symbol, avgIvValue);
+  let vix = null;
+  try { vix = (await getQuote("VIX")).price; } catch { warnings.push("VIX no disponible desde proveedor actual."); }
+  const volatility = volatilityRegimeScore({ avgIvValue, ivRank: ivHistory.ivRank, ivPercentile: ivHistory.ivPercentile, realizedVolValue: technicals.realizedVol, vix });
+  volatility.avgIv = round(avgIvValue, 4); volatility.ivRank = ivHistory.ivRank; volatility.ivPercentile = ivHistory.ivPercentile; volatility.realizedVol = technicals.realizedVol; volatility.vix = vix;
+  const ctx = { symbol, spot: quote.price, chain, technicals, wyckoff, tape, volatility, settings };
+  const tickets = [...buildCreditVerticals(ctx), ...buildIronCondors(ctx), ...buildIronButterfly(ctx), ...buildDebitSpreads(ctx), ...buildCashSecuredPutAndWheel(ctx), ...buildEducationalBlockedStrategies(symbol, quote.price)];
+  const priority = { BULL_PUT_CREDIT_SPREAD: 100, BEAR_CALL_CREDIT_SPREAD: 98, IRON_CONDOR: 94, IRON_BUTTERFLY: 92, CASH_SECURED_PUT: 86, CALL_DEBIT_SPREAD: 70, PUT_DEBIT_SPREAD: 68 };
+  tickets.sort((a, b) => {
+    const classRank = { ENTRAR_AHORA: 4, ESPERAR_CONFIRMACION: 3, WATCHLIST: 2, NO_TRADE: 1, EDUCATIONAL_ONLY: 0 };
+    return (classRank[b.classification] || 0) - (classRank[a.classification] || 0) || (priority[b.strategy] || 0) - (priority[a.strategy] || 0) || (b.score || 0) - (a.score || 0) || (b.pop || 0) - (a.pop || 0);
+  });
+  return { symbol, quote, technicals, wyckoff, tape, volatility, warnings, bestTicket: tickets.find(t => ["ENTRAR_AHORA", "ESPERAR_CONFIRMACION", "WATCHLIST"].includes(t.classification)) || null, tickets: tickets.slice(0, settings.maxSignalsPerScan), scannedAt: new Date().toISOString() };
+}
+
+export async function runInstitutionalScan({ symbols = DEFAULT_UNIVERSE, settings = {} } = {}) {
+  const finalSettings = { ...DEFAULT_SETTINGS, ...settings };
+  const results = []; const errors = [];
+  for (const symbol of symbols) {
+    try { results.push(await scanSymbol(symbol.trim().toUpperCase(), finalSettings)); }
+    catch (e) { errors.push({ symbol, classification: "NO_TRADE", reason: e.message, scannedAt: new Date().toISOString() }); }
+  }
+  const tickets = results.flatMap(r => r.tickets || []);
+  const ready = tickets.filter(t => t.classification === "ENTRAR_AHORA");
+  const confirm = tickets.filter(t => t.classification === "ESPERAR_CONFIRMACION");
+  const watch = tickets.filter(t => t.classification === "WATCHLIST");
+  return {
+    status: ready.length ? "ENTRAR_AHORA" : confirm.length ? "ESPERAR_CONFIRMACION" : watch.length ? "WATCHLIST" : "NO_TRADE",
+    summary: { scannedSymbols: symbols.length, ready: ready.length, confirm: confirm.length, watch: watch.length, noTradeErrors: errors.length },
+    geminiInput: { instruction: "Audita estos tickets. No inventes precios, strikes, Greeks, POP ni EV. Devuelve JSON con approve, downgradeReason, riskNotes, simpleExplanation.", tickets: [...ready, ...confirm, ...watch].slice(0, 8) },
+    results, errors, generatedAt: new Date().toISOString()
+  };
+}
