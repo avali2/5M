@@ -226,7 +226,6 @@ export default function AppPro() {
       <div className="home-pro">
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
 
-        <NotificationStatusCard />
         <GeminiBriefCard {...geminiBrief} />
         <MarketPulseCard pulse={marketPulse} />
         <TopSignalsList signals={signals} />
@@ -234,6 +233,7 @@ export default function AppPro() {
         <RiskDesk profile={scan?.profile} riskConfig={riskConfig} />
         <TradeJournal entries={entries} />
         <SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} />
+        <NotificationStatusCard />
 
         <footer className="text-xs text-slate-500 text-center py-4">
           Educational / decision-support only. No auto-trading enabled.

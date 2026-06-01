@@ -20,15 +20,15 @@ export function NotificationStatusCard() {
     <section className="risk-card p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs text-slate-400 font-bold">Estado de notificaciones</p>
-          <h2 className="text-lg font-black text-white">
+          <p className="text-xs text-slate-500 font-bold">Estado de notificaciones</p>
+          <h2 className="text-lg font-black text-slate-900">
             {status === "granted" ? "Alertas activas" : "Alertas no activas"}
           </h2>
         </div>
         <span className="pill">{status}</span>
       </div>
 
-      <p className="text-sm text-slate-300">
+      <p className="text-sm text-slate-600">
         Las alertas reales con pantalla apagada requieren backend worker + push subscription.
       </p>
 
