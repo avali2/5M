@@ -45,6 +45,14 @@ function lessonFallback(day, topic) {
   };
 }
 
+function normalizeLesson(lesson, topic) {
+  if (topic[0] !== 'Delta') return lesson;
+  return {
+    ...lesson,
+    caution: `${lesson.caution || 'Contenido educativo.'} Delta no es una probabilidad exacta de terminar ITM; es sensibilidad estimada del precio de la opción al movimiento del subyacente.`
+  };
+}
+
 router.get('/daily-summary', async (_req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -178,7 +186,7 @@ router.get('/daily-lesson', async (_req, res) => {
     'Eres un educador de opciones claro y prudente para la app VALIDO 1M.',
     `Crea la microlección diaria sobre: ${topic[0]}.`,
     topic[1],
-    'No incluyas paper trading. No des una señal de compra o venta. No inventes datos de mercado.',
+    'No incluyas paper trading. No des una señal de compra o venta. No inventes datos de mercado. No presentes Delta como una probabilidad exacta de terminar ITM.',
     'Incluye un ejemplo numérico simple y práctico para una persona que opera desde Android.',
     'Incluye una frase motivadora breve y un proceso paso a paso completo para evaluar, abrir y gestionar una operacion educativa con un activo liquido como SPY, QQQ o SOFI.',
     'Devuelve SOLO JSON con: title, concept, example, checklist (array de 3 textos), caution, motivation, workflow (array de 6 pasos).',
@@ -186,7 +194,7 @@ router.get('/daily-lesson', async (_req, res) => {
 
   try {
     const lesson = await requestGeminiJson(prompt, { temperature: 0.7, maxTokens: 700 });
-    dailyLessonCache = { ...fallback, ...lesson, source: 'gemini', day };
+    dailyLessonCache = normalizeLesson({ ...fallback, ...lesson, source: 'gemini', day }, topic);
   } catch (error) {
     dailyLessonCache = { ...fallback, geminiError: error.message };
   }
