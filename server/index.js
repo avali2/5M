@@ -429,7 +429,8 @@ export function createApp(settings = config, customProviders = null, options = {
       marketStatus: guardianScheduler.status(repository.mode).marketStatus || 'unknown',
       lastChecked: new Date().toISOString(),
       scheduler: {
-        running: Boolean(scheduler.running),
+        running: Boolean(scheduler.timer),
+        scanning: Boolean(scheduler.running),
         lastScan: scheduler.latest?.asOf || null,
         lastError: scheduler.lastError
       },
