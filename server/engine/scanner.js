@@ -26,6 +26,7 @@ const CORRELATED = {
   AMZN: 'tech', META: 'tech', GOOGL: 'tech', TSLA: 'growth'
 };
 const ROTATION_SIZE = 22;
+const NON_TRADABLE_SCANNER_SYMBOLS = new Set(['WBA']);
 
 function rotatingSymbols(symbols, size = ROTATION_SIZE) {
   if (symbols.length <= size) return symbols;
@@ -284,7 +285,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     riskMode: policy.defaultRiskMode || 'MODERATE_AGGRESSIVE',
     tradingPaused: false
   });
-  const rotation = rotatingSymbols([...UNIVERSE.sp100Equities, ...UNIVERSE.pdfIndices]);
+  const rotation = rotatingSymbols(UNIVERSE.sp100Equities.filter((symbol) => !NON_TRADABLE_SCANNER_SYMBOLS.has(symbol)));
   const symbols = [...new Set([...(settings.watchlist?.core || UNIVERSE.core), ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...watchlist.symbols, ...rotation])];
   const providerGates = requiredProviderGates(providers);
   const missing = providerGates.filter((gate) => !gate.pass);
@@ -301,7 +302,8 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
       rotatingThisCycle: rotation,
       sp100Count: UNIVERSE.sp100Equities.length,
       pdfIndicesCount: UNIVERSE.pdfIndices.length,
-      note: 'El universo ampliado rota por ciclos para respetar cuotas y mantener cadenas de opciones frescas.'
+      contextIndices: UNIVERSE.pdfIndices,
+      note: 'Las acciones S&P 100 rotan por ciclos. Los índices PDF se registran como contexto; solo proxies e índices con cotización verificable pasan al constructor de opciones.'
     },
     profile
   };
