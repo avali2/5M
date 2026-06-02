@@ -9,6 +9,8 @@ import SystemStatus from './components/SystemStatus.jsx';
 import { OperationalSignals } from './components/OperationalSignals.jsx';
 import { BrokerPositionsDesk } from './components/BrokerPositionsDesk.jsx';
 import { DailyGeminiLesson } from './components/DailyGeminiLesson.jsx';
+import { DailyTradingWorkflow } from './components/DailyTradingWorkflow.jsx';
+import InfoTooltip from './components/InfoTooltip.jsx';
 import { loadRiskConfig, saveRiskConfig } from './config/riskConfig.ts';
 import { classifyNewsEvent } from './services/newsImpactClassifier.ts';
 import { professionalSignalsFromScan } from './utils/proSignalAdapter.js';
@@ -20,6 +22,12 @@ function dateMatches(dateStr, addDays = 0) {
   const expected = new Date(Date.now() + addDays * 86400000).toISOString().slice(0, 10);
   const parsed = new Date(dateStr);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === expected;
+}
+function dateWithinDays(dateStr, days = 14) {
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const diff = parsed.getTime() - Date.now();
+  return diff >= 0 && diff <= days * 86400000;
 }
 
 function RiskDesk({ profile, riskConfig }) {
@@ -38,8 +46,8 @@ function RiskDesk({ profile, riskConfig }) {
   );
 }
 
-function Metric({ label, value }) {
-  return <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3"><p className="text-xs text-slate-500 font-bold">{label}</p><p className="text-base text-slate-900 font-black mt-1">{value}</p></div>;
+function Metric({ label, value, help }) {
+  return <div className="rounded-2xl bg-slate-100 border border-slate-200 p-3"><p className="text-xs text-slate-800 font-bold">{label}{help && <InfoTooltip explanation={help} position="bottom" />}</p><p className="text-base text-slate-900 font-black mt-1">{value}</p></div>;
 }
 
 function GuardianActivity({ scan, signals }) {
@@ -49,20 +57,22 @@ function GuardianActivity({ scan, signals }) {
   return (
     <section className="risk-card p-4 space-y-3">
       <div className="flex justify-between gap-2">
-        <div><h2 className="text-xl font-black">🤖 Auto Guardian</h2><p className="text-sm text-slate-600">Clasifica el mercado por sí solo. Solo avisa cuando el filtro permite actuar.</p></div>
-        <span className="pill">{scan?.decision?.status || 'CARGANDO'}</span>
+        <div><h2 className="text-xl font-black">🤖 Auto Guardian <InfoTooltip explanation="Scanner autónomo. Revisa datos y conserva capital cuando no hay una entrada aprobada." position="bottom" /></h2><p className="text-sm text-slate-700">Clasifica el mercado por sí solo. Solo avisa cuando el filtro permite actuar.</p></div>
+        <span className="pill">{scan?.decision?.status === 'no_trade' ? '🛡️ ESPERAR' : scan?.decision?.status || 'CARGANDO'}</span>
       </div>
       <div className="grid grid-cols-3 gap-2 text-center">
         <Metric label="🟢 Revisar" value={ready} /><Metric label="🟠 Vigilar" value={watch} /><Metric label="🔴 Evitar" value={blocked} />
       </div>
       <p className="text-xs text-slate-500">Último ciclo: {scan?.asOf ? new Date(scan.asOf).toLocaleString() : 'pendiente'} · Refresco: {scan?.refreshSeconds || 300}s</p>
+      <p className="text-xs text-slate-700">Universo: {scan?.universeCoverage?.scannedThisCycle || '—'} símbolos este ciclo · rotación S&P 100 + índices PDF activa.</p>
+      <p className="text-xs text-slate-700">Gemini: {scan?.agent?.tokenBudget ? `${scan.agent.tokenBudget.dailyTokenBudget - scan.agent.tokenBudget.tokensUsed} tokens disponibles hoy · ${scan.agent.tokenBudget.requestsUsed}/${scan.agent.tokenBudget.dailyRequestBudget} solicitudes usadas` : 'presupuesto no disponible'}.</p>
     </section>
   );
 }
 
 function TradeJournal({ entries }) {
   return (
-    <section id="journal" className="risk-card p-4 space-y-3">
+    <><DailyTradingWorkflow /><section id="journal" className="risk-card p-4 space-y-3">
       <h2 className="text-xl font-black">📓 Journal de decisiones</h2>
       {entries?.length ? entries.slice(0, 8).map((entry) => (
         <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3 text-sm" key={entry.id}>
@@ -75,7 +85,7 @@ function TradeJournal({ entries }) {
           <p>Usa Riesgo para registrar posiciones actuales y anota la razón de cada ajuste en Notas.</p>
         </div>
       )}
-    </section>
+    </section></>
   );
 }
 
@@ -106,15 +116,32 @@ export default function AppPro() {
   const [entries, setEntries] = useState([]);
   const [error, setError] = useState('');
   const [riskConfig, setRiskConfig] = useState(loadRiskConfig);
+  const [dailyLesson, setDailyLesson] = useState(null);
 
   async function load(force = false) {
     setError('');
     try { setScan(force ? await api.refresh() : await api.scan()); } catch (loadError) { setError(loadError.message); }
   }
+  async function acceptSignal(signal) {
+    await api.addJournal({
+      symbol: signal.symbol,
+      strategy: signal.strategyLabel,
+      outcome: 'EJECUTADA',
+      reason: signal.executionPlan?.entryTrigger || signal.technicalSummary,
+      notes: 'Registrada desde Radar de señales. Confirmar fill, mark real, stop y objetivo en el broker.',
+      regime: scan?.market?.regime,
+      confidence: signal.score,
+      plannedExit: signal.executionPlan?.stopLoss,
+      signalOriginal: signal,
+    });
+    setEntries(await api.journal());
+    setActiveTab('journal');
+  }
 
   useEffect(() => {
     load();
     api.journal().then(setEntries).catch(() => {});
+    fetch('/api/gemini/daily-lesson').then((response) => response.json()).then(setDailyLesson).catch(() => {});
     const interval = setInterval(load, 60000);
     return () => clearInterval(interval);
   }, []);
@@ -123,10 +150,12 @@ export default function AppPro() {
   const news = useMemo(() => {
     const macro = scan?.macro || {};
     return [
-      ...(macro.earnings || []).map((event) => classifyNewsEvent({ title: `${event.symbol} Earnings ${event.date}`, symbol: event.symbol, eventDate: event.date, isEarnings: true, isToday: dateMatches(event.date), isTomorrow: dateMatches(event.date, 1) })),
+      ...(macro.earnings || []).filter((event) => dateWithinDays(event.date)).map((event) => classifyNewsEvent({ title: `${event.symbol} Earnings ${event.date}`, symbol: event.symbol, eventDate: event.date, isEarnings: true, isToday: dateMatches(event.date), isTomorrow: dateMatches(event.date, 1) })),
       ...(macro.highImpactEvents || []).map((event) => classifyNewsEvent({ title: event.title || event.event || '', eventDate: event.date, isMacro: true, isToday: dateMatches(event.date) })),
       ...(macro.softImpactEvents || []).map((event) => classifyNewsEvent({ title: event.title || event.event || '', eventDate: event.date, isMacro: true })),
-      ...(macro.breakingRisk || []).map((event) => classifyNewsEvent({ title: event.headline || event.title || '', source: event.source, url: event.url })),
+      ...(macro.breakingRisk || []).map((event) => classifyNewsEvent({ title: event.headline || event.title || '', source: event.source, url: event.url, publishedAt: event.publishedAt })),
+      ...(macro.news || []).slice(0, 10).map((event) => classifyNewsEvent({ title: event.headline || event.title || '', source: event.source, url: event.url, publishedAt: event.datetime || event.publishedAt })),
+      ...(macro.companyNews || []).slice(0, 10).map((event) => classifyNewsEvent({ title: event.headline || event.title || '', symbol: event.symbol, source: event.source, url: event.url, publishedAt: event.datetime || event.publishedAt })),
     ].filter(Boolean);
   }, [scan]);
   const ready = signals.filter((signal) => ['READY', 'AGGRESSIVE', '0DTE_SCALP'].includes(signal.status));
@@ -146,6 +175,7 @@ export default function AppPro() {
     bullets: [...ready, ...watch].slice(0, 4).map((signal) => `${signal.symbol} · ${signal.strategyLabel} · ${signal.status}`),
     bestSymbols: [...ready, ...watch].slice(0, 3).map((signal) => signal.symbol),
     blockedSymbols: signals.filter((signal) => signal.status === 'AVOID').slice(0, 3).map((signal) => signal.symbol),
+    motivation: dailyLesson?.motivation || 'La disciplina protege tu capital cuando todavía no existe una entrada limpia.',
   };
   const tabs = [
     ['inicio', '🏠', 'Inicio'], ['signals', '📡', 'Señales'], ['news', '📰', 'Noticias'],
@@ -159,9 +189,9 @@ export default function AppPro() {
       </header>
       <main className="home-pro pb-24">
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
-        {activeTab === 'inicio' && <><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><OperationalSignals signals={signals} compact /><DailyGeminiLesson /></>}
-        {activeTab === 'signals' && <OperationalSignals signals={signals} />}
-        {activeTab === 'news' && <NewsImpactList events={news} />}
+        {activeTab === 'inicio' && <><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><OperationalSignals signals={signals} compact onAccept={acceptSignal} /><DailyGeminiLesson /></>}
+        {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} />}
+        {activeTab === 'news' && <NewsImpactList news={news} />}
         {activeTab === 'risk' && <><RiskDesk profile={scan?.profile} riskConfig={riskConfig} /><BrokerPositionsDesk /></>}
         {activeTab === 'journal' && <TradeJournal entries={entries} />}
         {activeTab === 'config' && <><SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} /><NotificationManager /><SystemStatus /></>}

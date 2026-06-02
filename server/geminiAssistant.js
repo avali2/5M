@@ -30,6 +30,15 @@ function lessonFallback(day, topic) {
     concept: topic[1],
     example: 'Antes de actuar, identifica el riesgo máximo, el vencimiento y el bid/ask real de cada pierna en tu broker.',
     checklist: ['Define el riesgo máximo.', 'Confirma liquidez y bid/ask.', 'Escribe tu condición de salida.'],
+    motivation: 'La disciplina protege tu capital cuando el mercado no ofrece una entrada limpia.',
+    workflow: [
+      'Elige un activo líquido, por ejemplo SPY, QQQ o SOFI, y confirma la dirección general del mercado.',
+      'Revisa tendencia, volumen, VIX, noticias y eventos económicos antes de abrir la cadena.',
+      'En tu broker selecciona vencimiento y compara bid/ask, volumen, interés abierto y delta de cada pierna.',
+      'Para crédito, busca riesgo definido: por ejemplo vender un put spread bajo soporte con delta corto moderado.',
+      'Calcula crédito, pérdida máxima, colateral, objetivo y stop. Usa orden límite; no persigas el precio.',
+      'Registra la decisión en Journal y vuelve a evaluar si cambia tendencia, noticias, liquidez o vencimiento.'
+    ],
     caution: 'Contenido educativo. No es una recomendación de compra o venta.',
     source: 'curated_fallback',
     day,
@@ -171,7 +180,8 @@ router.get('/daily-lesson', async (_req, res) => {
     topic[1],
     'No incluyas paper trading. No des una señal de compra o venta. No inventes datos de mercado.',
     'Incluye un ejemplo numérico simple y práctico para una persona que opera desde Android.',
-    'Devuelve SOLO JSON con: title, concept, example, checklist (array de 3 textos), caution.',
+    'Incluye una frase motivadora breve y un proceso paso a paso completo para evaluar, abrir y gestionar una operacion educativa con un activo liquido como SPY, QQQ o SOFI.',
+    'Devuelve SOLO JSON con: title, concept, example, checklist (array de 3 textos), caution, motivation, workflow (array de 6 pasos).',
   ].join('\n');
 
   try {

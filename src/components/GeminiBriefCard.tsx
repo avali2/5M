@@ -8,6 +8,7 @@ interface Props {
   bestSymbols: string[];
   blockedSymbols: string[];
   education?: GeminiGuardianReview["education"];
+  motivation?: string;
 }
 
 export function GeminiBriefCard(props: Props) {
@@ -25,6 +26,7 @@ export function GeminiBriefCard(props: Props) {
 
       <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
         <p className="text-sm text-slate-700 leading-relaxed">{props.summary}</p>
+        {props.motivation && <p className="text-sm font-bold text-violet-800 mt-2">✨ {props.motivation}</p>}
       </div>
 
       <div className="grid grid-cols-1 gap-3">

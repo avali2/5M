@@ -25,6 +25,14 @@ const CORRELATED = {
   QQQ: 'tech', XLK: 'tech', AAPL: 'tech', MSFT: 'tech', NVDA: 'tech',
   AMZN: 'tech', META: 'tech', GOOGL: 'tech', TSLA: 'growth'
 };
+const ROTATION_SIZE = 22;
+
+function rotatingSymbols(symbols, size = ROTATION_SIZE) {
+  if (symbols.length <= size) return symbols;
+  const cycle = Math.floor(Date.now() / (5 * 60 * 1000));
+  const start = (cycle * size) % symbols.length;
+  return Array.from({ length: size }, (_, index) => symbols[(start + index) % symbols.length]);
+}
 
 function deterministicSummary(scan) {
   if (scan.decision.status === 'conditional_edge') {
@@ -276,7 +284,8 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     riskMode: policy.defaultRiskMode || 'MODERATE_AGGRESSIVE',
     tradingPaused: false
   });
-  const symbols = [...new Set([...(settings.watchlist?.core || UNIVERSE.core), ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...watchlist.symbols])];
+  const rotation = rotatingSymbols([...UNIVERSE.sp100Equities, ...UNIVERSE.pdfIndices]);
+  const symbols = [...new Set([...(settings.watchlist?.core || UNIVERSE.core), ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...watchlist.symbols, ...rotation])];
   const providerGates = requiredProviderGates(providers);
   const missing = providerGates.filter((gate) => !gate.pass);
   const base = {
@@ -286,6 +295,14 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     providers: providerStatus(),
     providerGates,
     watchlist,
+    universeCoverage: {
+      mode: 'rotating',
+      scannedThisCycle: symbols.length,
+      rotatingThisCycle: rotation,
+      sp100Count: UNIVERSE.sp100Equities.length,
+      pdfIndicesCount: UNIVERSE.pdfIndices.length,
+      note: 'El universo ampliado rota por ciclos para respetar cuotas y mantener cadenas de opciones frescas.'
+    },
     profile
   };
   const hardMissing = missing.filter((gate) => gate.hardRequired);

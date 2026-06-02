@@ -32,8 +32,15 @@ const WATCHLIST_CORE = asList(process.env.WATCHLIST_CORE, [
 
 export const UNIVERSE = {
   indices: ['SPY', 'SPX', 'QQQ', 'IWM', 'DIA'],
+  pdfIndices: ['DJI', 'NDX', 'IXIC', 'SPX', 'DJA', 'DJT', 'DJU', 'XAX', 'NYA', 'OEX', 'RUT', 'VIX', 'VXST', 'VXN', 'RVX', 'VXEEM', 'OVX', 'GVZ'],
   magnificent7: ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA'],
   focusEquities: ['SOFI', 'AMD', 'RIVN', 'MCD', 'NU'],
+  sp100Equities: [
+    'MMM', 'ABT', 'ABBV', 'ACN', 'ADBE', 'AMD', 'ALL', 'GOOGL', 'GOOG', 'MO', 'AMZN', 'AXP', 'AIG', 'AMGN', 'AAPL', 'T', 'BAC', 'BK', 'BRK.B', 'BIIB', 'BLK', 'BA', 'BKNG', 'BMY', 'AVGO', 'COF', 'CAT',
+    'SCHW', 'CHTR', 'CVX', 'CSCO', 'C', 'KO', 'CL', 'CMCSA', 'COP', 'COST', 'CVS', 'DHR', 'DOW', 'DD', 'DUK', 'LLY', 'EMR', 'EXC', 'XOM', 'FDX', 'F', 'GE', 'GD', 'GM', 'GILD', 'GS', 'HD', 'HON', 'IBM', 'INTC', 'JNJ', 'JPM', 'KMI',
+    'KHC', 'LOW', 'MA', 'MCD', 'MDT', 'MRK', 'META', 'MET', 'MSFT', 'MDLZ', 'MS', 'NFLX', 'NEE', 'NKE', 'NVDA', 'OXY', 'ORCL', 'PYPL', 'PEP', 'PFE', 'PM', 'PG', 'QCOM', 'RTX', 'CRM', 'SLB', 'SO', 'SBUX', 'TMUS', 'TGT', 'TSLA', 'TXN', 'TMO',
+    'UNP', 'UPS', 'UNH', 'USB', 'VZ', 'V', 'WMT', 'WBA', 'DIS', 'WFC'
+  ],
   optionalIndices: ['XSP', 'NDX', 'RUT'],
   liquidEtfs: ['XLF', 'XLK', 'XLE', 'XLV', 'TLT', 'GLD'],
   breadth: ['SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'XLK', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU'],

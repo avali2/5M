@@ -34,7 +34,7 @@ export default function SystemStatus() {
     <section id="system-status" className="risk-card p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-black text-slate-900">Estado del sistema</h2>
+          <h2 className="text-xl font-black text-slate-900">🩺 Verificar funcionamiento</h2>
           <p className="text-xs text-slate-500 mt-1">APIs, Gemini, scanner, scheduler y servicios externos.</p>
         </div>
         <button onClick={load} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50">↻ Revisar</button>

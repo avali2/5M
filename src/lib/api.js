@@ -28,6 +28,9 @@ export const api = {
     try { const d = await requestJson("/api/journal"); return asArray(d?.entries || d); }
     catch { return []; }
   },
+  async addJournal(entry) {
+    return await requestJson("/api/journal", { method: "POST", body: JSON.stringify(entry) });
+  },
   async status() {
     try { return await requestJson("/api/status"); }
     catch (err) { return { ok: false, services: [], warnings: [err?.message || "Status no disponible"] }; }
