@@ -26,7 +26,7 @@ const CORRELATED = {
   AMZN: 'tech', META: 'tech', GOOGL: 'tech', TSLA: 'growth'
 };
 const ROTATION_SIZE = 22;
-const NON_TRADABLE_SCANNER_SYMBOLS = new Set(['WBA']);
+const NON_TRADABLE_SCANNER_SYMBOLS = new Set(['WBA', 'MET']);
 
 function rotatingSymbols(symbols, size = ROTATION_SIZE) {
   if (symbols.length <= size) return symbols;
