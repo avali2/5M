@@ -1,8 +1,40 @@
 import express from 'express';
 import { runInstitutionalScan } from './institutional-engine.mjs';
 import { callGemini as apiCallGemini, getGeminiStatus, getCachedResponse } from './geminiClient.js';
+import { requestGeminiJson } from './lib/geminiJson.js';
 
 const router = express.Router();
+let dailyLessonCache = null;
+
+const lessonTopics = [
+  ['Delta', 'Cómo cambia el valor de una opción cuando se mueve el subyacente.'],
+  ['Theta', 'Cómo el paso del tiempo afecta una posición de opciones.'],
+  ['Riesgo definido', 'Cómo dimensionar spreads sin exceder la pérdida máxima aceptable.'],
+  ['Liquidez', 'Por qué bid/ask, volumen e interés abierto importan antes de entrar o ajustar.'],
+  ['Asignación', 'Cuándo una opción corta puede ser asignada y qué revisar antes del vencimiento.'],
+  ['Volatilidad implícita', 'Cómo interpretar IV sin asumir que predice la dirección del mercado.'],
+];
+
+function utcDay() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function topicForDay(day) {
+  const value = [...day].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return lessonTopics[value % lessonTopics.length];
+}
+
+function lessonFallback(day, topic) {
+  return {
+    title: `${topic[0]}: idea clave del día`,
+    concept: topic[1],
+    example: 'Antes de actuar, identifica el riesgo máximo, el vencimiento y el bid/ask real de cada pierna en tu broker.',
+    checklist: ['Define el riesgo máximo.', 'Confirma liquidez y bid/ask.', 'Escribe tu condición de salida.'],
+    caution: 'Contenido educativo. No es una recomendación de compra o venta.',
+    source: 'curated_fallback',
+    day,
+  };
+}
 
 router.get('/daily-summary', async (_req, res) => {
   try {
@@ -125,6 +157,31 @@ router.get('/quota-status', (_req, res) => {
     ok: true,
     ...status
   });
+});
+
+router.get('/daily-lesson', async (_req, res) => {
+  const day = utcDay();
+  if (dailyLessonCache?.day === day) return res.json({ ok: true, ...dailyLessonCache });
+
+  const topic = topicForDay(day);
+  const fallback = lessonFallback(day, topic);
+  const prompt = [
+    'Eres un educador de opciones claro y prudente para la app VALIDO 1M.',
+    `Crea la microlección diaria sobre: ${topic[0]}.`,
+    topic[1],
+    'No incluyas paper trading. No des una señal de compra o venta. No inventes datos de mercado.',
+    'Incluye un ejemplo numérico simple y práctico para una persona que opera desde Android.',
+    'Devuelve SOLO JSON con: title, concept, example, checklist (array de 3 textos), caution.',
+  ].join('\n');
+
+  try {
+    const lesson = await requestGeminiJson(prompt, { temperature: 0.7, maxTokens: 700 });
+    dailyLessonCache = { ...fallback, ...lesson, source: 'gemini', day };
+  } catch (error) {
+    dailyLessonCache = { ...fallback, geminiError: error.message };
+  }
+
+  return res.json({ ok: true, ...dailyLessonCache });
 });
 
 export default router;

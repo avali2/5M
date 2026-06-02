@@ -1,81 +1,61 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "./lib/api.js";
-import { GeminiBriefCard } from "./components/GeminiBriefCard.tsx";
-import { MarketPulseCard } from "./components/MarketPulseCard.jsx";
-import { NewsImpactList } from "./components/NewsImpactList.jsx";
-import { NotificationStatusCard } from "./components/NotificationStatusCard.jsx";
-import { SignalCard } from "./components/SignalCard.jsx";
-import MarketSentiment from "./components/MarketSentiment.jsx";
-import GeminiAssistant from "./components/GeminiAssistant.jsx";
-import NotificationManager from "./components/NotificationManager.jsx";
-import LearningHub from "./components/LearningHub.jsx";
-import SystemStatus from "./components/SystemStatus.jsx";
-import { loadRiskConfig, saveRiskConfig } from "./config/riskConfig.ts";
-import { classifyNewsEvent } from "./services/newsImpactClassifier.ts";
+import React, { useEffect, useMemo, useState } from 'react';
+import { api } from './lib/api.js';
+import { GeminiBriefCard } from './components/GeminiBriefCard.tsx';
+import { MarketPulseCard } from './components/MarketPulseCard.jsx';
+import { NewsImpactList } from './components/NewsImpactList.jsx';
+import MarketSentiment from './components/MarketSentiment.jsx';
+import NotificationManager from './components/NotificationManager.jsx';
+import SystemStatus from './components/SystemStatus.jsx';
+import { OperationalSignals } from './components/OperationalSignals.jsx';
+import { BrokerPositionsDesk } from './components/BrokerPositionsDesk.jsx';
+import { DailyGeminiLesson } from './components/DailyGeminiLesson.jsx';
+import { loadRiskConfig, saveRiskConfig } from './config/riskConfig.ts';
+import { classifyNewsEvent } from './services/newsImpactClassifier.ts';
+import { professionalSignalsFromScan } from './utils/proSignalAdapter.js';
 
-const VALIDO_VERSION = import.meta.env.VITE_VALIDO_BUILD_VERSION || "local-dev";
-const VALIDO_TIMESTAMP = import.meta.env.VITE_VALIDO_BUILD_TIMESTAMP || "";
+const VALIDO_VERSION = import.meta.env.VITE_VALIDO_BUILD_VERSION || 'local-dev';
 
-function isDateToday(dateStr) {
+function dateMatches(dateStr, addDays = 0) {
   if (!dateStr) return false;
-  const today = new Date().toISOString().slice(0, 10);
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return false;
-  return d.toISOString().slice(0, 10) === today;
+  const expected = new Date(Date.now() + addDays * 86400000).toISOString().slice(0, 10);
+  const parsed = new Date(dateStr);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === expected;
 }
 
-function isDateTomorrow(dateStr) {
-  if (!dateStr) return false;
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return false;
-  return d.toISOString().slice(0, 10) === tomorrow;
-}
-
-function VersionBadge() {
-  const shortDate = VALIDO_TIMESTAMP
-    ? new Date(VALIDO_TIMESTAMP).toLocaleDateString("es-MX", { month: "short", day: "numeric" })
-    : "";
-  return (
-    <a href="/" title={`Build: ${VALIDO_VERSION}`} className="fixed right-3 top-3 z-50 pill hover:border-blue-400 hover:text-slate-900 transition">
-      v{VALIDO_VERSION}{shortDate ? ` · ${shortDate}` : ""}
-    </a>
-  );
-}
-
-function TopSignalsList({ signals }) {
-  if (!signals?.length) return (
-    <section className="signal-card p-4 space-y-3">
-      <h2 className="text-xl font-black text-slate-900">Señales del momento</h2>
-      <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
-        <p className="text-sm text-slate-500">No hay señales ahora. El scanner sigue vigilando.</p>
-      </div>
-    </section>
-  );
-  return (
-    <section id="signals" className="space-y-4">
-      <h2 className="text-xl font-black text-slate-900 px-1">Señales del momento</h2>
-      {signals.slice(0, 5).map((s, i) => <SignalCard signal={s} key={s.id || i} />)}
-    </section>
-  );
-}
-
-function RiskDesk({ profile, riskConfig, onSave }) {
-  if (!profile) return null;
+function RiskDesk({ profile, riskConfig }) {
   const cfg = riskConfig || loadRiskConfig();
   const tradeBudget = cfg.accountValue * cfg.defaultRiskPct / 100;
-  const maxBudget = cfg.accountValue * cfg.maxRiskPct / 100;
   return (
     <section id="risk" className="risk-card p-4 space-y-3">
-      <h2 className="text-xl font-black text-slate-900">Mesa de riesgo</h2>
+      <h2 className="text-xl font-black text-slate-900">🛡️ Límites de riesgo</h2>
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3"><p className="text-xs text-slate-500 font-bold">Cuenta</p><p className="text-base text-slate-900 font-black mt-1">${cfg.accountValue}</p></div>
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3"><p className="text-xs text-slate-500 font-bold">Riesgo/trade</p><p className="text-base text-slate-900 font-black mt-1">${tradeBudget} ({cfg.defaultRiskPct}%)</p></div>
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3"><p className="text-xs text-slate-500 font-bold">Maximo A+</p><p className="text-base text-slate-900 font-black mt-1">${maxBudget} ({cfg.maxRiskPct}%)</p></div>
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3"><p className="text-xs text-slate-500 font-bold">Colateral</p><p className="text-base text-slate-900 font-black mt-1">{cfg.collateralCapPct}%</p></div>
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3"><p className="text-xs text-slate-500 font-bold">Open trades</p><p className="text-base text-slate-900 font-black mt-1">{profile.activeSymbols?.length || 0} / {cfg.maxOpenTrades}</p></div>
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3"><p className="text-xs text-slate-500 font-bold">PDT</p><p className="text-base text-slate-900 font-black mt-1">{cfg.pdtProtected ? "Protegido" : "Sin proteccion"}</p></div>
+        <Metric label="Cuenta" value={`$${cfg.accountValue}`} />
+        <Metric label="Riesgo / trade" value={`$${tradeBudget} (${cfg.defaultRiskPct}%)`} />
+        <Metric label="Colateral máx." value={`${cfg.collateralCapPct}%`} />
+        <Metric label="Trades abiertos" value={`${profile?.activeSymbols?.length || 0} / ${cfg.maxOpenTrades}`} />
       </div>
+    </section>
+  );
+}
+
+function Metric({ label, value }) {
+  return <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3"><p className="text-xs text-slate-500 font-bold">{label}</p><p className="text-base text-slate-900 font-black mt-1">{value}</p></div>;
+}
+
+function GuardianActivity({ scan, signals }) {
+  const ready = signals.filter((signal) => ['READY', 'AGGRESSIVE', '0DTE_SCALP'].includes(signal.status)).length;
+  const watch = signals.filter((signal) => signal.status === 'WATCH').length;
+  const blocked = signals.filter((signal) => ['AVOID', 'NO_DATA', 'LOCKED_BY_RISK'].includes(signal.status)).length;
+  return (
+    <section className="risk-card p-4 space-y-3">
+      <div className="flex justify-between gap-2">
+        <div><h2 className="text-xl font-black">🤖 Auto Guardian</h2><p className="text-sm text-slate-600">Clasifica el mercado por sí solo. Solo avisa cuando el filtro permite actuar.</p></div>
+        <span className="pill">{scan?.decision?.status || 'CARGANDO'}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <Metric label="🟢 Revisar" value={ready} /><Metric label="🟠 Vigilar" value={watch} /><Metric label="🔴 Evitar" value={blocked} />
+      </div>
+      <p className="text-xs text-slate-500">Último ciclo: {scan?.asOf ? new Date(scan.asOf).toLocaleString() : 'pendiente'} · Refresco: {scan?.refreshSeconds || 300}s</p>
     </section>
   );
 }
@@ -83,15 +63,16 @@ function RiskDesk({ profile, riskConfig, onSave }) {
 function TradeJournal({ entries }) {
   return (
     <section id="journal" className="risk-card p-4 space-y-3">
-      <h2 className="text-xl font-black text-slate-900">Journal</h2>
-      {entries?.length ? entries.slice(0, 6).map(e => (
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3 text-sm" key={e.id}>
-          <strong className="text-slate-900">{e.symbol} - {e.strategy}</strong>
-          <p className="text-slate-500 mt-1">{e.outcome} | {new Date(e.createdAt || e.created_at).toLocaleDateString()}</p>
+      <h2 className="text-xl font-black">📓 Journal de decisiones</h2>
+      {entries?.length ? entries.slice(0, 8).map((entry) => (
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3 text-sm" key={entry.id}>
+          <strong>{entry.symbol} · {entry.strategy}</strong>
+          <p className="text-slate-500">{entry.outcome} · {new Date(entry.createdAt || entry.created_at).toLocaleDateString()}</p>
         </div>
       )) : (
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
-          <p className="text-sm text-slate-500">Aun sin decisiones registradas.</p>
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3 text-sm text-slate-600 space-y-1">
+          <p>Aún no hay decisiones registradas.</p>
+          <p>Usa Riesgo para registrar posiciones actuales y anota la razón de cada ajuste en Notas.</p>
         </div>
       )}
     </section>
@@ -99,184 +80,95 @@ function TradeJournal({ entries }) {
 }
 
 function SettingsPanel({ riskConfig, onSaveRisk }) {
-  const [cfg, setCfg] = useState(riskConfig || { accountValue: 2000, defaultRiskPct: 10, maxRiskPct: 20, collateralCapPct: 35, maxOpenTrades: 3, pdtProtected: true, maxDayTradesRolling5Days: 3 });
-  function handleSave() { saveRiskConfig(cfg); onSaveRisk?.(cfg); }
+  const [cfg, setCfg] = useState(riskConfig);
+  function save() { saveRiskConfig(cfg); onSaveRisk(cfg); }
   return (
-    <section id="settings" className="risk-card p-4 space-y-3">
-      <h2 className="text-xl font-black text-slate-900">Configuración de cuenta</h2>
+    <section id="config" className="risk-card p-4 space-y-3">
+      <h2 className="text-xl font-black">⚙️ Configuración operativa</h2>
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
-          <p className="text-xs text-slate-500 font-bold">Valor cuenta</p>
-          <input className="input mt-1" type="number" value={cfg.accountValue} onChange={e => setCfg({...cfg, accountValue: Number(e.target.value)})} />
-        </div>
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
-          <p className="text-xs text-slate-500 font-bold">Riesgo %</p>
-          <input className="input mt-1" type="number" value={cfg.defaultRiskPct} onChange={e => setCfg({...cfg, defaultRiskPct: Number(e.target.value)})} />
-        </div>
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
-          <p className="text-xs text-slate-500 font-bold">Colateral %</p>
-          <input className="input mt-1" type="number" value={cfg.collateralCapPct} onChange={e => setCfg({...cfg, collateralCapPct: Number(e.target.value)})} />
-        </div>
-        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
-          <p className="text-xs text-slate-500 font-bold">Max trades</p>
-          <input className="input mt-1" type="number" value={cfg.maxOpenTrades} onChange={e => setCfg({...cfg, maxOpenTrades: Number(e.target.value)})} />
-        </div>
+        <Field label="Valor cuenta" value={cfg.accountValue} onChange={(value) => setCfg({ ...cfg, accountValue: value })} />
+        <Field label="Riesgo %" value={cfg.defaultRiskPct} onChange={(value) => setCfg({ ...cfg, defaultRiskPct: value })} />
+        <Field label="Colateral %" value={cfg.collateralCapPct} onChange={(value) => setCfg({ ...cfg, collateralCapPct: value })} />
+        <Field label="Máx. trades" value={cfg.maxOpenTrades} onChange={(value) => setCfg({ ...cfg, maxOpenTrades: value })} />
       </div>
-      <button className="primary-button w-full" onClick={handleSave}>Guardar configuración</button>
+      <button className="primary-button w-full" onClick={save}>Guardar configuración</button>
     </section>
   );
+}
+
+function Field({ label, value, onChange }) {
+  return <label className="rounded-2xl bg-slate-50 border border-slate-200 p-3"><span className="text-xs text-slate-500 font-bold">{label}</span><input className="input mt-1" type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>;
 }
 
 export default function AppPro() {
   const [activeTab, setActiveTab] = useState('inicio');
   const [scan, setScan] = useState(null);
   const [entries, setEntries] = useState([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [riskConfig, setRiskConfig] = useState(loadRiskConfig);
-  const latestAlert = useRef(null);
 
   async function load(force = false) {
-    setError("");
-    try {
-      const data = force ? await api.refresh() : await api.scan();
-      setScan(data);
-    } catch (e) { setError(e.message); }
+    setError('');
+    try { setScan(force ? await api.refresh() : await api.scan()); } catch (loadError) { setError(loadError.message); }
   }
 
-  async function loadJournal() {
-    try { setEntries(await api.journal()); } catch { /* Journal is optional on the dashboard. */ }
-  }
+  useEffect(() => {
+    load();
+    api.journal().then(setEntries).catch(() => {});
+    const interval = setInterval(load, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
-  useEffect(() => { load(); loadJournal(); }, []);
-
-  const signals = useMemo(() => {
-    const opps = Array.isArray(scan?.opportunities) ? scan.opportunities : [];
-    return opps.map(s => ({
-      ...s,
-      rating: s.geminiReview?.verdict === "APPROVED" ? "A" : s.rating || s.score > 80 ? "B+" : "WATCH_ONLY",
-      geminiApproved: s.geminiReview?.verdict === "APPROVED" || s.aiVerificationStatus === "APPROVED_BY_GEMINI_GUARDIAN",
-      geminiSummary: s.geminiReview?.summary || s.geminiCoach?.summary || "Pendiente",
-      education: s.geminiReview?.educationNote || s.geminiCoach?.mainRisk || ""
-    }));
-  }, [scan]);
-
+  const signals = useMemo(() => professionalSignalsFromScan(scan || {}), [scan]);
   const news = useMemo(() => {
-    const raw = scan?.macro || {};
-    const earnings = raw?.earnings || [];
-    const items = [
-      ...earnings.map(e => classifyNewsEvent({ title: `${e.symbol} Earnings ${e.date}`, symbol: e.symbol, eventDate: e.date, isEarnings: true, isToday: isDateToday(e.date), isTomorrow: isDateTomorrow(e.date) })),
-      ...(raw.highImpactEvents || []).map(e => classifyNewsEvent({ title: e.title || e.event || "", eventDate: e.date, isMacro: true, isToday: isDateToday(e.date) })),
-      ...(raw.softImpactEvents || []).map(e => classifyNewsEvent({ title: e.title || e.event || "", eventDate: e.date, isMacro: true })),
-      ...(raw.breakingRisk || []).map(e => classifyNewsEvent({ title: e.headline || e.title || "", source: e.source, url: e.url }))
-    ];
-    return items.filter(Boolean);
+    const macro = scan?.macro || {};
+    return [
+      ...(macro.earnings || []).map((event) => classifyNewsEvent({ title: `${event.symbol} Earnings ${event.date}`, symbol: event.symbol, eventDate: event.date, isEarnings: true, isToday: dateMatches(event.date), isTomorrow: dateMatches(event.date, 1) })),
+      ...(macro.highImpactEvents || []).map((event) => classifyNewsEvent({ title: event.title || event.event || '', eventDate: event.date, isMacro: true, isToday: dateMatches(event.date) })),
+      ...(macro.softImpactEvents || []).map((event) => classifyNewsEvent({ title: event.title || event.event || '', eventDate: event.date, isMacro: true })),
+      ...(macro.breakingRisk || []).map((event) => classifyNewsEvent({ title: event.headline || event.title || '', source: event.source, url: event.url })),
+    ].filter(Boolean);
   }, [scan]);
-
-  const marketPulse = useMemo(() => ({
-    spyTrend: scan?.market?.spyTrend || "NO_DATA", qqqTrend: scan?.market?.technicals?.QQQ?.trend || "NO_DATA",
-    vix: scan?.market?.vix ?? null, vixRegime: "NORMAL",
-    macroStatus: news.some(n => n.stars >= 5) ? "DANGER" : news.some(n => n.stars >= 4) ? "CAUTION" : "CLEAR",
-    newsStatus: news.some(n => n.stars >= 5) ? "DANGER" : news.some(n => n.stars >= 4) ? "CAUTION" : "CLEAR",
-    tapeReading: scan?.market?.tapeReading || { arrow: "❔", label: "Sin datos" },
-    bestModeNow: scan?.opportunities?.length ? "BUSCAR_ENTRADAS" : "ESPERAR"
-  }), [scan, news]);
-
-  const geminiBrief = useMemo(() => {
-    const approved = signals.filter(s => s.geminiApproved);
-    return {
-      mood: news.some(n => n.stars >= 5) ? "EVENT_RISK" : scan?.market?.regime === "BULL_TREND" ? "RISK_ON" : scan?.market?.regime === "BEAR_TREND" ? "RISK_OFF" : "CHOP",
-      mode: approved.length ? "BUSCAR_ENTRADAS" : "ESPERAR",
-      summary: approved.length ? `Se detectaron ${approved.length} señal(es).` : "No hay señales aprobadas ahora.",
-      bullets: approved.slice(0, 5).map(s => `${s.symbol} ${s.strategy} - Score ${s.score || "?"}`),
-      bestSymbols: approved.map(s => s.symbol).slice(0, 3),
-      blockedSymbols: (scan?.rejected || []).slice(0, 3).map(s => s.symbol),
-    };
-  }, [signals, news, scan]);
-
-  // Tab navigation
+  const ready = signals.filter((signal) => ['READY', 'AGGRESSIVE', '0DTE_SCALP'].includes(signal.status));
+  const watch = signals.filter((signal) => signal.status === 'WATCH');
+  const pulse = {
+    spyTrend: scan?.market?.spyTrend || scan?.market?.regime || 'NO_DATA',
+    qqqTrend: scan?.market?.technicals?.QQQ?.trend || 'NO_DATA',
+    vix: scan?.market?.vix ?? null,
+    macroStatus: news.some((item) => item.stars >= 5) ? 'DANGER' : news.some((item) => item.stars >= 4) ? 'CAUTION' : 'CLEAR',
+    tapeReading: scan?.market?.tapeReading,
+    bestModeNow: ready.length ? 'REVISAR_ENTRADAS' : watch.length ? 'ESPERAR_GATILLO' : 'PRESERVAR_CAPITAL',
+  };
+  const brief = {
+    mood: pulse.macroStatus === 'DANGER' ? 'EVENT_RISK' : scan?.market?.regime || 'CHOP',
+    mode: ready.length ? 'BUSCAR_ENTRADAS' : 'ESPERAR',
+    summary: ready.length ? `${ready.length} ticket(s) requieren revisión final.` : watch.length ? `${watch.length} escenario(s) en vigilancia. No hay entrada aprobada todavía.` : 'Sin entrada limpia. El Guardian conserva capital.',
+    bullets: [...ready, ...watch].slice(0, 4).map((signal) => `${signal.symbol} · ${signal.strategyLabel} · ${signal.status}`),
+    bestSymbols: [...ready, ...watch].slice(0, 3).map((signal) => signal.symbol),
+    blockedSymbols: signals.filter((signal) => signal.status === 'AVOID').slice(0, 3).map((signal) => signal.symbol),
+  };
   const tabs = [
-    { id: 'inicio', label: '🏠 Inicio', icon: '🏠' },
-    { id: 'signals', label: '📡 Señales', icon: '📡' },
-    { id: 'news', label: '📰 Noticias', icon: '📰' },
-    { id: 'risk', label: '⚠️ Riesgo', icon: '⚠️' },
-    { id: 'journal', label: '📓 Journal', icon: '📓' },
-    { id: 'config', label: '⚙️ Config', icon: '⚙️' },
+    ['inicio', '🏠', 'Inicio'], ['signals', '📡', 'Señales'], ['news', '📰', 'Noticias'],
+    ['risk', '🛡️', 'Riesgo'], ['journal', '📓', 'Journal'], ['config', '⚙️', 'Config'],
   ];
-
-  const showAllContent = true; // Show all sections, tabs just scroll
 
   return (
     <div className="pro-console bg-slate-50">
-      <VersionBadge />
-
-      {/* Fixed top bar */}
-      <div className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 py-3">
-        <h1 className="text-lg font-bold text-slate-900">VALIDO 1M</h1>
-        <p className="text-xs text-slate-500">Options Guardian · Gemini Auditor</p>
-      </div>
-
-      <div className="home-pro pb-24">
+      <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 py-3">
+        <h1 className="text-lg font-bold">VALIDO 1M</h1><p className="text-xs text-slate-500">Options Guardian · Gemini Auditor</p>
+      </header>
+      <main className="home-pro pb-24">
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
-
-        {/* Show all content regardless of active tab */}
-
-        {activeTab === 'inicio' && (
-          <>
-            <GeminiBriefCard {...geminiBrief} />
-            <GeminiAssistant />
-            <MarketSentiment />
-            <MarketPulseCard pulse={marketPulse} />
-          </>
-        )}
-        {activeTab === 'signals' && <TopSignalsList signals={signals} />}
+        {activeTab === 'inicio' && <><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><OperationalSignals signals={signals} compact /><DailyGeminiLesson /></>}
+        {activeTab === 'signals' && <OperationalSignals signals={signals} />}
         {activeTab === 'news' && <NewsImpactList events={news} />}
-        {activeTab === 'risk' && <RiskDesk profile={scan?.profile} riskConfig={riskConfig} />}
+        {activeTab === 'risk' && <><RiskDesk profile={scan?.profile} riskConfig={riskConfig} /><BrokerPositionsDesk /></>}
         {activeTab === 'journal' && <TradeJournal entries={entries} />}
-        {activeTab === 'config' && (
-          <>
-            <SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} />
-            <LearningHub />
-            <NotificationManager />
-            <NotificationStatusCard />
-          </>
-        )}
-
-        {activeTab !== 'config' && activeTab !== 'risk' && activeTab !== 'journal' && activeTab !== 'signals' && activeTab !== 'news' && (
-          <>
-            <TopSignalsList signals={signals} />
-            <NewsImpactList events={news} />
-            <RiskDesk profile={scan?.profile} riskConfig={riskConfig} />
-          </>
-        )}
-
-        <footer className="text-xs text-slate-500 text-center py-4">
-          Educational / decision-support only. No auto-trading enabled.
-          <span className="block mt-1">v{VALIDO_VERSION} | {scan?.refreshSeconds || 300}s refresh</span>
-        </footer>
-        <SystemStatus />
-      </div>
-
-      {/* Bottom Nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 bg-white border-t border-slate-200 px-2 py-2 backdrop-blur">
-        <div className="flex justify-around max-w-lg mx-auto">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id);
-                document.getElementById(tab.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-              className={`flex flex-col items-center px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                activeTab === tab.id
-                  ? 'bg-blue-600 text-white shadow'
-                  : 'text-slate-500 hover:bg-slate-100'
-              }`}
-            >
-              <span className="text-base">{tab.icon}</span>
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
+        {activeTab === 'config' && <><SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} /><NotificationManager /><SystemStatus /></>}
+        <footer className="text-xs text-slate-500 text-center py-4">Educational / decision-support only. No auto-trading enabled.<span className="block mt-1">v{VALIDO_VERSION}</span></footer>
+      </main>
+      <nav className="fixed inset-x-0 bottom-0 z-40 bg-white border-t border-slate-200 px-1 py-2">
+        <div className="flex justify-around max-w-lg mx-auto">{tabs.map(([id, icon, label]) => <button key={id} onClick={() => setActiveTab(id)} className={`flex flex-col items-center px-2 py-1.5 rounded-lg text-[11px] font-bold ${activeTab === id ? 'bg-blue-600 text-white' : 'text-slate-500'}`}><span className="text-base">{icon}</span><span>{label}</span></button>)}</div>
       </nav>
     </div>
   );

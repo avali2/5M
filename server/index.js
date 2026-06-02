@@ -368,8 +368,9 @@ export function createApp(settings = config, customProviders = null, options = {
     res.set('Cache-Control', 'no-store');
     const publicPaths = [
       '/health', '/status', '/doctor', '/debug/env', '/debug/providers',
-      '/gemini/daily-summary', '/gemini/quota-status', '/market/sentiment', '/market-sentiment', '/sentiment',
+      '/gemini/daily-summary', '/gemini/daily-lesson', '/gemini/quota-status', '/market/sentiment', '/market-sentiment', '/sentiment',
       '/scan', '/guardian/scan', '/refresh', '/journal',
+      '/positions/analyze', '/push/public-key', '/push/subscribe', '/push/unsubscribe',
       '/ping'
     ];
     if (publicPaths.some(p => req.path === p || req.path === p + '/')) return next();

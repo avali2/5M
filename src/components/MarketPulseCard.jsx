@@ -4,7 +4,7 @@ export function MarketPulseCard({ pulse }) {
   return (
     <section className="market-card p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-black text-slate-900">Pulso del Mercado</h2>
+        <h2 className="text-xl font-black text-slate-900">🧭 Dirección del mercado</h2>
         <span className="pill">{pulse.bestModeNow?.replaceAll("_", " ") || "ESPERAR"}</span>
       </div>
 
@@ -18,7 +18,7 @@ export function MarketPulseCard({ pulse }) {
       <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs text-slate-500 font-bold">Tape Reading institucional</p>
+            <p className="text-xs text-slate-500 font-bold">Proxy de presión institucional</p>
             <h3 className="text-lg font-black text-slate-900">
               {pulse.tapeReading?.arrow || "❔"} {pulse.tapeReading?.label || "Sin datos"}
             </h3>
@@ -26,6 +26,7 @@ export function MarketPulseCard({ pulse }) {
           <span className="pill">{pulse.tapeReading?.confidence || 0}%</span>
         </div>
         <p className="text-sm text-slate-600 mt-2">{pulse.tapeReading?.explanation || "Esperando datos de mercado."}</p>
+        <p className="text-[11px] text-slate-500 mt-1">No es Time &amp; Sales ni Level 2: combina tendencia, VWAP y presión técnica disponible.</p>
         <ul className="mt-2 space-y-1">
           {(pulse.tapeReading?.signals || []).slice(0, 4).map((s, i) => (
             <li key={i} className="text-xs text-slate-600">• {s}</li>

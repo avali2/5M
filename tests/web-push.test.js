@@ -20,7 +20,7 @@ test('push subscription storage keeps hashed endpoints and no frontend secret', 
   assert.equal(service.status().configured, false);
 });
 
-test('protected backend exposes only public VAPID configuration status', async () => {
+test('PWA can read public VAPID configuration while push dispatch stays protected', async () => {
   const app = createApp({
     clientOrigin: 'https://valido.example',
     security: { accessKey: 'guardian-private-key' },
@@ -29,10 +29,10 @@ test('protected backend exposes only public VAPID configuration status', async (
     webPush: { enabled: false },
     policy: {}
   }, {}, { startBackground: false });
-  await request(app).get('/api/push/public-key').expect(401);
-  const result = await request(app).get('/api/push/public-key').set('X-Valido-Key', 'guardian-private-key').expect(200);
+  const result = await request(app).get('/api/push/public-key').expect(200);
   assert.equal(result.body.configured, false);
   assert.equal(result.body.publicKey, null);
+  await request(app).post('/api/push/test').send({}).expect(401);
 });
 
 test('invalid VAPID configuration fails closed without crashing the application service', () => {

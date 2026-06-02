@@ -50,7 +50,7 @@ export default function MarketSentiment() {
           rsi: data?.technicals?.rsi ?? (rsiMatch ? Number(rsiMatch[1]) : null),
           vwapBias: data?.technicals?.vwapBias ?? (vwapMatch ? vwapMatch[1] : null)
         },
-        tapePressure: 'Via /api/market/sentiment',
+        tapePressure: 'Proxy técnico actualizado desde /api/market/sentiment',
         regime: overall === 'BULLISH' ? '🟢 Alcista' : overall === 'BEARISH' ? '🔴 Bajista' : '🟡 Lateral'
       });
       setError(null);
@@ -102,7 +102,7 @@ export default function MarketSentiment() {
           <p className="font-mono text-slate-900">{s.technicals?.vwapBias === 'ABOVE_VWAP' ? '⬆️ Por encima' : s.technicals?.vwapBias || '⬇️ Sin datos'}</p>
         </div>
         <div className="col-span-2">
-          <p className="text-slate-500 flex items-center">Tape real <InfoTooltip explanation="Presión de compra/venta en ticks" /></p>
+          <p className="text-slate-500 flex items-center">Fuente de presión <InfoTooltip explanation="Proxy técnico. No equivale a Time & Sales ni Level 2." /></p>
           <p className="text-xs text-slate-600">{s.tapePressure || 'Sin datos'}</p>
         </div>
         <div className="col-span-2">
