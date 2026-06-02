@@ -19,6 +19,9 @@ const setup = {
     { side: 'SELL', type: 'PUT', strike: 95, delta: -0.2, bid: 0.79, ask: 0.81 },
     { side: 'BUY', type: 'PUT', strike: 90, delta: -0.08, bid: 0.29, ask: 0.31 }
   ],
+  strikes: '95 / 90',
+  takeProfit: 'Close at 50% of credit',
+  stopLoss: 'Close at 2x credit or risk gate breach',
   blocks: [],
   tradeQualityScore: 86
 };

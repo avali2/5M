@@ -15,6 +15,7 @@
   --yellow: #ca8a04;
   --orange: #ea580c;
   --red: #dc2626;
+  --chart-cursor: rgba(37, 99, 235, 0.08);
 }
 
 body {
@@ -68,6 +69,7 @@ a { color: inherit; }
 }
 
 .scrollbar { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+.recharts-tooltip-cursor { fill: var(--chart-cursor); }
 
 .text-slate-400, .text-slate-500, .text-slate-600 { color: var(--text-muted) !important; }
 .text-slate-300 { color: #475569 !important; }

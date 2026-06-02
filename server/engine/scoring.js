@@ -47,23 +47,36 @@ export function institutionalScore({ optionsScore, volScore, techScore, tapeScor
 
 // Backward compatibility aliases for server/engine/scanner.js
 export function scoreSetup({ setup, ivRank, trend, macroBlocked, gamma, flowBias, regime, technicals, riskAllowed, edge }) {
-  const baseScore = 40;
-  let score = baseScore;
+  const strategy = String(setup?.strategy || '');
+  const wantsBullish = /Bull|Cash Secured Put|Call Debit/i.test(strategy);
+  const wantsBearish = /Bear|Put Debit/i.test(strategy);
+  const trendScore = trend === 'bullish'
+    ? wantsBearish ? 35 : 85
+    : trend === 'bearish'
+      ? wantsBullish ? 35 : 85
+      : 70;
   const factors = {
-    primaryTrend: trend === 'bullish' ? 85 : trend === 'bearish' ? 45 : 70,
+    primaryTrend: trendScore,
     optionsLiquidity: (setup?.liquidityScore || 5) * 10,
     volatilityEdge: ivRank != null ? (ivRank >= 50 ? 80 : 50) : 50,
     newsEarningsMacro: macroBlocked ? 20 : 75,
     riskRewardSizing: riskAllowed ? 80 : 40
   };
 
+  const weights = { trend: 0.3, liquidity: 0.25, volatility: 0.20, macro: 0.15, risk: 0.10 };
+  let score =
+    factors.primaryTrend * weights.trend +
+    factors.optionsLiquidity * weights.liquidity +
+    factors.volatilityEdge * weights.volatility +
+    factors.newsEarningsMacro * weights.macro +
+    factors.riskRewardSizing * weights.risk;
   if (gamma?.regime === 'positive') score += 10;
   if (gamma?.regime === 'negative') score -= 5;
-  if (flowBias === 'aligned') score += 5;
-  if (regime === 'BULL_TREND' || regime === 'BEAR_TREND') score += 5;
+  if (flowBias === 'aligned') score += 3;
+  if (regime === 'BULL_TREND' || regime === 'BEAR_TREND') score += 3;
 
-  const confidenceScore = clamp(score + (factors.primaryTrend - 50) * 0.2, 0, 100);
-  return { score: clamp(Math.round(score), 0, 100), confidenceScore, factors, weights: { trend: 0.3, liquidity: 0.25, volatility: 0.20, macro: 0.15, risk: 0.10 } };
+  const confidenceScore = clamp(Math.round(score), 0, 100);
+  return { score: confidenceScore, confidenceScore, factors, weights };
 }
 
 export function classifySignal(setup, regime = 'neutral') {

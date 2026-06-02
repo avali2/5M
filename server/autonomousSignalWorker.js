@@ -32,6 +32,7 @@ export function startAutonomousSignalWorker(deps = {}) {
   repository = deps.repository || null;
   
   workerStarted = true;
+  globalThis.workerStarted = true;
   console.log('VALIDO 1M Autonomous Signal Worker started');
   
   setInterval(async () => {
@@ -144,8 +145,7 @@ async function scanAndNotify() {
       if (id !== lastOpenPositionsAlert) {
         lastOpenPositionsAlert = id;
         try {
-          const { sendPushToAll } = await import('./pushRoutes.js');
-          await sendPushToAll({
+          await pushService.send({
             title: `✅ Señal: ${best.symbol} ${best.strategy}`,
             body: `Confianza ${best.confidenceScore}/100 | Riesgo max $${best.maxRisk} | POP ${best.pop?.toFixed(0) ?? 'N/D'}%`,
             tag: `signal-${id}`,
@@ -167,8 +167,7 @@ async function scanAndNotify() {
       if (criticalReasons.length > 0 && pushService && criticalReasons.join() !== lastOpenPositionsAlert) {
         lastOpenPositionsAlert = criticalReasons.join();
         try {
-          const { sendPushToAll } = await import('./pushRoutes.js');
-          await sendPushToAll({
+          await pushService.send({
             title: '🚨 Riesgo Crítico Detectado',
             body: criticalReasons[0],
             tag: `risk-${Date.now()}`,
@@ -203,8 +202,7 @@ async function checkForCriticalNews() {
       if (id !== lastOpenPositionsAlert) {
         lastOpenPositionsAlert = id;
         try {
-          const { sendPushToAll } = await import('./pushRoutes.js');
-          await sendPushToAll({
+          await pushService.send({
             title: '📰 Noticia Crítica: ' + (criticalEvents[0]?.title || criticalNews[0]?.headline || 'Evento macro'),
             body: 'Revisa el escáner antes de abrir nuevas posiciones.',
             tag: `news-${Date.now()}`,
@@ -273,8 +271,7 @@ async function monitorOpenPositions() {
         if (pushService && id !== lastOpenPositionsAlert) {
           lastOpenPositionsAlert = id;
           try {
-            const { sendPushToAll } = await import('./pushRoutes.js');
-            await sendPushToAll({
+            await pushService.send({
               title: `⚠️ ${position.symbol} cerca de stop loss`,
               body: `Precio actual: $${quote.price.toFixed(2)} | Stop: $${stopPrice.toFixed(2)} | ${position.strategy || ''}`,
               tag: id,

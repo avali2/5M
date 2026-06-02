@@ -14,13 +14,10 @@ import { GuardianPushStore } from './pushStore.js';
 import { GuardianPushService } from './push.js';
 import { GuardianScheduler } from './guardianScheduler.js';
 import { createGuardianRouter, createPushRouter } from './guardianRoutes.js';
-import { registerPushRoutes } from './pushRoutes.js';
 import { startAutonomousSignalWorker } from './autonomousSignalWorker.js';
 import positionsRoutes from './routes/positionsRoutes.js';
 import { getSystemStatus } from './status.js';
 import geminiAssistantRouter from './geminiAssistant.js';
-import { emptyScanPayload, normalizeScanPayload } from './safePayload.js';
-import { runInstitutionalScan } from './institutional-engine.mjs';
 
 function enabledLabel(value) {
   return value ? 'enabled' : 'disabled';
@@ -744,8 +741,9 @@ export function createApp(settings = config, customProviders = null, options = {
     }
   });
 
-  registerPushRoutes(app);
-  startAutonomousSignalWorker({ scheduler, guardianScheduler, pushService, repository });
+  if (options.startBackground) {
+    startAutonomousSignalWorker({ scheduler, guardianScheduler, pushService, repository });
+  }
   app.use('/api/guardian', createGuardianRouter({ guardianScheduler, repository }));
   app.use('/api/push', createPushRouter({ pushService }));
   app.use('/api/positions', positionsRoutes);
@@ -798,27 +796,29 @@ export function createApp(settings = config, customProviders = null, options = {
     const warnings = [];
     try {
       const scan = await scheduler.snapshot();
-      const results = Array.isArray(scan?.results) ? scan.results : [];
-      const spyResult = results.find(r => r.symbol === 'SPY');
-      if (spyResult?.technicals) {
-        const t = spyResult.technicals;
-        const wyckoff = spyResult.wyckoff || { bias: 'NEUTRAL' };
+      const market = scan?.market || {};
+      const spyQuote = (market.quotes || []).find((quote) => quote.symbol === 'SPY');
+      const t = market.technicals?.SPY;
+      if (t) {
         let overall = 'NEUTRAL';
         let bias = 'NEUTRAL';
-        if (t.trend === 'BULL_TREND' && wyckoff.bias === 'BULLISH') { overall = 'BULLISH'; bias = 'ALCISTA'; }
-        else if (t.trend === 'BEAR_TREND' && wyckoff.bias === 'BEARISH') { overall = 'BEARISH'; bias = 'BAJISTA'; }
-        else if (t.trend === 'RANGE') { overall = 'RANGE'; bias = 'NEUTRAL'; }
+        if (t.trend === 'bullish') { overall = 'BULLISH'; bias = 'ALCISTA'; }
+        else if (t.trend === 'bearish') { overall = 'BEARISH'; bias = 'BAJISTA'; }
+        else if (t.trend === 'range') { overall = 'RANGE'; bias = 'NEUTRAL'; }
         return res.json({
           ok: true,
           overall,
           bias,
           confidence: 70,
-          details: `SPY ${t.trend}, RSI ${t.rsi14}, VWAP ${t.vwapBias}, VIX ${results.find(r => r.symbol === 'VIX')?.quote?.price || 'N/A'}`,
+          vix: market.vix ?? null,
+          spyChange: spyQuote?.changePercent ?? null,
+          technicals: { rsi: t.rsi14 ?? null, vwapBias: t.vwapBias ?? null },
+          details: `SPY ${t.trend}, RSI ${t.rsi14}, VWAP ${t.vwapBias}, VIX ${market.vix ?? 'N/A'}`,
           warnings,
           timestamp: new Date().toISOString()
         });
       }
-      if (!results.length) warnings.push('No market data from scan engine');
+      if (!(market.quotes || []).length) warnings.push('No market data from scan engine');
       res.json(fallback(warnings));
     } catch (err) {
       warnings.push(`Scan engine: ${err?.message || 'unknown error'}`);

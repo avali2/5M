@@ -56,8 +56,8 @@ router.get('/:id/analysis', async (req, res) => {
         });
         const data = await gRes.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) try { advice = JSON.parse(text); } catch {}
-      } catch {}
+        if (text) try { advice = JSON.parse(text); } catch { /* Keep deterministic fallback advice. */ }
+      } catch { /* Keep deterministic fallback advice. */ }
     }
 
     res.json({ ok: true, position, currentPrice, pnl: round(pnl, 2), currentValue: round(currentValue, 2), advice });

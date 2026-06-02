@@ -65,7 +65,7 @@ router.get('/daily-summary', async (_req, res) => {
         const parsed = JSON.parse(cached);
         resultData = { ...parsed, source, ok, degraded, geminiStatus };
         return res.json(resultData);
-      } catch {}
+      } catch { /* Ignore malformed cached Gemini payloads. */ }
     }
 
     // Try fresh API call
@@ -91,7 +91,7 @@ router.get('/daily-summary', async (_req, res) => {
         try {
           const parsed = JSON.parse(cachedNow);
           return res.json({ ...parsed, source: 'gemini_cached', ok: true, degraded: true, geminiStatus: 'rate_limited' });
-        } catch {}
+        } catch { /* Ignore malformed cached Gemini payloads. */ }
       }
 
       // Final fallback

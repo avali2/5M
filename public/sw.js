@@ -1,4 +1,4 @@
-self.addEventListener("install", event => {
+self.addEventListener("install", _event => {
   self.skipWaiting();
 });
 
@@ -10,7 +10,7 @@ self.addEventListener("activate", event => {
   );
 });
 
-self.addEventListener("push", event => {
+self.addEventListener('push', event => {
   let payload = { title: "VALIDO 1M", body: "Nueva alerta disponible.", tag: "valido-alert", url: "/" };
   try {
     if (event.data) payload = { ...payload, ...event.data.json() };
@@ -25,6 +25,17 @@ self.addEventListener("push", event => {
       requireInteraction: payload.requireInteraction ?? false,
       data: { url: payload.url || "/" }
     })
+  );
+});
+
+self.addEventListener('pushsubscriptionchange', event => {
+  event.waitUntil(
+    self.registration.pushManager.subscribe(event.oldSubscription?.options || { userVisibleOnly: true })
+      .then(subscription => fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription, deviceLabel: 'service-worker-refresh' })
+      }))
   );
 });
 

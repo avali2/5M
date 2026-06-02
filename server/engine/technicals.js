@@ -79,7 +79,7 @@ export function detectStructure(bars) {
   return "RANGE";
 }
 
-export function computeTechnicals(symbol, quote, bars) {
+export function computeTechnicals(symbol = '', quote = {}, bars = []) {
   const closes = bars.map(b => Number(b.close)).filter(Number.isFinite);
   const volumes = bars.map(b => Number(b.volume || 0));
   const last = quote.price || closes.at(-1);
@@ -113,5 +113,18 @@ export function computeTechnicals(symbol, quote, bars) {
   };
 }
 
-// Alias for backward compatibility
-export { computeTechnicals as deriveTechnicals };
+// The autonomous scanner predates computeTechnicals' symbol/quote arguments.
+export function deriveTechnicals(bars = [], symbol = '', quote = {}) {
+  const technicals = computeTechnicals(symbol, quote, Array.isArray(bars) ? bars : []);
+  const trend = technicals.trend === 'BULL_TREND'
+    ? 'bullish'
+    : technicals.trend === 'BEAR_TREND'
+      ? 'bearish'
+      : 'range';
+  return {
+    ...technicals,
+    trend,
+    vwap20: technicals.vwap,
+    relativeVolume20: technicals.relativeVolume
+  };
+}

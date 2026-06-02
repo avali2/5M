@@ -144,7 +144,7 @@ export default function AppPro() {
   }
 
   async function loadJournal() {
-    try { setEntries(await api.journal()); } catch {}
+    try { setEntries(await api.journal()); } catch { /* Journal is optional on the dashboard. */ }
   }
 
   useEffect(() => { load(); loadJournal(); }, []);

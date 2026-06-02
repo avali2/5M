@@ -10,6 +10,7 @@ process.env.SIGMA_DATA_DIR = testStore;
 process.env.DATABASE_URL = '';
 process.env.DATABASE_SSL = 'false';
 const { generateDefinedRiskSetups } = await import('../server/engine/strategies.js');
+const { computeTechnicals, deriveTechnicals } = await import('../server/engine/technicals.js');
 const { runAutonomousScan } = await import('../server/engine/scanner.js');
 const { classifyEventRisk, classifySoftEventRisk } = await import('../server/engine/market-intelligence.js');
 const { UNIVERSE } = await import('../server/config.js');
@@ -75,6 +76,17 @@ test('builds a defined-risk bull put spread only from quoted liquid legs', () =>
   assert.equal(bullPut.strikes, '95 / 94');
   assert.equal(bullPut.maxRisk, 50);
   assert.ok(bullPut.pop >= 75);
+});
+
+test('autonomous scanner technical adapter accepts history-only calls', () => {
+  const bars = Array.from({ length: 60 }, (_, index) => ({
+    close: 100 + index,
+    high: 101 + index,
+    low: 99 + index,
+    volume: 1_000 + index
+  }));
+  assert.equal(computeTechnicals('SPY', { price: 160 }, bars).trend, 'BULL_TREND');
+  assert.equal(deriveTechnicals(bars).trend, 'bullish');
 });
 
 test('fails closed when required live providers are absent', async () => {
@@ -144,7 +156,7 @@ test('agent endpoints expose guarded status without requiring AI', async () => {
   assert.equal(news.body.ok, true);
   assert.ok(news.body.geopolitical);
   const verify = await request(app).post('/api/agent/verify-signal').set('X-Valido-Key', 'long-private-mobile-key').send({ dryRun: true, symbol: 'SPY' }).expect(200);
-  assert.equal(verify.body.review.agent, 'SIGMA_GUARDIAN');
+  assert.equal(verify.body.review.agent, 'VALIDO_GUARDIAN');
   assert.equal(verify.body.aiCalled, false);
   const push = await request(app).post('/api/push/test').set('X-Valido-Key', 'long-private-mobile-key').send({ dryRun: true }).expect(200);
   assert.equal(push.body.dryRun, true);

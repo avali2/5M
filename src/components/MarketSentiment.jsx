@@ -43,12 +43,12 @@ export default function MarketSentiment() {
         overall,
         bias,
         score: overall === 'BULLISH' ? 75 : overall === 'BEARISH' ? 25 : 50,
-        vix: vixMatch ? vixMatch[1] : 'N/A',
-        spyChange: 0,
+        vix: data?.vix ?? (vixMatch ? vixMatch[1] : 'N/A'),
+        spyChange: data?.spyChange ?? 0,
         technicals: {
           ema9: null,
-          rsi: rsiMatch ?Number(rsiMatch[1]) : null,
-          vwapBias: vwapMatch ? vwapMatch[1] : null
+          rsi: data?.technicals?.rsi ?? (rsiMatch ? Number(rsiMatch[1]) : null),
+          vwapBias: data?.technicals?.vwapBias ?? (vwapMatch ? vwapMatch[1] : null)
         },
         tapePressure: 'Via /api/market/sentiment',
         regime: overall === 'BULLISH' ? '🟢 Alcista' : overall === 'BEARISH' ? '🔴 Bajista' : '🟡 Lateral'

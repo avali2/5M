@@ -38,6 +38,7 @@ export function sanitizeForJsonPayload(input) {
   // Remove lone surrogates
   s = s.replace(/[\uD800-\uDFFF]/g, '');
   // Replace control chars except newline/tab
+  // eslint-disable-next-line no-control-regex
   s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   // Normalize line endings
   s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');

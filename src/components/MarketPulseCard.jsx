@@ -46,9 +46,9 @@ function Metric({ label, value }) {
 }
 
 function formatTrend(t) {
-  if (t === "BULL_TREND") return "Alcista ↑";
-  if (t === "BEAR_TREND") return "Bajista ↓";
-  if (t === "RANGE") return "Lateral ↔";
+  if (t === "BULL_TREND" || t === "bullish") return "Alcista ↑";
+  if (t === "BEAR_TREND" || t === "bearish") return "Bajista ↓";
+  if (t === "RANGE" || t === "range") return "Lateral ↔";
   return "Sin datos";
 }
 
