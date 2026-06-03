@@ -79,8 +79,10 @@ async function analyzePosition(position) {
     `Precio actual verificado del subyacente ${symbol}: ${Number.isFinite(underlyingPrice) ? underlyingPrice : 'no disponible'}`,
     `Dias aproximados al vencimiento: ${daysToExpiration(normalized.expiration) ?? 'no disponible'}`,
     `P&L estimado desde marks manuales: ${pnlEstimate ? JSON.stringify(pnlEstimate) : 'no disponible'}`,
-    'Decide entre MANTENER, CERRAR_CON_LIMIT, AJUSTAR_CON_PLAN o REVISAR_DATOS. Explica exactamente como hacerlo en el broker sin prometer resultado.',
-    'Devuelve SOLO JSON con: status (SEGURA|VIGILANCIA|RIESGO|CRITICO), recommendation, explanation, actions (array), risks (array), limitations (array).'
+    'Decide entre MANTENER, CERRAR_CON_LIMIT, TOMAR_GANANCIA, CORTAR_PERDIDA, ROLL_DEFENSIVO, CONVERTIR_ESTRUCTURA, REDUCIR_TAMANO o REVISAR_DATOS.',
+    'Si recomiendas roll o conversion, especifica posicion actual, problema, nueva estrategia, nueva expiracion, nuevos strikes, delta short objetivo, credito/debito objetivo, max risk nuevo, max profit nuevo, condiciones para considerarlo y que NO hacer.',
+    'Si faltan cadena, griegas, mark real, noticias o liquidez, di REVISAR_DATOS y no inventes.',
+    'Devuelve SOLO JSON con: status (SEGURA|VIGILANCIA|RIESGO|CRITICO), recommendation, explanation, actions (array), risks (array), limitations (array), rollPlan (object opcional), convertPlan (object opcional).'
   ].join('\n');
   try {
     const gemini = await requestGeminiJson(prompt, { temperature: 0.2, maxTokens: 900 });

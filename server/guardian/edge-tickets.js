@@ -273,7 +273,7 @@ function doNotEnterRules(setup, premium) {
     'bid/ask se ensancha o la cotizacion esta vieja',
     invalidationFor(setup).replace(/^No entrar si /, ''),
     'evento macro/noticia entra en ventana critica',
-    'Robinhood muestra max loss distinto al calculado',
+    'El broker muestra max loss distinto al calculado',
     'tienes FOMO o no puedes monitorear el riesgo'
   ].filter(Boolean);
 }
@@ -286,7 +286,7 @@ function robinhoodLegText(ticket, leg) {
 
 function buildRobinhoodTicketText(ticket) {
   return [
-    'Robinhood Ticket:',
+    'Broker review ticket:',
     `Strategy: ${ticket.strategy}`,
     `Symbol: ${ticket.symbol}`,
     `Expiration: ${ticket.expiration || 'Confirmar'}`,
@@ -324,7 +324,7 @@ function educationForTicket(ticket, setup, premium) {
       'La liquidez no permite salir cerca del mid.'
     ],
     beforeEntry: [
-      'Confirmar legs exactas, expiracion y limite en Robinhood.',
+      'Confirmar legs exactas, expiracion y limite en el broker.',
       'Confirmar max loss mostrado por broker.',
       'Confirmar que POP y delta vienen de chain fresca.',
       'No entrar si el spread se ensancha o la cotizacion esta stale.'

@@ -25,23 +25,23 @@ export default function NotificationManager() {
     try {
       const keyResponse = await fetch('/api/push/public-key');
       const keyData = await keyResponse.json();
-      if (!keyData.configured || !keyData.publicKey) throw new Error('Web Push aún no está configurado en Render.');
+      if (!keyData.configured || !keyData.publicKey) throw new Error('Web Push aun no esta configurado en Render.');
       const registration = await navigator.serviceWorker.register('/sw.js');
       const existing = await registration.pushManager.getSubscription();
       const nextSubscription = existing || await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+        applicationServerKey: urlBase64ToUint8Array(keyData.publicKey)
       });
       const response = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription: nextSubscription.toJSON(), deviceLabel: navigator.userAgent }),
+        body: JSON.stringify({ subscription: nextSubscription.toJSON(), deviceLabel: navigator.userAgent })
       });
-      if (!response.ok) throw new Error('Render rechazó el registro del dispositivo.');
+      if (!response.ok) throw new Error('Render rechazo el registro del dispositivo.');
       setSubscription(nextSubscription);
-      setMessage('✅ Android o navegador registrado para alertas del Guardian.');
+      setMessage('Dispositivo registrado para alertas READY del Guardian.');
     } catch (error) {
-      setMessage(`⚠️ ${error.message}`);
+      setMessage(error.message);
     }
   }
 
@@ -52,23 +52,25 @@ export default function NotificationManager() {
   }
 
   async function testNotification() {
-    const registration = await navigator.serviceWorker.getRegistration();
-    await registration?.showNotification('🔔 VALIDO 1M', {
-      body: 'Prueba local correcta. El Auto Guardian enviará alertas cuando exista una señal elegible.',
-      icon: '/valido-mark.svg',
+    const registration = await navigator.serviceWorker.getRegistration() || await navigator.serviceWorker.register('/sw.js');
+    await registration?.showNotification('V VALIDO 1M', {
+      body: 'Prueba local correcta. El Guardian solo avisara señales READY implementables.',
+      icon: '/icons/valido-v-192.png',
+      badge: '/icons/valido-v-badge-96.png',
       tag: 'valido-local-test',
       vibrate: [200, 100, 200],
+      data: { url: '/institutional-os.html#signals' }
     });
   }
 
   return (
     <section className="risk-card p-4 space-y-3">
-      <h2 className="text-xl font-black flex items-center">🔔 Notificaciones Android <InfoTooltip explanation="Registra este dispositivo para recibir alertas del Auto Guardian aun cuando no tengas la pantalla abierta." /></h2>
-      <p className="text-sm text-slate-600">Instala la app desde Chrome en Android y permite notificaciones. Render gratuito puede tardar en despertar si el servicio estuvo dormido.</p>
+      <h2 className="text-xl font-black flex items-center">V Notificaciones Android <InfoTooltip explanation="Registra este dispositivo para recibir alertas READY y riesgos urgentes. WATCH, BLOCKED y NO DATA no se notifican." /></h2>
+      <p className="text-sm text-slate-600">Instala la app desde Chrome en Android y permite notificaciones. Las alertas usan el icono V de Valido.</p>
       {!supported && <p className="text-sm text-red-700">Este navegador no soporta Web Push.</p>}
-      {supported && !configured && <p className="text-sm text-amber-700">Web Push no está configurado en Render todavía.</p>}
+      {supported && !configured && <p className="text-sm text-amber-700">Web Push no esta configurado en Render todavia.</p>}
       {supported && permission !== 'granted' && <button className="primary-button w-full" onClick={requestPermission}>Activar alertas</button>}
-      {supported && permission === 'granted' && <div className="grid grid-cols-2 gap-2"><button className="secondary-button" onClick={subscribeToPush}>{subscription ? '✅ Volver a registrar' : 'Registrar dispositivo'}</button><button className="secondary-button" onClick={testNotification}>Probar alerta local</button></div>}
+      {supported && permission === 'granted' && <div className="grid grid-cols-2 gap-2"><button className="secondary-button" onClick={subscribeToPush}>{subscription ? 'Volver a registrar' : 'Registrar dispositivo'}</button><button className="secondary-button" onClick={testNotification}>Probar alerta local</button></div>}
       {message && <p className="text-sm text-slate-700">{message}</p>}
     </section>
   );

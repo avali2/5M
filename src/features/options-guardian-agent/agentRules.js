@@ -88,7 +88,7 @@ export function evaluateGuardianRules(context = {}) {
       symbol: ticket.symbol,
       title: ticket.notificationTitle || `${ticket.symbol} - ${ticket.classification}`,
       message: ticket.notificationBody || `${ticket.strategy} | POP ${ticket.popEstimated ?? 'No disponible'}% | ${ticket.riskClass}`,
-      recommendation: 'No es orden automatica. Abre el ticket, revisa Robinhood, max loss, bid/ask, invalidacion y tu estado mental antes de decidir.',
+      recommendation: 'No es orden automatica. Abre el ticket, revisa tu broker, max loss, bid/ask, invalidacion y tu estado mental antes de decidir.',
       source: 'Options Guardian Edge Ticket Mode',
       data: {
         ticket,

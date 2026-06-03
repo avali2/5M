@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 
 export default function InfoTooltip({ explanation, position = 'top' }) {
   const [show, setShow] = useState(false);
+  const id = useId();
 
   const positionClasses = {
     top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
@@ -11,22 +12,26 @@ export default function InfoTooltip({ explanation, position = 'top' }) {
   };
 
   return (
-    <div className="relative inline-flex items-center ml-1">
+    <span className="relative inline-flex items-center ml-1 align-middle">
       <button
-        onClick={() => setShow(!show)}
+        type="button"
+        onClick={() => setShow((current) => !current)}
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
-        className="text-gray-400 hover:text-blue-500 transition w-4 h-4 rounded-full border border-gray-300 flex items-center justify-center text-xs font-bold"
-        aria-label="Más información"
+        onFocus={() => setShow(true)}
+        onBlur={() => setShow(false)}
+        className="help-tooltip-trigger flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-black text-slate-600 transition hover:border-blue-400 hover:text-blue-700"
+        aria-label="Mas informacion"
+        aria-describedby={show ? id : undefined}
       >
         ?
       </button>
       {show && (
-        <div className={`absolute z-50 ${positionClasses[position]} w-48 p-2 text-xs bg-gray-900 text-white rounded shadow-lg transition-opacity duration-150`}>
-          {explanation}
-          <div className="absolute w-2 h-2 bg-gray-900 rotate-45 left-1/2 -translate-x-1/2 -bottom-1"></div>
-        </div>
+        <span id={id} role="tooltip" className={`info-tip help-tooltip absolute ${positionClasses[position] || positionClasses.top}`}>
+          {explanation || 'Sin descripcion disponible.'}
+          <span className="info-tip-arrow absolute h-2 w-2 rotate-45 left-1/2 -translate-x-1/2 -bottom-1" />
+        </span>
       )}
-    </div>
+    </span>
   );
 }

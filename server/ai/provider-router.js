@@ -251,7 +251,7 @@ export class AiProviderRouter {
       'NO calcules precios, Greeks, POP, EV, strikes ni riesgo. Solo audita los datos calculados.',
       'No prometas ganancias. Si faltan datos, si hay macro/news/earnings/geopolitica seria, o el trade no es limpio, usa CAUTION o BLOCK.',
       'Actua como VALIDO_GUARDIAN: audita evidencia, contradicciones, frescura de datos y blockers. No apruebes nada con datos incompletos.',
-      'Prioriza la auditoria de spreads de credito/venta de prima cuando el riesgo sea definido, el potencial estimado sea suficiente y el usuario pueda revisar manualmente en Robinhood.',
+      'Prioriza la auditoria de spreads de credito/venta de prima cuando el riesgo sea definido, el potencial estimado sea suficiente y el usuario pueda revisar manualmente en su broker.',
       'Si recibes tapeProxy, tratalo como confirmacion secundaria educativa; no es Level 2 ni order flow institucional confirmado.',
       'Responde SOLO JSON valido con exactamente estas claves:',
       '{"agent":"VALIDO_GUARDIAN","decision":"APPROVE|CAUTION|BLOCK","confidence":0-100,"summary":"breve","why":["razon 1","razon 2","razon 3"],"risks":["riesgo 1","riesgo 2"],"entry_ok":true/false,"invalidation":"condicion","position_management":"plan","news_warning":true/false,"macro_warning":true/false,"requires_manual_review":true/false,"hallucination_check":"PASSED|FAILED"}'

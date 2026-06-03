@@ -71,9 +71,69 @@ a { color: inherit; }
 .scrollbar { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
 .recharts-tooltip-cursor { fill: var(--chart-cursor); }
 
-.text-slate-400, .text-slate-500, .text-slate-600 { color: var(--text-muted) !important; }
-.text-slate-300 { color: #475569 !important; }
-.text-slate-200 { color: #334155 !important; }
-.text-slate-100 { color: #1e293b !important; }
-.text-white { color: #0f172a !important; }
-.primary-button, .btn-primary, nav .bg-blue-600 { color: #ffffff !important; }
+.recharts-default-tooltip,
+.recharts-tooltip-label,
+.recharts-tooltip-item,
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-value {
+  color: #111827 !important;
+}
+
+.recharts-default-tooltip {
+  background: #ffffff !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18) !important;
+}
+
+.info-tip,
+.help-tooltip,
+.tooltip,
+.help-popover,
+.popover-content,
+[data-tooltip]::after {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid #d1d5db !important;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18) !important;
+  border-radius: 10px !important;
+  padding: 8px 10px !important;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 32px)) !important;
+  white-space: normal !important;
+  line-height: 1.35 !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  z-index: 9999 !important;
+  pointer-events: none;
+}
+
+.info-tip *,
+.help-tooltip *,
+.tooltip *,
+.help-popover *,
+.popover-content * {
+  color: inherit !important;
+}
+
+.info-tip-arrow {
+  background: #ffffff !important;
+  border-bottom: 1px solid #d1d5db !important;
+  border-right: 1px solid #d1d5db !important;
+}
+
+.dark .info-tip,
+.dark .help-tooltip,
+.dark .tooltip,
+.dark .help-popover,
+.dark .popover-content,
+.dark [data-tooltip]::after {
+  background: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+.dark .info-tip-arrow {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+}

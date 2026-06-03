@@ -51,14 +51,18 @@ export async function showSignalNotification(signal: ProfessionalSignal): Promis
   await registration.showNotification(buildNotificationTitle(signal), {
     body: buildSignalNotificationBody(signal),
     tag: `signal-${signal.id}`,
-    icon: "/icons/icon-192.png",
-    badge: "/icons/badge-72.png",
-    requireInteraction: signal.status === "0DTE_SCALP",
+    icon: "/icons/valido-v-192.png",
+    badge: "/icons/valido-v-badge-96.png",
+    requireInteraction: false,
     data: {
-      url: `/signals/${signal.id}`,
+      url: `/institutional-os.html#signals`,
       signalId: signal.id,
       symbol: signal.symbol,
       status: signal.status
-    }
+    },
+    actions: [
+      { action: "view_signal", title: "Ver señal" },
+      { action: "journal", title: "Registrar en Journal" }
+    ]
   });
 }

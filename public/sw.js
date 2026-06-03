@@ -18,12 +18,20 @@ self.addEventListener('push', event => {
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
-      icon: "/icons/icon-192.png",
-      badge: "/icons/badge-72.png",
+      icon: payload.icon || "/icons/valido-v-192.png",
+      badge: payload.badge || "/icons/valido-v-badge-96.png",
       tag: payload.tag,
       renotify: true,
       requireInteraction: payload.requireInteraction ?? false,
-      data: { url: payload.url || "/" }
+      data: {
+        url: payload.url || payload.data?.url || "/institutional-os.html#signals",
+        signalId: payload.signalId || payload.data?.signalId,
+        positionId: payload.positionId || payload.data?.positionId
+      },
+      actions: payload.actions || [
+        { action: "view_signal", title: "Ver señal" },
+        { action: "journal", title: "Registrar en Journal" }
+      ]
     })
   );
 });
@@ -41,7 +49,9 @@ self.addEventListener('pushsubscriptionchange', event => {
 
 self.addEventListener("notificationclick", event => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || "/";
+  const targetUrl = event.action === "journal"
+    ? "/institutional-os.html#journal"
+    : event.notification.data?.url || "/institutional-os.html#signals";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(clientList => {
       for (const client of clientList) {

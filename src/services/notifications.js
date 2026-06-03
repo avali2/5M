@@ -66,8 +66,8 @@ export async function getNotificationDiagnostic() {
 export async function showMobileSafeNotification({
   title,
   body,
-  icon = '/icons/icon-192.png',
-  badge = '/icons/badge-72.png',
+  icon = '/icons/valido-v-192.png',
+  badge = '/icons/valido-v-badge-96.png',
   tag = 'valido-alert',
   data = { url: '/institutional-os.html' },
   actions = [],

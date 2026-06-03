@@ -59,7 +59,7 @@ export function deterministicTutorFallback(scan = {}, reason = '') {
     ? `Datos a revisar: ${payload.dataHealth.errors.join('; ')}.`
     : `Fuente de datos: ${payload.dataHealth.source || payload.dataHealth.mode || 'No disponible'}.`;
   const action = best
-    ? 'Antes de entrar: revisa bid/ask, OI, volumen, max risk, invalidacion tecnica y que el precio limite siga disponible en Robinhood.'
+    ? 'Antes de entrar: revisa bid/ask, OI, volumen, max risk, invalidacion tecnica y que el precio limite siga disponible en tu broker.'
     : 'Usa esto como modo estudio: espera chain valida, precio fresco y riesgo maximo calculado antes de considerar dinero real.';
   const fallbackReason = reason ? ` Fallback deterministico activo: ${reason}.` : '';
   return `${lead} ${dataLine} ${action}${fallbackReason}`;
@@ -72,7 +72,7 @@ export function buildAiTutorPrompt() {
     'No calcules precios, strikes, POP, EV, Greeks ni riesgo; esos datos ya vienen del motor deterministico.',
     'No prometas ganancias ni digas que el usuario debe ejecutar.',
     'Enfocate en: que revisar, riesgo principal, invalidacion, fuente de datos, tape reading proxy si existe, y una leccion profunda pero accionable sobre venta de prima/spreads de credito.',
-    'Si hay candidato de credito, explica por que el credito compensa o no compensa el riesgo y que confirmaria en Robinhood.',
+    'Si hay candidato de credito, explica por que el credito compensa o no compensa el riesgo y que confirmaria en el broker.',
     'Maximo 220 palabras.'
   ].join(' ');
 }

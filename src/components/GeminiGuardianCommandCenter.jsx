@@ -30,7 +30,7 @@ function copySignal(signal) {
     `POP est.: ${num(signal.popEstimated)}% | Score: ${num(signal.score)}`,
     `Max risk: ${money(signal.maxRisk)} | Collateral: ${money(signal.collateralRequired)}`,
     `Invalidacion: ${signal.invalidation}`,
-    'Revisar cadena en Robinhood antes de enviar. No usar market order.'
+    'Revisar cadena en tu broker antes de decidir. No usar market order.'
   ];
   navigator.clipboard?.writeText(lines.join('\n'));
 }
@@ -96,7 +96,7 @@ function SignalTicket({ signal, onSimulate, onPaper, onAiExplain }) {
         <button className="btn" onClick={() => onSimulate?.(signal)}>Simular</button>
         <button className="btn" onClick={() => onPaper?.(signal)}>Guardar como paper</button>
         <button className="btn" onClick={onAiExplain}>Explicarme con Gemini</button>
-        <a className="btn" href="#paper">Ver checklist Robinhood</a>
+        <a className="btn" href="#paper">Ver checklist broker</a>
       </div>
       <p className="mt-3 text-xs text-slate-500">Probabilidad estimada, no garantia. Si el bid/ask cambia o el broker muestra max loss distinto, no perseguir.</p>
     </article>
@@ -141,7 +141,7 @@ function buildMorningBrief({ scan, signals, rejected, nonClearGuards, source }) 
     strategy: `Tipo de estrategia favorecida: ${strategyBias}. Prioridad a riesgo definido y venta de prima cuando el credito paga.`,
     watch: bestSignal ? `Vigilar: ${bestSignal.ticker} ya tiene candidato aprobado.` : bestRejected ? `Vigilar: ${bestRejected.ticker} si mejora ${bestRejected.rejectionReasons?.[0] || 'score/liquidez'}.` : 'Vigilar: SPY, QQQ y nombres liquidos hasta que haya chain valida.',
     avoid: bestRejected?.rejectionReasons?.[0] || 'Evitar entradas sin bid/ask fresco, max risk, earnings clearance y confirmacion Guardian.',
-    recommendation: bestSignal ? 'Mi recomendacion operativa: revisar ticket en Robinhood, no perseguir precio y respetar invalidacion.' : 'Mi recomendacion operativa: ESPERAR / NO TRADE hasta que los datos y guards permitan una entrada limpia.'
+    recommendation: bestSignal ? 'Mi recomendacion operativa: revisar ticket en el broker, no perseguir precio y respetar invalidacion.' : 'Mi recomendacion operativa: ESPERAR / NO TRADE hasta que los datos y guards permitan una entrada limpia.'
   };
 }
 

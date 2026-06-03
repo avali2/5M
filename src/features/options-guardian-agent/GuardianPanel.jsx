@@ -86,7 +86,7 @@ function TicketDetails({ ticket, onAction }) {
         <span className={`rounded-full border px-2 py-1 font-bold ${tone.badge}`}>Score {ticket.edgeScore ?? '--'}/100</span>
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <p><strong>Action Robinhood:</strong><br />{ticket.robinhoodAction}</p>
+        <p><strong>Accion en broker:</strong><br />{ticket.robinhoodAction}</p>
         <p><strong>Expiracion:</strong><br />{ticket.expiration || 'No disponible'} ({ticket.dte ?? '--'} DTE)</p>
         <p><strong>Legs:</strong><br />{ticket.legsText || 'No disponible'}</p>
         <p><strong>Orden:</strong><br />{ticket.orderType} | {ticket.entryLimit}</p>
@@ -109,11 +109,11 @@ function TicketDetails({ ticket, onAction }) {
         <summary className="cursor-pointer font-semibold text-sigma-amber">Do not enter if / seguridad</summary>
         <ul className="mt-2 list-inside list-disc space-y-1 text-amber-950">
           {(ticket.doNotEnterIf || []).map((rule) => <li key={rule}>{rule}</li>)}
-          <li>POP estimada no garantiza ganancia. Revisa precio real, max loss e invalidacion en Robinhood.</li>
+          <li>POP estimada no garantiza ganancia. Revisa precio real, max loss e invalidacion en tu broker.</li>
         </ul>
       </details>
       <details className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-950">
-        <summary className="cursor-pointer font-semibold text-sigma-blue">Como ponerlo en Robinhood</summary>
+        <summary className="cursor-pointer font-semibold text-sigma-blue">Como revisarlo en tu broker</summary>
         <ol className="mt-2 list-inside list-decimal space-y-1 text-blue-950">
           <li>Busca {ticket.symbol} y abre Options.</li>
           <li>Selecciona expiracion {ticket.expiration || 'indicada'}.</li>

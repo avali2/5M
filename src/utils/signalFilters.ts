@@ -2,19 +2,17 @@ import type { ProfessionalSignal } from "../types/signal";
 import { APP_CONFIG } from "../config/appConfig";
 
 export function isActionableSignal(signal: ProfessionalSignal): boolean {
-  return (
-    signal.status === "READY" ||
-    signal.status === "AGGRESSIVE" ||
-    signal.status === "0DTE_SCALP"
-  );
+  return signal.status === "READY";
 }
 
 export function shouldNotifySignal(signal: ProfessionalSignal): boolean {
   if (!isActionableSignal(signal)) return false;
   if (!signal.ticketText) return false;
+  if (!signal.expiration || !signal.legs?.length) return false;
+  if (signal.maxRiskUsd == null) return false;
+  if (!signal.executionPlan?.stopLoss || !signal.executionPlan?.takeProfit) return false;
   if (signal.sourceQuality.latency === "mock") return false;
   if (signal.sourceQuality.optionDataSource === "mock") return false;
-  if (signal.status === "0DTE_SCALP" && !signal.executionPlan.stopLoss) return false;
   if (signal.expiresAt && new Date(signal.expiresAt).getTime() < Date.now()) return false;
   return true;
 }
