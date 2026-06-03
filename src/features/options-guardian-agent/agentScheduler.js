@@ -41,8 +41,8 @@ export class GuardianClientScheduler {
       settings: this.settings,
       hasOpenPaperTrade: Boolean(result.hasOpenPaperTrade)
     });
-    const hiddenMultiplier = this.visibility() === 'hidden' ? 3 : 1;
-    const delay = Math.max(60000, minutes * hiddenMultiplier * 60000);
+    // Keep the same cadence while the PWA is backgrounded; browsers may still throttle timers.
+    const delay = Math.max(60000, minutes * 60000);
     this.nextRun = new Date(new Date(this.now()).getTime() + delay).toISOString();
     this.timer = window.setTimeout(async () => {
       const response = await this.runNow();
