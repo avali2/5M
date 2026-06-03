@@ -1,6 +1,7 @@
 export const WATCHED_POSITIONS_KEY = 'valido-broker-positions-v2';
 export const TAKEN_SIGNALS_KEY = 'valido-taken-signals-v1';
 export const LOCAL_JOURNAL_KEY = 'valido-local-journal-v1';
+export const DELETED_JOURNAL_KEY = 'valido-deleted-journal-v1';
 
 function readJson(key, fallback) {
   try {
@@ -34,7 +35,7 @@ export function saveWatchedPositions(positions) {
 }
 
 export function loadLocalJournalEntries() {
-  return readJson(LOCAL_JOURNAL_KEY, []);
+  return pruneExpiredJournalEntries(readJson(LOCAL_JOURNAL_KEY, []));
 }
 
 export function saveLocalJournalEntry(entry) {
@@ -48,6 +49,34 @@ export function saveLocalJournalEntry(entry) {
   writeJson(LOCAL_JOURNAL_KEY, [normalized, ...current.filter((item) => item.id !== normalized.id)]);
   window.dispatchEvent(new Event('journal-updated'));
   return normalized;
+}
+
+export function loadDeletedJournalIds() {
+  return readJson(DELETED_JOURNAL_KEY, []);
+}
+
+export function deleteJournalEntry(entryId) {
+  if (!entryId) return [];
+  const localEntries = readJson(LOCAL_JOURNAL_KEY, []);
+  writeJson(LOCAL_JOURNAL_KEY, localEntries.filter((entry) => entry.id !== entryId));
+  const deleted = new Set(loadDeletedJournalIds());
+  deleted.add(entryId);
+  writeJson(DELETED_JOURNAL_KEY, [...deleted]);
+  window.dispatchEvent(new Event('journal-updated'));
+  return [...deleted];
+}
+
+export function pruneExpiredJournalEntries(entries = []) {
+  const today = Date.now();
+  const kept = entries.filter((entry) => {
+    const expiration = entry.expiration || entry.signalOriginal?.expiration;
+    const status = String(entry.outcome || entry.status || '').toUpperCase();
+    if (!expiration || status.includes('CLOSED')) return true;
+    const expiry = new Date(`${expiration}T23:59:59`).getTime();
+    return !Number.isFinite(expiry) || expiry + 7 * 86400000 >= today;
+  });
+  if (kept.length !== entries.length) writeJson(LOCAL_JOURNAL_KEY, kept);
+  return kept;
 }
 
 export function createOrUpdateWatchedPositionFromSignal(signal, journalEntry = {}) {
