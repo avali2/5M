@@ -19,7 +19,7 @@ import { evaluateRiskGovernor } from './risk-governor.js';
 import { buildGuardianEdgeTicketScan } from '../guardian/edge-tickets.js';
 import { enrichSignalForGreenPolicy, SIGNAL_STATUSES } from './greenSignalPolicy.js';
 
-const DEFAULT_SYMBOLS = [...UNIVERSE.core, ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
+const DEFAULT_SYMBOLS = [...UNIVERSE.core, ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.opportunityEquities, ...UNIVERSE.liquidEtfs];
 const SHORT_DTE_SYMBOLS = new Set(['SPY', 'SPX', 'QQQ', 'IWM', 'DIA']);
 const CORRELATED = {
   SPY: 'broad', SPX: 'broad', DIA: 'broad', IWM: 'broad',
@@ -287,7 +287,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     tradingPaused: false
   });
   const rotation = rotatingSymbols(UNIVERSE.sp100Equities.filter((symbol) => !NON_TRADABLE_SCANNER_SYMBOLS.has(symbol)));
-  const symbols = [...new Set([...(settings.watchlist?.core || UNIVERSE.core), ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...watchlist.symbols, ...rotation])];
+  const symbols = [...new Set([...(settings.watchlist?.core || UNIVERSE.core), ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.opportunityEquities, ...watchlist.symbols, ...rotation])];
   const providerGates = requiredProviderGates(providers);
   const missing = providerGates.filter((gate) => !gate.pass);
   const base = {
@@ -375,6 +375,15 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   const limit = pLimit(3);
   const results = await Promise.all(symbols.map((symbol) => limit(() => scanSymbol({ symbol, providers, market, macro, policy, profile }))));
   const spyGamma = results.find((result) => result.symbol === 'SPY')?.gamma;
+  market.gamma = spyGamma || null;
+  market.regime = detectMarketRegime({
+    vix: market.vix,
+    breadth: market.breadth,
+    spyTechnical: market.technicals?.SPY,
+    qqqTechnical: market.technicals?.QQQ,
+    gamma: spyGamma,
+    macroRisk: highImpactEvents.length > 0 || breakingRisk.length > 0
+  });
   // Build tape reading proxy for the overall market
   market.tapeReading = {
     arrow: market.regime === 'BULL_TREND' ? '⬆️' : market.regime === 'BEAR_TREND' ? '⬇️' : '↔️',

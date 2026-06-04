@@ -1,7 +1,7 @@
 export const CORE_UNIVERSE = [
   "SPY", "QQQ", "IWM", "DIA",
   "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA",
-  "AMD", "AVGO", "NFLX", "COST", "MCD", "JPM", "BAC", "XOM", "CVX", "LLY", "UNH", "SOFI",
+  "AMD", "AVGO", "NFLX", "COST", "MCD", "JPM", "BAC", "XOM", "CVX", "LLY", "UNH", "SOFI", "NU", "F", "PLTR", "UBER", "HOOD", "COIN", "ORCL", "CRM", "DIS", "BA", "CAT",
   "SMH", "XLK", "XLF", "XLE", "TLT"
 ] as const;
 

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import InfoTooltip from './InfoTooltip';
-import { loadWatchedPositions, saveWatchedPositions } from '../services/tradeStorage.js';
+import { loadManualBrokerPositions, pruneSignalGeneratedPositions, saveWatchedPositions } from '../services/tradeStorage.js';
 
 const STRATEGIES = [
   'Long Call', 'Long Put', 'Bull Call Debit Spread', 'Bear Put Debit Spread',
@@ -44,14 +44,14 @@ function healthStyle(health) {
 }
 
 export function BrokerPositionsDesk() {
-  const [positions, setPositions] = useState(loadWatchedPositions);
+  const [positions, setPositions] = useState(() => pruneSignalGeneratedPositions());
   const [form, setForm] = useState(EMPTY);
   const [reviews, setReviews] = useState({});
   const [loadingId, setLoadingId] = useState('');
   const openCount = useMemo(() => positions.length, [positions]);
 
   React.useEffect(() => {
-    function reload() { setPositions(loadWatchedPositions()); }
+    function reload() { setPositions(loadManualBrokerPositions()); }
     window.addEventListener('positions-updated', reload);
     window.addEventListener('storage', reload);
     return () => {

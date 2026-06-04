@@ -1,7 +1,21 @@
+function journalSource(entry = {}) {
+  if (entry.source) return String(entry.source);
+  if (entry.signalOriginal?.source) return String(entry.signalOriginal.source);
+  if (typeof entry.signal_original === 'string') {
+    try {
+      return String(JSON.parse(entry.signal_original)?.source || '');
+    } catch {
+      return '';
+    }
+  }
+  return String(entry.signal_original?.source || '');
+}
+
 export async function loadBrokerPositions({ repository, providers } = {}) {
   const manual = repository?.listJournal ? await repository.listJournal() : [];
   const positions = (manual || [])
     .filter((entry) => ['OPEN', 'OPEN / WATCHING', 'EJECUTADA', 'OBSERVADA'].includes(String(entry.outcome || '').toUpperCase()))
+    .filter((entry) => journalSource(entry).toLowerCase() !== 'signal_taken')
     .map((entry) => ({
       ...entry,
       id: entry.id || `manual-${entry.symbol}-${entry.createdAt || Date.now()}`,

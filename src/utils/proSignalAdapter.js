@@ -38,6 +38,10 @@ function mapStatus(item = {}, source = 'candidate') {
   const classification = String(item.classification || item.status || '').toUpperCase();
   const dte = toNumber(item.dte, 99);
   if (/kill switch|daily loss|risk limit|limite/i.test(String(item.blockedReason || item.warnings?.join(' ') || ''))) return 'LOCKED_BY_RISK';
+  if (/READY_GREEN/.test(classification)) return dte === 0 ? '0DTE_SCALP' : 'READY';
+  if (/DATA_ERROR|NO_CHAIN|NO_QUOTE|NO_GREEKS/.test(classification)) return 'NO_DATA';
+  if (/CANDIDATE|WATCHLIST|WAIT_TRIGGER/.test(classification)) return 'WATCH';
+  if (/BLOCKED/.test(classification)) return 'AVOID';
   if (source === 'approved' && dte === 0) return '0DTE_SCALP';
   if (source === 'approved' && /EDGE_READY|READY|APPROVE/.test(classification)) return 'READY';
   if (source === 'approved' && /AGGRESSIVE|CAPITAL|HIGH_POP/.test(classification)) return 'AGGRESSIVE';
@@ -164,6 +168,7 @@ function fromTicket(item = {}, scan = {}, source = 'candidate') {
     dte,
     score: Math.round(toNumber(item.edgeScore ?? setup.confidenceScore ?? setup.score, 0)),
     pop,
+    profitProbabilityPct: pop === null ? null : Math.round(pop * 100),
     credit: toNumber(setup.credit ?? (String(item.entryLimit || '').includes('Credit') ? item.entryLimitValue : null)),
     debit: toNumber(setup.debit ?? (String(item.entryLimit || '').includes('Debit') ? item.entryLimitValue : null)),
     maxRiskUsd: toNumber(item.maxRisk ?? setup.maxRisk),
@@ -186,19 +191,28 @@ function fromTicket(item = {}, scan = {}, source = 'candidate') {
 
 function fromRejected(item = {}, scan = {}) {
   const signal = fromTicket(item, scan, 'rejected');
+  const classification = String(item.classification || item.status || '').toUpperCase();
   return {
     ...signal,
-    status: item.blocks?.length || item.riskGovernor?.blocks?.length ? 'AVOID' : 'NO_DATA',
+    status: /NO_DATA|DATA_ERROR|NO_CHAIN|NO_QUOTE|NO_GREEKS/.test(classification)
+      ? 'NO_DATA'
+      : item.blocks?.length || item.riskGovernor?.blocks?.length ? 'AVOID' : 'NO_DATA',
     blockedReason: item.blocks?.[0] || item.riskGovernor?.blocks?.[0] || 'No paso filtros de datos/riesgo.'
   };
 }
 
 export function professionalSignalsFromScan(scan = {}) {
+  const directReady = (scan.opportunities || []).map((item) => fromTicket(item, scan, 'approved'));
   const approvedFromAgent = (scan.agent?.approvedSignals || []).map((item) => fromTicket(item, scan, 'approved'));
   const actionable = (scan.guardianEdge?.actionableTickets || []).map((item) => fromTicket(item, scan, 'approved'));
   const candidates = (scan.guardianEdge?.candidateTickets || scan.guardianEdge?.tickets || []).map((item) => fromTicket(item, scan, 'candidate'));
-  const rejected = (scan.rejected || []).slice(0, 8).map((item) => fromRejected(item, scan));
-  const all = [...approvedFromAgent, ...actionable, ...candidates, ...rejected];
+  const conditional = (scan.conditionalIdeas || []).map((item) => fromTicket(item, scan, 'candidate'));
+  const rejected = (scan.rejected || [])
+    .filter((item) => /NO_DATA|DATA_ERROR/i.test(String(item.classification || item.status || '')))
+    .slice(0, 5)
+    .map((item) => fromRejected(item, scan));
+  const all = [...directReady, ...approvedFromAgent, ...actionable, ...candidates, ...conditional, ...rejected]
+    .filter((signal) => signal.status !== 'AVOID');
   const seen = new Set();
   return all.filter((signal) => {
     const key = `${signal.symbol}-${signal.strategyLabel}-${signal.expiration}-${signal.status}`;

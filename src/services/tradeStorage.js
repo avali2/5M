@@ -34,6 +34,25 @@ export function saveWatchedPositions(positions) {
   return writeJson(WATCHED_POSITIONS_KEY, positions);
 }
 
+export function isManualBrokerPosition(position = {}) {
+  const source = String(position.source || '').toLowerCase();
+  const id = String(position.id || '');
+  return source !== 'signal_taken' && !id.startsWith('signal-');
+}
+
+export function loadManualBrokerPositions() {
+  return loadWatchedPositions().filter(isManualBrokerPosition);
+}
+
+export function pruneSignalGeneratedPositions() {
+  const manual = loadManualBrokerPositions();
+  if (manual.length !== loadWatchedPositions().length) {
+    saveWatchedPositions(manual);
+    window.dispatchEvent(new Event('positions-updated'));
+  }
+  return manual;
+}
+
 export function loadLocalJournalEntries() {
   return pruneExpiredJournalEntries(readJson(LOCAL_JOURNAL_KEY, []));
 }
@@ -80,42 +99,10 @@ export function pruneExpiredJournalEntries(entries = []) {
 }
 
 export function createOrUpdateWatchedPositionFromSignal(signal, journalEntry = {}) {
-  const positions = loadWatchedPositions();
-  const id = `signal-${signal.id}`;
-  const legs = signal.legs || [];
-  const strikes = legs.length
-    ? legs.map((leg) => `${leg.side || leg.action || 'WATCH'} ${leg.strike}${leg.optionType || leg.type || ''}`).join(' / ')
-    : signal.strikes || '';
-  const position = {
-    id,
-    source: 'signal_taken',
-    sourceSignalId: signal.id,
-    journalId: journalEntry.id || journalEntry.createdAt || null,
-    symbol: signal.symbol,
-    strategy: signal.strategyLabel || signal.strategy,
-    expiration: signal.expiration,
-    quantity: 1,
-    entryMark: signal.credit ?? signal.debit ?? signal.executionPlan?.limitPrice ?? '',
-    currentMark: signal.credit ?? signal.debit ?? signal.executionPlan?.limitPrice ?? '',
-    strikes,
-    targetMark: signal.executionPlan?.takeProfit || '',
-    stopMark: signal.executionPlan?.stopLoss || '',
-    notes: signal.executionPlan?.invalidationLevel
-      ? `Invalidacion ${signal.executionPlan.invalidationLevel}`
-      : signal.geminiCoach?.summary || signal.technicalSummary || '',
-    status: 'WATCHING',
-    health: 'GREEN',
-    maxRiskUsd: signal.maxRiskUsd,
-    maxProfitUsd: signal.maxProfitUsd,
-    pop: signal.pop,
-    score: signal.score,
-    geminiReview: signal.geminiCoach,
-    snapshot: signal,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+  window.dispatchEvent(new Event('journal-updated'));
+  return {
+    source: 'journal_only',
+    sourceSignalId: signal?.id,
+    journalId: journalEntry?.id || journalEntry?.createdAt || null
   };
-  const next = [position, ...positions.filter((item) => item.id !== id)];
-  saveWatchedPositions(next);
-  window.dispatchEvent(new Event('positions-updated'));
-  return position;
 }

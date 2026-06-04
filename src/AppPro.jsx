@@ -16,7 +16,7 @@ import RiskCommandCenter from './features/risk/RiskCommandCenter.jsx';
 import { loadRiskConfig, saveRiskConfig } from './config/riskConfig.ts';
 import { classifyNewsEvent } from './services/newsImpactClassifier.ts';
 import { professionalSignalsFromScan } from './utils/proSignalAdapter.js';
-import { createOrUpdateWatchedPositionFromSignal, deleteJournalEntry, loadDeletedJournalIds, loadLocalJournalEntries, loadTakenSignals, loadWatchedPositions, markSignalTaken, saveLocalJournalEntry } from './services/tradeStorage.js';
+import { deleteJournalEntry, loadDeletedJournalIds, loadLocalJournalEntries, loadManualBrokerPositions, loadTakenSignals, markSignalTaken, saveLocalJournalEntry } from './services/tradeStorage.js';
 
 const VALIDO_VERSION = import.meta.env.VITE_VALIDO_BUILD_VERSION || 'local-dev';
 
@@ -80,6 +80,32 @@ function HomeHero({ scan, ready, watch, pulse }) {
   );
 }
 
+function WatchedUniversePanel({ scan }) {
+  const symbols = [
+    ...(scan?.watchlist?.symbols || []),
+    ...(scan?.universeCoverage?.rotatingThisCycle || [])
+  ];
+  const unique = [...new Set(symbols)].filter(Boolean);
+  if (!unique.length) return null;
+  return (
+    <section className="risk-card p-4 space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">Universo vigilado</p>
+          <h2 className="text-xl font-black text-slate-900">Acciones listas para escanear</h2>
+          <p className="text-sm text-slate-700">Incluye S&P 100 del PDF, indices como contexto, SOFI, NU, F y rotacion liquida.</p>
+        </div>
+        <span className="pill">{unique.length} simbolos</span>
+      </div>
+      <div className="flex max-h-40 flex-wrap gap-2 overflow-auto pr-1">
+        {unique.map((symbol) => (
+          <span key={symbol} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-700 shadow-sm">{symbol}</span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function TapeReadingCard({ tape }) {
   if (!tape) return null;
   return (
@@ -112,7 +138,7 @@ function RiskLimits({ profile, riskConfig }) {
         <Metric icon="💼" tone="blue" label="Cuenta" value={`$${cfg.accountValue}`} />
         <Metric icon="🎯" tone="green" label="Riesgo / trade" value={`$${tradeBudget} (${cfg.defaultRiskPct}%)`} />
         <Metric icon="🏦" tone="violet" label="Colateral max." value={`${cfg.collateralCapPct}%`} />
-        <Metric icon="📌" tone="amber" label="Trades abiertos" value={`${profile?.activeSymbols?.length || loadWatchedPositions().length} / ${cfg.maxOpenTrades}`} />
+        <Metric icon="📌" tone="amber" label="Trades abiertos" value={`${profile?.activeSymbols?.length || loadManualBrokerPositions().length} / ${cfg.maxOpenTrades}`} />
       </div>
     </section>
   );
@@ -226,6 +252,7 @@ function TradeJournal({ entries, onDelete }) {
         )}
       </section>
       <DailyTradingWorkflow />
+      <DailyGeminiLesson />
     </>
   );
 }
@@ -312,17 +339,15 @@ export default function AppPro() {
       lesson: signal.geminiCoach?.mainRisk || 'Revisar fill real, liquidez, noticias, earnings y plan de salida.',
       signalOriginal: { ...signal, takenAt: new Date().toISOString(), marketContext: scan?.market || null, macroContext: scan?.macro || null }
     };
-    let saved = null;
     try {
-      saved = await api.addJournal(journalEntry);
+      await api.addJournal(journalEntry);
     } catch (saveError) {
-      saved = saveLocalJournalEntry({ ...journalEntry, outcome: 'OPEN / WATCHING', notes: `${journalEntry.notes}\nDB fallback: ${saveError.message}` });
+      saveLocalJournalEntry({ ...journalEntry, outcome: 'OPEN / WATCHING', notes: `${journalEntry.notes}\nDB fallback: ${saveError.message}` });
     }
-    createOrUpdateWatchedPositionFromSignal(signal, saved || journalEntry);
     markSignalTaken(signal.id);
     setTakenSignalIds(loadTakenSignals());
     setEntries(await loadJournalEntries());
-    setToast('Señal registrada en Journal y Riesgo');
+    setToast('Señal registrada en Journal. Riesgo queda solo para posiciones manuales.');
     window.setTimeout(() => setToast(''), 3500);
     setActiveTab('journal');
   }
@@ -336,7 +361,7 @@ export default function AppPro() {
   }, []);
 
   const signals = useMemo(() => professionalSignalsFromScan(scan || {}), [scan]);
-  const activeSymbols = useMemo(() => new Set(loadWatchedPositions().map((position) => position.symbol)), [entries, activeTab]);
+  const activeSymbols = useMemo(() => new Set(loadManualBrokerPositions().map((position) => position.symbol)), [entries, activeTab]);
   const news = useMemo(() => {
     const macro = scan?.macro || {};
     const all = [
@@ -360,6 +385,15 @@ export default function AppPro() {
     tapeReading: scan?.market?.tapeReading,
     bestModeNow: ready.length ? 'REVISAR_ENTRADAS' : watch.length ? 'ESPERAR_GATILLO' : 'PRESERVAR_CAPITAL'
   };
+  const watchedUniverse = [
+    ...(scan?.watchlist?.symbols || []),
+    ...(scan?.universeCoverage?.rotatingThisCycle || [])
+  ];
+  const bestSymbols = [...new Set([
+    ...ready.map((signal) => signal.symbol),
+    ...watch.map((signal) => signal.symbol),
+    ...watchedUniverse
+  ].filter(Boolean))].slice(0, 5);
   const brief = {
     mood: pulse.macroStatus === 'DANGER' ? 'EVENT_RISK' : scan?.market?.regime || 'CHOP',
     mode: ready.length ? 'BUSCAR_ENTRADAS' : 'ESPERAR',
@@ -370,7 +404,7 @@ export default function AppPro() {
       `READY: ${ready.length} · WATCH: ${watch.length}`,
       'Broker: no conectado; Riesgo usa LocalJournalAdapter'
     ],
-    bestSymbols: [...ready, ...watch].slice(0, 3).map((signal) => signal.symbol),
+    bestSymbols,
     blockedSymbols: signals.filter((signal) => signal.status === 'AVOID').slice(0, 3).map((signal) => signal.symbol),
     motivation: dailyLesson?.motivation || 'Solo ejecutar tickets verdes, completos y aprobados por Gemini.'
   };
@@ -393,7 +427,7 @@ export default function AppPro() {
       <main className="home-pro pb-24">
         {toast && <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl border border-green-200 bg-white px-4 py-3 text-sm font-bold text-green-800 shadow-lg">{toast}</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
-        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /></>}
+        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} /><GeminiBriefCard {...brief} /><WatchedUniversePanel scan={scan} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /></>}
         {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} />}
         {activeTab === 'news' && <NewsImpactList news={news} />}
         {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} /><RiskCommandCenter /><BrokerPositionsDesk /></>}

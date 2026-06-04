@@ -27,14 +27,15 @@ const productionRuntime = String(process.env.NODE_ENV || '').toLowerCase() === '
 const WATCHLIST_CORE = asList(process.env.WATCHLIST_CORE, [
   'SPY', 'QQQ', 'IWM', 'DIA', 'SPX', 'XSP',
   'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA',
-  'SOFI', 'AMD', 'MCD', 'RIVN', 'NU'
+  'SOFI', 'NU', 'F', 'AMD', 'AVGO', 'PLTR', 'UBER', 'HOOD', 'COIN',
+  'MCD', 'JPM', 'BAC', 'XOM', 'CVX', 'COST', 'WMT', 'LLY', 'ORCL', 'CRM', 'NFLX'
 ]);
 
 export const UNIVERSE = {
   indices: ['SPY', 'SPX', 'QQQ', 'IWM', 'DIA'],
   pdfIndices: ['DJI', 'NDX', 'IXIC', 'SPX', 'DJA', 'DJT', 'DJU', 'XAX', 'NYA', 'OEX', 'RUT', 'VIX', 'VXST', 'VXN', 'RVX', 'VXEEM', 'OVX', 'GVZ'],
   magnificent7: ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA'],
-  focusEquities: ['SOFI', 'AMD', 'RIVN', 'MCD', 'NU'],
+  focusEquities: ['SOFI', 'NU', 'F', 'AMD', 'AVGO', 'PLTR', 'UBER', 'HOOD', 'COIN', 'MCD', 'JPM', 'BAC', 'XOM', 'CVX', 'COST', 'WMT', 'LLY', 'ORCL', 'CRM', 'NFLX', 'DIS', 'BA', 'GE', 'CAT', 'PYPL', 'SHOP', 'SQ'],
   sp100Equities: [
     'MMM', 'ABT', 'ABBV', 'ACN', 'ADBE', 'AMD', 'ALL', 'GOOGL', 'GOOG', 'MO', 'AMZN', 'AXP', 'AIG', 'AMGN', 'AAPL', 'T', 'BAC', 'BK', 'BRK.B', 'BIIB', 'BLK', 'BA', 'BKNG', 'BMY', 'AVGO', 'COF', 'CAT',
     'SCHW', 'CHTR', 'CVX', 'CSCO', 'C', 'KO', 'CL', 'CMCSA', 'COP', 'COST', 'CVS', 'DHR', 'DOW', 'DD', 'DUK', 'LLY', 'EMR', 'EXC', 'XOM', 'FDX', 'F', 'GE', 'GD', 'GM', 'GILD', 'GS', 'HD', 'HON', 'IBM', 'INTC', 'JNJ', 'JPM', 'KMI',
@@ -42,6 +43,7 @@ export const UNIVERSE = {
     'UNP', 'UPS', 'UNH', 'USB', 'VZ', 'V', 'WMT', 'WBA', 'DIS', 'WFC'
   ],
   optionalIndices: ['XSP', 'NDX', 'RUT'],
+  opportunityEquities: ['SOFI', 'NU', 'F', 'PLTR', 'UBER', 'HOOD', 'COIN', 'AVGO', 'JPM', 'BAC', 'XOM', 'CVX', 'COST', 'WMT', 'LLY', 'ORCL', 'CRM', 'NFLX', 'DIS', 'BA', 'GE', 'CAT', 'PYPL', 'SHOP', 'SQ', 'PFE', 'T', 'VZ'],
   liquidEtfs: ['XLF', 'XLK', 'XLE', 'XLV', 'TLT', 'GLD'],
   breadth: ['SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'XLK', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU'],
   volatility: 'VIX',
@@ -151,13 +153,13 @@ export const config = {
   agent: {
     enabled: asBool(process.env.AGENT_ENABLED, asBool(process.env.GUARDIAN_ENABLED, true)),
     name: process.env.AGENT_NAME || 'Gemini Guardian',
-    mode: process.env.AGENT_MODE || 'gatekeeper',
+    mode: process.env.AGENT_MODE || 'aggressive_defined_risk',
     refreshIntervalMinutes: asNumber(process.env.AGENT_REFRESH_INTERVAL_MINUTES, 5),
     manualScanEnabled: asBool(process.env.AGENT_MANUAL_SCAN_ENABLED, true),
     autoVerifySignals: asBool(process.env.AGENT_AUTO_VERIFY_SIGNALS, true),
-    verifyMinScore: asNumber(process.env.AGENT_VERIFY_MIN_SCORE, 78),
+    verifyMinScore: asNumber(process.env.AGENT_VERIFY_MIN_SCORE, 70),
     creditReviewMinScore: asNumber(process.env.AGENT_CREDIT_REVIEW_MIN_SCORE, 60),
-    reviewTopN: asNumber(process.env.AGENT_REVIEW_TOP_N, 8),
+    reviewTopN: asNumber(process.env.AGENT_REVIEW_TOP_N, 12),
     cacheTtlMinutes: asNumber(process.env.AGENT_CACHE_TTL_MINUTES, 180),
     maxAiVerificationsPerDay: asNumber(process.env.AGENT_MAX_AI_VERIFICATIONS_PER_DAY, 24),
     minutesBetweenAiCalls: asNumber(process.env.AGENT_MINUTES_BETWEEN_AI_CALLS, 10),
@@ -167,16 +169,16 @@ export const config = {
   },
   signals: {
     realSignalsOnly: asBool(process.env.REAL_SIGNALS_ONLY, true),
-    minScore: asNumber(process.env.SIGNAL_MIN_SCORE, asNumber(process.env.MIN_SCORE, 82)),
-    minPop: asNumber(process.env.SIGNAL_MIN_POP, asNumber(process.env.MIN_PROBABILITY, 0.7)),
+    minScore: asNumber(process.env.SIGNAL_MIN_SCORE, asNumber(process.env.MIN_SCORE, 72)),
+    minPop: asNumber(process.env.SIGNAL_MIN_POP, asNumber(process.env.MIN_PROBABILITY, 0.62)),
     requireRiskApproval: asBool(process.env.SIGNAL_REQUIRE_RISK_APPROVAL, true),
     requireMacroClearance: asBool(process.env.SIGNAL_REQUIRE_MACRO_CLEARANCE, true),
     requireNewsClearance: asBool(process.env.SIGNAL_REQUIRE_NEWS_CLEARANCE, false),
     requireAiConfirmation: asBool(process.env.SIGNAL_REQUIRE_AI_CONFIRMATION, false),
     maxPerDay: asNumber(process.env.SIGNAL_MAX_PER_DAY, 3),
-    minReadyScore: asNumber(process.env.MIN_READY_SCORE, 72),
-    minCandidateScore: asNumber(process.env.MIN_CANDIDATE_SCORE, 62),
-    minWatchlistScore: asNumber(process.env.MIN_WATCHLIST_SCORE, 50)
+    minReadyScore: asNumber(process.env.MIN_READY_SCORE, 70),
+    minCandidateScore: asNumber(process.env.MIN_CANDIDATE_SCORE, 58),
+    minWatchlistScore: asNumber(process.env.MIN_WATCHLIST_SCORE, 45)
   },
   guards: {
     macroEnabled: asBool(process.env.MACRO_GUARD_ENABLED, true),
@@ -226,7 +228,7 @@ export const config = {
     maxDailyLossPct: asNumber(process.env.MAX_DAILY_LOSS_PCT, 4),
     maxWeeklyLossPct: asNumber(process.env.MAX_WEEKLY_LOSS_PCT, 8),
     maxOpenTrades: asNumber(process.env.MAX_OPEN_TRADES, 4),
-    minScore: asNumber(process.env.SIGNAL_MIN_SCORE, asNumber(process.env.MIN_SCORE, 82)),
+    minScore: asNumber(process.env.SIGNAL_MIN_SCORE, asNumber(process.env.MIN_SCORE, 72)),
     minDte: asNumber(process.env.MIN_DTE, 21),
     maxDte: asNumber(process.env.MAX_DTE, 45),
     minOpenInterest: 100,

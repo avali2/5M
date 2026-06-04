@@ -3,8 +3,7 @@ import InfoTooltip from './InfoTooltip';
 
 const GROUPS = [
   { key: 'ready', title: 'Listas para implementar', tone: 'green', statuses: ['READY', 'AGGRESSIVE', '0DTE_SCALP'] },
-  { key: 'watch', title: 'Vigilancia activa', tone: 'amber', statuses: ['WATCH'] },
-  { key: 'blocked', title: 'Bloqueadas o sin datos', tone: 'red', statuses: ['AVOID', 'NO_DATA', 'LOCKED_BY_RISK'] }
+  { key: 'watch', title: 'Vigilancia activa', tone: 'amber', statuses: ['WATCH', 'NO_DATA'] }
 ];
 
 function money(value) { return Number.isFinite(Number(value)) ? `$${Number(value).toFixed(0)}` : 'SIN DATOS'; }
@@ -72,15 +71,15 @@ function Signal({ signal, tone, onAccept, taken }) {
           Short strike: {sellLeg.strike ?? 'SIN DATOS'} · Long strike: {buyLeg.strike ?? 'SIN DATOS'} · Ancho: {spreadWidth(signal)}
         </p>
         <p className="mt-1 text-slate-700">
-          Delta short: {decimal(sellLeg.delta)} · POP: {pct(signal.pop)} · {signal.credit ? 'Credito' : 'Debito'} objetivo: {decimal(signal.credit ?? signal.debit)}
+          Delta short: {decimal(sellLeg.delta)} · Prob. beneficio: {pct(signal.pop)} · {signal.credit ? 'Credito' : 'Debito'} objetivo: {decimal(signal.credit ?? signal.debit)}
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         <Metric label="Score" value={signal.score ?? 'SIN DATOS'} help="Puntuacion combinada de tendencia, liquidez, opciones, noticias, earnings y riesgo." />
+        <Metric label="Prob. ganadora" value={pct(signal.pop)} help="Probabilidad estimada de beneficio. No garantiza resultado; ayuda a comparar calidad del setup." />
         <Metric label="Max risk" value={money(signal.maxRiskUsd)} help="Perdida maxima estimada. Debe existir para estar READY." />
         <Metric label="Max profit" value={money(signal.maxProfitUsd)} help="Ganancia maxima teorica estimada por estructura." />
-        <Metric label="Bid/ask" value={signal.sourceQuality?.optionDataSource || 'SIN DATOS'} help="Calidad del dato de cadena/opciones y ejecucion." />
       </div>
 
       <p className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs font-semibold text-violet-900">
@@ -131,8 +130,8 @@ export function OperationalSignals({ signals = [], compact = false, onAccept = (
   return (
     <section id="signals" className="signal-card p-4 space-y-3">
       <div>
-        <h2 className="text-xl font-black text-slate-900">Radar de señales <Help text="Solo READY puede activar push. WATCH y BLOCKED no son entradas implementables." /></h2>
-        <p className="text-sm text-slate-700">Verde exige strikes, vencimiento, riesgo maximo, plan de salida, liquidez y revision Gemini.</p>
+        <h2 className="text-xl font-black text-slate-900">Radar de señales <Help text="Solo READY puede activar push. WATCH no es entrada implementable todavia." /></h2>
+        <p className="text-sm text-slate-700">Verde exige strikes, vencimiento, riesgo maximo, plan de salida, liquidez, probabilidad y revision Gemini. Lo que Gemini descarta se oculta.</p>
       </div>
       {visibleGroups.length ? visibleGroups.map((group) => (
         <div className="space-y-2" key={group.key}>
