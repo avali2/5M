@@ -59,6 +59,8 @@ function Metric({ label, value, help, tone = 'slate', icon = '•' }) {
 
 function HomeHero({ scan, ready, watch, pulse }) {
   const mood = ready.length ? 'Hay tickets verdes para revisar' : watch.length ? 'Mercado en vigilancia' : 'Capital protegido';
+  const worker = scan?.workerHealth || {};
+  const workerTone = worker.scanStatus === 'ERROR' ? 'red' : worker.scanStatus === 'STALE' ? 'amber' : 'green';
   return (
     <section className="home-hero p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -73,8 +75,13 @@ function HomeHero({ scan, ready, watch, pulse }) {
         <Metric icon="🟢" tone="green" label="READY" value={ready.length} />
         <Metric icon="🟡" tone="amber" label="WATCH" value={watch.length} />
         <Metric icon="🧠" tone="violet" label="Gemini" value={scan?.agent?.aiAvailable ? 'Activo' : 'Fallback'} />
-        <Metric icon="📡" tone="blue" label="Ultimo scan" value={scan?.asOf ? new Date(scan.asOf).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'N/D'} />
+        <Metric icon="📡" tone={workerTone} label={worker.scanStatus || 'Worker'} value={worker.lastScanAt ? new Date(worker.lastScanAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'N/D'} />
       </div>
+      {['STALE', 'ERROR'].includes(worker.scanStatus) && (
+        <p className={`mt-3 rounded-xl border p-3 text-xs font-bold ${worker.scanStatus === 'ERROR' ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+          Scanner {worker.scanStatus}: {worker.error?.message || 'el Background Worker no ha guardado un scan reciente durante horario de mercado.'}
+        </p>
+      )}
     </section>
   );
 }

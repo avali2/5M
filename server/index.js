@@ -23,6 +23,7 @@ import { createRiskRouter } from './routes/riskRoutes.js';
 import { createSymbolStudyRouter } from './routes/symbolStudyRoutes.js';
 import { scanPersistence } from './services/scanPersistence.js';
 import { scanLock } from './services/scanLock.js';
+import { runScannerWorkerCycle } from './worker/scannerWorker.js';
 
 function enabledLabel(value) {
   return value ? 'enabled' : 'disabled';
@@ -365,7 +366,7 @@ function buildSigmaAudit({ signal, scan, guards, settings }) {
   };
 }
 
-export function createApp(settings = config, customProviders = null, options = { startBackground: true }) {
+export function createApp(settings = config, customProviders = null, options = { startBackground: false }) {
   const app = express();
   const providers = customProviders || createProviders(settings);
   const scheduler = new ScanScheduler({ providers, settings, useLock: options.useScanLock ?? options.startBackground !== false });
@@ -388,7 +389,7 @@ export function createApp(settings = config, customProviders = null, options = {
     const publicPaths = [
       '/health', '/status', '/doctor', '/debug/env', '/debug/providers',
       '/gemini/daily-summary', '/gemini/daily-lesson', '/gemini/quota-status', '/market/sentiment', '/market-sentiment', '/sentiment',
-      '/scan', '/scan/latest', '/scan/diagnostics', '/signals/ready', '/signals/candidates', '/provider-health',
+      '/scan', '/last-scan', '/scan/latest', '/scan/diagnostics', '/signals/ready', '/signals/candidates', '/provider-health',
       '/guardian/scan', '/refresh', '/journal', '/risk/portfolio', '/risk/positions',
       '/positions/analyze', '/push/public-key', '/push/subscribe', '/push/unsubscribe',
       '/ping'
@@ -489,10 +490,26 @@ export function createApp(settings = config, customProviders = null, options = {
     });
   });
 
+  async function storedScanPayload() {
+    const latest = await scanPersistence.latestScanPayload();
+    const health = await scanPersistence.workerHealth();
+    const scan = latest?.scan || {
+      asOf: health.lastScanAt || null,
+      decision: { status: 'worker_pending', label: 'WAITING FOR BACKGROUND WORKER', reasons: ['No stored scan yet.'] },
+      market: null,
+      macro: null,
+      opportunities: [],
+      rejected: [],
+      conditionalIdeas: [],
+      alerts: []
+    };
+    const enriched = { ...scan, workerHealth: health, guardianStatus: guardianScheduler.status(repository.mode) };
+    return { ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) };
+  }
+
   app.get('/api/agent/status', async (_req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const enriched = await storedScanPayload();
       res.json(buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }));
     } catch (error) {
       next(error);
@@ -503,30 +520,26 @@ export function createApp(settings = config, customProviders = null, options = {
     scheduler,
     persistence: scanPersistence,
     providerHealth: () => providerHealth(settings, providers),
-    runNow: () => scanLock.withLock('scanner', 170_000, async () => {
-      const scan = await scheduler.run(true);
-      await scanPersistence.saveScan(scan, { mode: 'api-run' });
-      return scan;
-    })
+    scanProvider: storedScanPayload,
+    runNow: () => runScannerWorkerCycle({ mode: 'api-diagnostics-run', providers, settings, lock: scanLock, persistence: scanPersistence, pushService })
   }));
 
-  app.use('/api/risk', createRiskRouter({ scheduler, repository, providers }));
-  app.use('/api/symbol-study', createSymbolStudyRouter({ scheduler }));
+  app.use('/api/risk', createRiskRouter({ scheduler, repository, providers, scanProvider: storedScanPayload }));
+  app.use('/api/symbol-study', createSymbolStudyRouter({ persistence: scanPersistence }));
 
   app.get('/api/macro/guard', async (_req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const enriched = await storedScanPayload();
       const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
       res.json({
         ok: true,
         guard: payload.guards.macro,
         fed: payload.guards.fed,
         earnings: payload.guards.earnings,
-        highImpactEvents: scan?.macro?.highImpactEvents || [],
-        softImpactEvents: scan?.macro?.softImpactEvents || [],
-        earningsCalendar: scan?.macro?.earnings || [],
-        asOf: scan.asOf
+        highImpactEvents: enriched?.macro?.highImpactEvents || [],
+        softImpactEvents: enriched?.macro?.softImpactEvents || [],
+        earningsCalendar: enriched?.macro?.earnings || [],
+        asOf: enriched.asOf
       });
     } catch (error) {
       next(error);
@@ -535,17 +548,16 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.get('/api/news/guard', async (_req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const enriched = await storedScanPayload();
       const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
       res.json({
         ok: true,
         guard: payload.guards.news,
         geopolitical: payload.guards.geopolitical,
-        breakingRisk: scan?.macro?.breakingRisk || [],
-        newsBlocks: scan?.macro?.newsBlocks || [],
-        companyNews: scan?.macro?.companyNews || [],
-        asOf: scan.asOf
+        breakingRisk: enriched?.macro?.breakingRisk || [],
+        newsBlocks: enriched?.macro?.newsBlocks || [],
+        companyNews: enriched?.macro?.companyNews || [],
+        asOf: enriched.asOf
       });
     } catch (error) {
       next(error);
@@ -554,11 +566,12 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/agent/scan', async (_req, res, next) => {
     try {
-      const scan = await scheduler.run(true);
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const result = await runScannerWorkerCycle({ mode: 'api-agent-run', providers, settings, lock: scanLock, persistence: scanPersistence, pushService });
+      const enriched = await storedScanPayload();
       res.json({
         ...buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }),
-        scan: enriched
+        scan: enriched,
+        run: result
       });
     } catch (error) {
       next(error);
@@ -567,8 +580,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/agent/verify-signal', async (req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const enriched = await storedScanPayload();
       const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
       const candidate = req.body?.signal || firstSignalCandidate(payload, req.body?.signalId || req.body?.symbol);
       const dryRun = req.body?.dryRun !== false;
@@ -617,15 +629,14 @@ export function createApp(settings = config, customProviders = null, options = {
   app.get('/api/signals', async (req, res, next) => {
     try {
       const includeRejected = String(req.query.includeRejected || '').toLowerCase() === 'true';
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
+      const enriched = await storedScanPayload();
       const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
       res.json({
         signals: payload.approvedSignals,
         rejectedCandidates: includeRejected ? payload.rejectedCandidates : [],
         marketDecision: payload.marketDecision,
         guardStatus: payload.guardStatus,
-        asOf: scan.asOf
+        asOf: enriched.asOf
       });
     } catch (error) {
       next(error);
@@ -634,7 +645,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/signals/:id/explain', async (req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
+      const scan = await storedScanPayload();
       const payload = buildAgentPayload({ scan, settings, providers, guardianScheduler });
       const signal = [...payload.approvedSignals, ...payload.rejectedCandidates].find((item) => item?.id === req.params.id);
       if (!signal) return res.status(404).json({ error: 'Signal not found or expired' });
@@ -654,9 +665,23 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.get('/api/scan', async (_req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+      res.json(await storedScanPayload());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/last-scan', async (_req, res, next) => {
+    try {
+      res.json(await storedScanPayload());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/scan/latest', async (_req, res, next) => {
+    try {
+      res.json(await storedScanPayload());
     } catch (error) {
       next(error);
     }
@@ -664,9 +689,15 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/scan', async (_req, res, next) => {
     try {
-      const scan = await scheduler.run(true);
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+      res.status(202).json({ ok: true, message: 'Scanner principal vive en el Render Background Worker. Usa /api/scan/run para una ejecucion manual con lock.' });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/scan/run', async (_req, res, next) => {
+    try {
+      res.json(await runScannerWorkerCycle({ mode: 'api-manual-run', providers, settings, lock: scanLock, persistence: scanPersistence, pushService }));
     } catch (error) {
       next(error);
     }
@@ -674,9 +705,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/scan/refresh', async (_req, res, next) => {
     try {
-      const scan = await scheduler.run(true);
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+      res.json(await storedScanPayload());
     } catch (error) {
       next(error);
     }
@@ -695,7 +724,6 @@ export function createApp(settings = config, customProviders = null, options = {
       if (!Array.isArray(req.body.symbols)) return res.status(400).json({ error: 'symbols array required' });
       cache.clear();
       const watchlist = await repository.saveWatchlist(req.body.symbols);
-      scheduler.run(true).catch(() => {});
       return res.json(watchlist);
     } catch (error) {
       return next(error);
@@ -714,7 +742,6 @@ export function createApp(settings = config, customProviders = null, options = {
     try {
       cache.clear();
       const profile = await repository.saveRiskProfile(req.body || {}, defaults);
-      scheduler.run(true).catch(() => {});
       res.json(profile);
     } catch (error) {
       next(error);
@@ -733,7 +760,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/ai/explain', async (_req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
+      const scan = await storedScanPayload();
       if (typeof providers.ai?.explainScan === 'function') {
         return res.json(await providers.ai.explainScan(scan, { manual: true, automatic: false, purpose: 'manual_explain' }));
       }
@@ -745,7 +772,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/ai/test-gemini', async (_req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
+      const scan = await storedScanPayload();
       if (typeof providers.ai?.testGemini === 'function') return res.json(await providers.ai.testGemini(scan));
       return res.status(503).json({ error: 'AI router unavailable' });
     } catch (error) {
@@ -755,7 +782,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.get('/api/gemini/guardian-brief', async (_req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
+      const scan = await storedScanPayload();
       if (typeof providers.ai?.explainScan === 'function') {
         return res.json(await providers.ai.explainScan(scan, { manual: true, automatic: false, purpose: 'guardian_brief' }));
       }
@@ -767,7 +794,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/gemini/review-signal', async (req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
+      const scan = await storedScanPayload();
       const signal = req.body?.signal || (scan.opportunities || [])[0] || (scan.rejected || [])[0];
       if (!signal) return res.status(404).json({ error: 'No signal available to review' });
       if (typeof providers.ai?.reviewSignal !== 'function') {
@@ -782,7 +809,7 @@ export function createApp(settings = config, customProviders = null, options = {
   app.post('/api/gemini/review-position', async (req, res, next) => {
     try {
       const { analyzePositionRisk } = await import('./services/positionRiskAnalyzer.js');
-      const scan = await scheduler.snapshot();
+      const scan = await storedScanPayload();
       const risk = analyzePositionRisk(req.body || {}, scan.market || {});
       res.json({ provider: 'deterministic', aiStatus: 'FALLBACK', risk, note: 'Read-only position review. No order execution.' });
     } catch (error) {
@@ -819,7 +846,7 @@ export function createApp(settings = config, customProviders = null, options = {
     startAutonomousSignalWorker({ scheduler, guardianScheduler, pushService, repository });
   }
   app.use('/api/guardian', createGuardianRouter({ guardianScheduler, repository }));
-  app.use('/api/push', createPushRouter({ pushService }));
+  app.use('/api/push', createPushRouter({ pushService, persistence: scanPersistence }));
   app.use('/api/positions', positionsRoutes);
   app.use('/api/gemini', geminiAssistantRouter);
 
@@ -869,7 +896,7 @@ export function createApp(settings = config, customProviders = null, options = {
     });
     const warnings = [];
     try {
-      const scan = await scheduler.snapshot();
+      const scan = await storedScanPayload();
       const market = scan?.market || {};
       const spyQuote = (market.quotes || []).find((quote) => quote.symbol === 'SPY');
       const t = market.technicals?.SPY;
@@ -968,9 +995,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/refresh', async (_req, res, next) => {
     try {
-      const scan = await scheduler.run(true);
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+      res.json(await storedScanPayload());
     } catch (error) {
       next(error);
     }

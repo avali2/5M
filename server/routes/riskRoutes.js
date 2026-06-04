@@ -2,11 +2,11 @@ import express from 'express';
 import { loadBrokerPositions } from '../services/brokerPositionsService.js';
 import { analyzePortfolioRisk, analyzePositionRisk } from '../services/positionRiskAnalyzer.js';
 
-export function createRiskRouter({ scheduler, repository, providers }) {
+export function createRiskRouter({ scheduler, repository, providers, scanProvider = null }) {
   const router = express.Router();
 
   async function portfolio() {
-    const scan = await scheduler.snapshot();
+    const scan = scanProvider ? await scanProvider() : await scheduler.snapshot();
     const broker = await loadBrokerPositions({ repository, providers });
     return { scan, broker, analysis: analyzePortfolioRisk({ positions: broker.positions, market: scan.market || {} }) };
   }
@@ -31,7 +31,7 @@ export function createRiskRouter({ scheduler, repository, providers }) {
 
   router.post('/analyze', async (req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
+      const scan = scanProvider ? await scanProvider() : await scheduler.snapshot();
       const positions = Array.isArray(req.body?.positions) ? req.body.positions : [req.body || {}];
       res.json(analyzePortfolioRisk({ positions, market: scan.market || {} }));
     } catch (error) {
@@ -41,7 +41,7 @@ export function createRiskRouter({ scheduler, repository, providers }) {
 
   router.post('/:positionId/plan', async (req, res, next) => {
     try {
-      const scan = await scheduler.snapshot();
+      const scan = scanProvider ? await scanProvider() : await scheduler.snapshot();
       const broker = await loadBrokerPositions({ repository, providers });
       const position = broker.positions.find((item) => String(item.id) === String(req.params.positionId)) || req.body || {};
       res.json({ ok: true, plan: analyzePositionRisk(position, scan.market || {}).plan });
