@@ -34,5 +34,17 @@ export const api = {
   async status() {
     try { return await requestJson("/api/status"); }
     catch (err) { return { ok: false, services: [], warnings: [err?.message || "Status no disponible"] }; }
+  },
+  async scanDiagnostics() {
+    try { return await requestJson("/api/scan/diagnostics"); }
+    catch (err) { return { ok: false, topRejectionReasons: [], warnings: [err?.message || "Diagnostico no disponible"] }; }
+  },
+  async readySignals() {
+    try { const d = await requestJson("/api/signals/ready"); return asArray(d?.signals); }
+    catch { return []; }
+  },
+  async riskPositions() {
+    try { return await requestJson("/api/risk/positions"); }
+    catch (err) { return { ok: false, positions: [], warnings: [err?.message || "Riesgo no disponible"] }; }
   }
 };

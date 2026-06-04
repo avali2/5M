@@ -17,6 +17,7 @@ import { buildDataHealth } from './data-health.js';
 import { calculateProbabilityEdge } from './probability-edge.js';
 import { evaluateRiskGovernor } from './risk-governor.js';
 import { buildGuardianEdgeTicketScan } from '../guardian/edge-tickets.js';
+import { enrichSignalForGreenPolicy, SIGNAL_STATUSES } from './greenSignalPolicy.js';
 
 const DEFAULT_SYMBOLS = [...UNIVERSE.core, ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
 const SHORT_DTE_SYMBOLS = new Set(['SPY', 'SPX', 'QQQ', 'IWM', 'DIA']);
@@ -123,12 +124,12 @@ function buildTapeProxy(technicals = {}, setup = {}) {
 function individualBlocks({ setup, ivRank, gamma, earningsRisk, policy, profile, flowBias }) {
   const blocks = [];
   const premiumTrade = !/Debit Spread/i.test(setup.strategy);
-  if (ivRank === null) blocks.push('IV Rank aun necesita mas observaciones reales persistidas');
-  if (premiumTrade && gamma.regime !== 'positive') blocks.push('Vender prima requiere proxy gamma OI positivo');
-  if (!premiumTrade && gamma.regime !== 'negative') blocks.push('Una estructura de expansion requiere proxy gamma negativo');
+  if (ivRank === null && String(process.env.BLOCK_IF_IV_RANK_INCOMPLETE || '').toLowerCase() === 'true') blocks.push('IV Rank aun necesita mas observaciones reales persistidas');
+  if (premiumTrade && gamma.regime !== 'positive' && String(process.env.BLOCK_IF_GAMMA_MISMATCH || '').toLowerCase() === 'true') blocks.push('Vender prima requiere proxy gamma OI positivo');
+  if (!premiumTrade && gamma.regime !== 'negative' && String(process.env.BLOCK_IF_GAMMA_MISMATCH || '').toLowerCase() === 'true') blocks.push('Una estructura de expansion requiere proxy gamma negativo');
   if (earningsRisk) blocks.push(`Resultados antes de expiracion: ${earningsRisk.date}`);
   if (setup.liquidityScore < 7) blocks.push('Liquidez debajo del umbral institucional');
-  if (premiumTrade && setup.pop < 65) blocks.push('Probabilidad estimada debajo del umbral para vender prima');
+  if (premiumTrade && setup.pop < Number(process.env.MIN_POP_CREDIT_SPREAD || policy.minPopCreditSpread || 58)) blocks.push('Probabilidad estimada debajo del umbral para vender prima');
   if (/Iron Condor/i.test(setup.strategy) && setup.creditWidthRatio < 20) blocks.push('Credito del iron condor menor al 20% del ancho');
   if (setup.maxRisk > profile.accountSize * profile.riskPct / 100) blocks.push('Riesgo mayor al presupuesto por operacion');
   if (setup.collateralRequired > profile.accountSize * profile.maxCollateralPct / 100) blocks.push('Colateral mayor al limite de la cuenta');
@@ -140,7 +141,7 @@ function individualBlocks({ setup, ivRank, gamma, earningsRisk, policy, profile,
   if (profile.collateralUsedPct >= 80) blocks.push('Colateral utilizado sobre 80%; solo educacion/paper trade');
   if (/0DTE/i.test(setup.strategy)) blocks.push('0DTE solo se observa en modo trabajo');
   if (/1DTE/i.test(setup.strategy) && !profile.allow1DteApproval) blocks.push('1DTE requiere aprobacion expresa en el mandato');
-  if (/Debit Spread/i.test(setup.strategy) && policy.workMode) blocks.push('Estructura direccional incompatible con modo trabajo');
+  if (/Debit Spread/i.test(setup.strategy) && policy.workMode && String(process.env.BLOCK_DEBIT_SPREAD_WORK_MODE || '').toLowerCase() === 'true') blocks.push('Estructura direccional incompatible con modo trabajo');
   return blocks;
 }
 
@@ -459,11 +460,17 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
       ]
     };
   };
-  const allSetups = results.flatMap((result) => (result.candidates || []).map(formatCandidate));
-  const minSignalScore = Number.isFinite(signalSettings.minScore) ? signalSettings.minScore : 80;
-  const minSignalPop = Number.isFinite(signalSettings.minPop) ? (signalSettings.minPop <= 1 ? signalSettings.minPop * 100 : signalSettings.minPop) : 70;
+  const allSetups = results.flatMap((result) => (result.candidates || []).map((candidate) => {
+    const setup = formatCandidate(candidate);
+    return enrichSignalForGreenPolicy(setup, { settings, profile, globalBlocks });
+  }));
+  const minSignalScore = Number.isFinite(signalSettings.minReadyScore) ? signalSettings.minReadyScore
+    : Number.isFinite(signalSettings.minScore) ? signalSettings.minScore
+      : Number(process.env.MIN_READY_SCORE || 72);
+  const minSignalPop = Number.isFinite(signalSettings.minPop) ? (signalSettings.minPop <= 1 ? signalSettings.minPop * 100 : signalSettings.minPop) : Number(process.env.MIN_POP_READY_CREDIT_SPREAD || 60);
   const maxSignals = Number.isFinite(signalSettings.maxPerDay) ? signalSettings.maxPerDay : 3;
-  const eligible = globalBlocks.length ? [] : allSetups.filter((setup) =>
+  const eligible = allSetups.filter((setup) =>
+    setup.status === SIGNAL_STATUSES.READY_GREEN &&
     setup.riskGovernor.allowedReal &&
     setup.confidenceScore >= minSignalScore &&
     setup.pop >= minSignalPop
@@ -471,13 +478,15 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     .sort((a, b) => b.confidenceScore - a.confidenceScore || b.pop - a.pop || a.maxRisk - b.maxRisk);
   const opportunities = eligible.slice(0, maxSignals).map((setup) => ({
     ...setup,
+    status: SIGNAL_STATUSES.READY_GREEN,
+    signalStatus: SIGNAL_STATUSES.READY_GREEN,
     executionPlan: createExecutionPlan(setup, profile),
     aiVerificationStatus: signalSettings.requireAiConfirmation ? 'manual_only_or_budget_limited' : 'skipped_not_required'
   }));
-  const rejected = allSetups.filter((setup) => !setup.riskGovernor.allowedReal || setup.confidenceScore < 80)
+  const rejected = allSetups.filter((setup) => setup.status !== SIGNAL_STATUSES.READY_GREEN || !setup.riskGovernor.allowedReal)
     .sort((a, b) => b.confidenceScore - a.confidenceScore).slice(0, 30);
   const conditionalPool = results.flatMap((result) => (result.conditionalCandidates || []).map((candidate) => ({
-    ...formatCandidate(candidate),
+    ...enrichSignalForGreenPolicy(formatCandidate(candidate), { settings, profile, globalBlocks }),
     educationBias: candidate.educationBias
   }))).sort((left, right) => right.confidenceScore - left.confidenceScore || right.liquidityScore - left.liquidityScore);
   const conditionalIdeas = ['bullish', 'bearish', 'neutral'].map((bias) => {

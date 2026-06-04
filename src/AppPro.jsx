@@ -11,6 +11,8 @@ import { BrokerPositionsDesk } from './components/BrokerPositionsDesk.jsx';
 import { DailyGeminiLesson } from './components/DailyGeminiLesson.jsx';
 import { DailyTradingWorkflow } from './components/DailyTradingWorkflow.jsx';
 import InfoTooltip from './components/InfoTooltip.jsx';
+import NoGreenTodayPanel from './features/scanner/NoGreenTodayPanel.jsx';
+import RiskCommandCenter from './features/risk/RiskCommandCenter.jsx';
 import { loadRiskConfig, saveRiskConfig } from './config/riskConfig.ts';
 import { classifyNewsEvent } from './services/newsImpactClassifier.ts';
 import { professionalSignalsFromScan } from './utils/proSignalAdapter.js';
@@ -391,10 +393,10 @@ export default function AppPro() {
       <main className="home-pro pb-24">
         {toast && <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl border border-green-200 bg-white px-4 py-3 text-sm font-bold text-green-800 shadow-lg">{toast}</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
-        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /></>}
+        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /></>}
         {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} />}
         {activeTab === 'news' && <NewsImpactList news={news} />}
-        {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} /><BrokerPositionsDesk /></>}
+        {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} /><RiskCommandCenter /><BrokerPositionsDesk /></>}
         {activeTab === 'journal' && <TradeJournal entries={entries} onDelete={deleteJournal} />}
         {activeTab === 'config' && <><SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} /><NotificationManager /><SystemStatus /></>}
         <footer className="text-xs text-slate-500 text-center py-4">Educational / decision-support only. No auto-trading enabled.<span className="block mt-1">v{VALIDO_VERSION}</span></footer>

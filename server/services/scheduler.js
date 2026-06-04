@@ -1,11 +1,14 @@
 import { cache } from '../lib/cache.js';
 import { runAutonomousScan } from '../engine/scanner.js';
 import { applyGeminiGuardianGate } from '../ai/gemini-guardian-gate.js';
+import { scanLock } from './scanLock.js';
 
 export class ScanScheduler {
-  constructor({ providers, settings }) {
+  constructor({ providers, settings, useLock = false, lock = scanLock }) {
     this.providers = providers;
     this.settings = settings;
+    this.useLock = useLock;
+    this.lock = lock;
     this.latest = null;
     this.lastError = null;
     this.running = null;
@@ -15,7 +18,7 @@ export class ScanScheduler {
   async run(force = false) {
     if (this.running) return this.running;
     if (force) cache.clear();
-    this.running = runAutonomousScan({ providers: this.providers, settings: this.settings, force })
+    const execute = () => runAutonomousScan({ providers: this.providers, settings: this.settings, force })
       .then((scan) => applyGeminiGuardianGate(scan, { providers: this.providers, settings: this.settings }))
       .then((scan) => {
         this.latest = scan;
@@ -29,6 +32,27 @@ export class ScanScheduler {
       .finally(() => {
         this.running = null;
       });
+    if (this.useLock) {
+      this.running = this.lock.withLock('scanner', 170_000, execute)
+        .then((result) => {
+          if (result.skipped) {
+            if (this.latest) return { ...this.latest, lockSkipped: true, lock: result.lock };
+            const error = new Error('Scanner is already running in another process');
+            error.status = 409;
+            throw error;
+          }
+          return result.value;
+        })
+        .catch((error) => {
+          this.lastError = { message: error.message, at: new Date().toISOString() };
+          throw error;
+        })
+        .finally(() => {
+          this.running = null;
+        });
+      return this.running;
+    }
+    this.running = execute();
     return this.running;
   }
 

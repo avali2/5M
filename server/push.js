@@ -1,5 +1,11 @@
 import webPush from 'web-push';
 
+const ALLOWED_PUSH_TYPES = new Set(['READY_GREEN', 'CRITICAL_RISK']);
+
+function payloadType(payload = {}) {
+  return payload.type || payload.data?.type || payload.status || payload.data?.status || null;
+}
+
 export class GuardianPushService {
   constructor(settings = {}, store) {
     this.settings = settings;
@@ -48,6 +54,10 @@ export class GuardianPushService {
   }
 
   async send(payload) {
+    const type = payloadType(payload);
+    if (!ALLOWED_PUSH_TYPES.has(type)) {
+      return { sent: 0, failed: 0, skipped: true, error: `Push blocked: ${type || 'missing type'} is not READY_GREEN or CRITICAL_RISK.` };
+    }
     if (!this.configured) return { sent: 0, failed: 0, error: 'Web Push no configurado: agrega VAPID_PUBLIC_KEY y VAPID_PRIVATE_KEY.' };
     const subscriptions = await this.store.active();
     let sent = 0;
@@ -68,26 +78,75 @@ export class GuardianPushService {
 
   async sendGuardianEvent(event) {
     const ticket = event.data?.ticket;
+    const status = ticket?.status || ticket?.signalStatus || ticket?.classification;
+    const critical = event.severity === 'critical' || event.type === 'CRITICAL_RISK' || status === 'CRITICAL_RISK';
+    if (status !== 'READY_GREEN' && !critical) {
+      return { sent: 0, failed: 0, skipped: true, error: 'Guardian event is not READY_GREEN or CRITICAL_RISK.' };
+    }
+    if (critical) {
+      return this.sendCriticalRisk({
+        symbol: event.symbol || ticket?.symbol || 'PORTFOLIO',
+        reason: event.message || 'Critical position risk detected.',
+        action: event.recommendation || 'REVISAR_MANUAL',
+        url: `/institutional-os.html?tab=guardian#${encodeURIComponent(event.id)}`
+      });
+    }
     return this.send({
-      title: ticket?.notificationTitle || (event.symbol ? `${event.symbol} - Options Guardian` : 'Options Guardian'),
+      type: 'READY_GREEN',
+      title: ticket?.notificationTitle || `Senal lista: ${ticket?.symbol || event.symbol} ${ticket?.strategy || ''}`.trim(),
       body: ticket?.notificationBody || event.message,
       tag: ticket ? `guardian-ticket-${ticket.symbol}-${ticket.classification}` : `guardian-${event.type}-${event.symbol || 'market'}`,
       icon: '/icons/icon-192.png',
       badge: '/icons/badge-72.png',
-      type: event.type,
       severity: event.severity,
-      data: { url: `/institutional-os.html?tab=guardian#${encodeURIComponent(event.id)}`, eventId: event.id, ticketId: ticket?.id || null }
+      data: { type: 'READY_GREEN', url: `/institutional-os.html?tab=guardian#${encodeURIComponent(event.id)}`, eventId: event.id, ticketId: ticket?.id || null }
+    });
+  }
+
+  async sendReadyGreen(signal) {
+    const id = signal.id || `${signal.symbol}-${signal.strategy}-${signal.expiration}`;
+    const cd = signal.creditDebit || (Number.isFinite(signal.credit) ? { type: 'credit', value: signal.credit } : Number.isFinite(signal.debit) ? { type: 'debit', value: signal.debit } : { type: 'limit', value: signal.limitPrice });
+    return this.send({
+      type: 'READY_GREEN',
+      title: `Senal lista: ${signal.symbol} ${signal.strategy}`,
+      body: `${signal.expiration || 'exp N/D'} | ${signal.strikes || 'strikes N/D'} | ${cd.type} ${cd.value ?? 'N/D'} | Riesgo $${signal.maxRisk ?? 'N/D'} | POP ${signal.pop ?? signal.popEstimated ?? 'N/D'}% | Score ${signal.confidenceScore ?? signal.score ?? 'N/D'}`,
+      tag: `ready-green-${id}`,
+      url: `/signals/${encodeURIComponent(id)}`,
+      requireInteraction: true,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge-72.png',
+      data: {
+        type: 'READY_GREEN',
+        signalId: id,
+        symbol: signal.symbol,
+        strategy: signal.strategy,
+        url: `/signals/${encodeURIComponent(id)}`
+      }
+    });
+  }
+
+  async sendCriticalRisk({ symbol = 'PORTFOLIO', reason = 'Critical risk detected.', action = 'REVISAR_MANUAL', url = '/institutional-os.html?tab=risk' } = {}) {
+    return this.send({
+      type: 'CRITICAL_RISK',
+      title: `Riesgo critico: ${symbol}`,
+      body: `${reason} | Accion sugerida: ${action}`,
+      tag: `critical-risk-${symbol}`,
+      url,
+      requireInteraction: true,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge-72.png',
+      data: { type: 'CRITICAL_RISK', symbol, reason, action, url }
     });
   }
 
   async test() {
-    return this.send({
-      title: 'Options Guardian Web Push',
-      body: 'La suscripcion para alertas con el movil bloqueado esta funcionando.',
-      tag: 'guardian-web-push-test',
-      icon: '/icons/icon-192.png',
-      badge: '/icons/badge-72.png',
-      data: { url: '/institutional-os.html?tab=guardian#guardian' }
-    });
+    return {
+      sent: 0,
+      failed: 0,
+      dryRun: true,
+      skipped: true,
+      error: 'Live test push disabled by READY_GREEN/CRITICAL_RISK-only policy.',
+      status: this.status()
+    };
   }
 }

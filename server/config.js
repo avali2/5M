@@ -116,7 +116,7 @@ export const config = {
     maxOutputTokensPerCall: asNumber(process.env.AI_MAX_OUTPUT_TOKENS_PER_CALL, 800),
     maxTotalTokensPerCall: asNumber(process.env.AI_MAX_TOTAL_TOKENS_PER_CALL, 3000),
     minAutomaticCallIntervalMinutes: asNumber(process.env.AI_MIN_AUTOMATIC_CALL_INTERVAL_MINUTES, 10),
-    cooldownAfter429Minutes: asNumber(process.env.AI_COOLDOWN_AFTER_429_MINUTES, 120),
+    cooldownAfter429Minutes: asNumber(process.env.AI_COOLDOWN_AFTER_429_MINUTES, 30),
     disableAutoAtUsagePercent: asNumber(process.env.AI_DISABLE_AUTO_AT_USAGE_PERCENT, 90),
     disableAllAtUsagePercent: asNumber(process.env.AI_DISABLE_ALL_AT_USAGE_PERCENT, 97)
   },
@@ -171,9 +171,12 @@ export const config = {
     minPop: asNumber(process.env.SIGNAL_MIN_POP, asNumber(process.env.MIN_PROBABILITY, 0.7)),
     requireRiskApproval: asBool(process.env.SIGNAL_REQUIRE_RISK_APPROVAL, true),
     requireMacroClearance: asBool(process.env.SIGNAL_REQUIRE_MACRO_CLEARANCE, true),
-    requireNewsClearance: asBool(process.env.SIGNAL_REQUIRE_NEWS_CLEARANCE, true),
-    requireAiConfirmation: asBool(process.env.SIGNAL_REQUIRE_AI_CONFIRMATION, true),
-    maxPerDay: asNumber(process.env.SIGNAL_MAX_PER_DAY, 3)
+    requireNewsClearance: asBool(process.env.SIGNAL_REQUIRE_NEWS_CLEARANCE, false),
+    requireAiConfirmation: asBool(process.env.SIGNAL_REQUIRE_AI_CONFIRMATION, false),
+    maxPerDay: asNumber(process.env.SIGNAL_MAX_PER_DAY, 3),
+    minReadyScore: asNumber(process.env.MIN_READY_SCORE, 72),
+    minCandidateScore: asNumber(process.env.MIN_CANDIDATE_SCORE, 62),
+    minWatchlistScore: asNumber(process.env.MIN_WATCHLIST_SCORE, 50)
   },
   guards: {
     macroEnabled: asBool(process.env.MACRO_GUARD_ENABLED, true),
@@ -218,11 +221,11 @@ export const config = {
   },
   policy: {
     accountSize: asNumber(process.env.ACCOUNT_SIZE, 2000),
-    riskPct: asNumber(process.env.RISK_PER_TRADE_PCT, 1),
-    maxCollateralPct: asNumber(process.env.MAX_COLLATERAL_PCT, 20),
-    maxDailyLossPct: asNumber(process.env.MAX_DAILY_LOSS_PCT, 2),
-    maxWeeklyLossPct: asNumber(process.env.MAX_WEEKLY_LOSS_PCT, 5),
-    maxOpenTrades: asNumber(process.env.MAX_OPEN_TRADES, 3),
+    riskPct: asNumber(process.env.RISK_PER_TRADE_PCT, 2),
+    maxCollateralPct: asNumber(process.env.MAX_COLLATERAL_PCT, 35),
+    maxDailyLossPct: asNumber(process.env.MAX_DAILY_LOSS_PCT, 4),
+    maxWeeklyLossPct: asNumber(process.env.MAX_WEEKLY_LOSS_PCT, 8),
+    maxOpenTrades: asNumber(process.env.MAX_OPEN_TRADES, 4),
     minScore: asNumber(process.env.SIGNAL_MIN_SCORE, asNumber(process.env.MIN_SCORE, 82)),
     minDte: asNumber(process.env.MIN_DTE, 21),
     maxDte: asNumber(process.env.MAX_DTE, 45),
@@ -239,15 +242,18 @@ export const config = {
     allowMargin: String(process.env.ALLOW_MARGIN || '').toLowerCase() === 'true',
     workMode: true,
     defaultRiskMode: process.env.DEFAULT_RISK_MODE || 'MODERATE_AGGRESSIVE',
-    minPopCreditSpread: asNumber(process.env.MIN_POP_CREDIT_SPREAD, 0.7),
+    minPopCreditSpread: asNumber(process.env.MIN_POP_CREDIT_SPREAD, 58),
+    minPopReadyCreditSpread: asNumber(process.env.MIN_POP_READY_CREDIT_SPREAD, 60),
     maxPortfolioRiskPct: asNumber(process.env.MAX_PORTFOLIO_RISK_PCT, 0.06),
     maxDailySignals: asNumber(process.env.SIGNAL_MAX_PER_DAY, asNumber(process.env.MAX_DAILY_SIGNALS, 3))
   },
   scanner: {
     enabled: String(process.env.SCANNER_ENABLED || 'true').toLowerCase() !== 'false',
+    intervalMinutes: asNumber(process.env.SCANNER_INTERVAL_MINUTES, 3),
+    marketOpenOnly: asBool(process.env.SCANNER_MARKET_OPEN_ONLY, false),
     coreIntervalMinutes: asNumber(process.env.SCANNER_CORE_INTERVAL_MINUTES, 5),
     stockIntervalMinutes: asNumber(process.env.SCANNER_STOCK_INTERVAL_MINUTES, 10),
-    afterHoursIntervalMinutes: asNumber(process.env.SCANNER_AFTER_HOURS_INTERVAL_MINUTES, 45)
+    afterHoursIntervalMinutes: asNumber(process.env.SCANNER_AFTER_HOURS_INTERVAL_MINUTES, 15)
   },
   refreshSeconds: asNumber(process.env.AUTO_REFRESH_SECONDS, 300)
 };

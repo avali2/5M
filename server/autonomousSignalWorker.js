@@ -133,8 +133,9 @@ async function scanAndNotify() {
     if (!scan) return;
     
     // Check for actionable signals
-    const opportunities = scan.opportunities || [];
-    const actionableTickets = scan.guardianEdge?.actionableTickets || [];
+    const opportunities = (scan.opportunities || []).filter((signal) =>
+      signal.status === 'READY_GREEN' || signal.signalStatus === 'READY_GREEN'
+    );
     
     // Notify on new high-confidence signals
     if (opportunities.length > 0 && pushService) {
@@ -145,13 +146,7 @@ async function scanAndNotify() {
       if (id !== lastOpenPositionsAlert) {
         lastOpenPositionsAlert = id;
         try {
-          await pushService.send({
-            title: `✅ Señal: ${best.symbol} ${best.strategy}`,
-            body: `Confianza ${best.confidenceScore}/100 | Riesgo max $${best.maxRisk} | POP ${best.pop?.toFixed(0) ?? 'N/D'}%`,
-            tag: `signal-${id}`,
-            url: '/archivo',
-            requireInteraction: true
-          });
+          await pushService.sendReadyGreen(best);
         } catch (pushError) {
           console.error('Push notification failed:', pushError.message);
         }
@@ -167,13 +162,7 @@ async function scanAndNotify() {
       if (criticalReasons.length > 0 && pushService && criticalReasons.join() !== lastOpenPositionsAlert) {
         lastOpenPositionsAlert = criticalReasons.join();
         try {
-          await pushService.send({
-            title: '🚨 Riesgo Crítico Detectado',
-            body: criticalReasons[0],
-            tag: `risk-${Date.now()}`,
-            url: '/archivo',
-            requireInteraction: true
-          });
+          await pushService.sendCriticalRisk({ symbol: 'PORTFOLIO', reason: criticalReasons[0], action: 'REVISAR_MANUAL', url: '/archivo' });
         } catch (pushError) {
           console.error('Push notification failed:', pushError.message);
         }
@@ -197,22 +186,8 @@ async function checkForCriticalNews() {
       n.blocksSignal || /critic|urgent|war|sanction/i.test(n.headline || '')
     );
     
-    if ((criticalEvents.length > 0 || criticalNews.length > 0) && pushService) {
-      const id = criticalEvents[0]?.title || criticalNews[0]?.headline || 'critical-news';
-      if (id !== lastOpenPositionsAlert) {
-        lastOpenPositionsAlert = id;
-        try {
-          await pushService.send({
-            title: '📰 Noticia Crítica: ' + (criticalEvents[0]?.title || criticalNews[0]?.headline || 'Evento macro'),
-            body: 'Revisa el escáner antes de abrir nuevas posiciones.',
-            tag: `news-${Date.now()}`,
-            url: '/archivo',
-            requireInteraction: true
-          });
-        } catch (pushError) {
-          console.error('News push failed:', pushError.message);
-        }
-      }
+    if (criticalEvents.length > 0 || criticalNews.length > 0) {
+      console.log('VALIDO 1M: critical news/macro detected; push suppressed by READY_GREEN/CRITICAL_RISK-only policy.');
     }
   } catch (error) {
     console.error('checkForCriticalNews error:', error.message);
@@ -271,12 +246,11 @@ async function monitorOpenPositions() {
         if (pushService && id !== lastOpenPositionsAlert) {
           lastOpenPositionsAlert = id;
           try {
-            await pushService.send({
-              title: `⚠️ ${position.symbol} cerca de stop loss`,
-              body: `Precio actual: $${quote.price.toFixed(2)} | Stop: $${stopPrice.toFixed(2)} | ${position.strategy || ''}`,
-              tag: id,
-              url: '/archivo',
-              requireInteraction: true
+            await pushService.sendCriticalRisk({
+              symbol: position.symbol,
+              reason: `Precio actual $${quote.price.toFixed(2)} cerca del stop $${stopPrice.toFixed(2)}`,
+              action: 'REVISAR_MANUAL',
+              url: '/archivo'
             });
           } catch (pushError) {
             console.error('Position monitor push failed:', pushError.message);

@@ -18,6 +18,10 @@ import { startAutonomousSignalWorker } from './autonomousSignalWorker.js';
 import positionsRoutes from './routes/positionsRoutes.js';
 import { getSystemStatus } from './status.js';
 import geminiAssistantRouter from './geminiAssistant.js';
+import { createScanDiagnosticsRouter } from './routes/scanDiagnosticsRoutes.js';
+import { createRiskRouter } from './routes/riskRoutes.js';
+import { scanPersistence } from './services/scanPersistence.js';
+import { scanLock } from './services/scanLock.js';
 
 function enabledLabel(value) {
   return value ? 'enabled' : 'disabled';
@@ -109,6 +113,8 @@ function normalizeSignal(setup, scan) {
   const id = setup.id || `${setup.symbol}-${setup.strategy}-${setup.expiration}-${(setup.strikes || legs.map((leg) => leg.strike).join('-')).replaceAll(' ', '')}`;
   return {
     id,
+    status: setup.status || setup.signalStatus || (setup.riskGovernor?.allowedReal ? 'CANDIDATE' : 'BLOCKED'),
+    signalStatus: setup.status || setup.signalStatus || null,
     ticker: setup.symbol,
     symbol: setup.symbol,
     currentPrice: setup.underlyingPrice ?? scan?.market?.quotes?.find((quote) => quote.symbol === setup.symbol)?.price ?? null,
@@ -127,6 +133,18 @@ function normalizeSignal(setup, scan) {
     popEstimated: setup.pop ?? setup.edge?.probabilityOfProfit ?? null,
     probability: setup.pop ?? setup.edge?.probabilityOfProfit ?? null,
     score: setup.tradeQualityScore ?? setup.confidenceScore ?? setup.score ?? null,
+    orderType: setup.orderType || 'LIMIT',
+    limitPrice: setup.limitPrice ?? creditDebit.value,
+    breakeven: setup.breakeven ?? setup.breakEven ?? null,
+    shortDelta: setup.shortDelta ?? legs.find((leg) => /sell|short/i.test(String(leg.side || '')))?.delta ?? null,
+    longDelta: setup.longDelta ?? legs.find((leg) => /buy|long/i.test(String(leg.side || '')))?.delta ?? null,
+    theta: setup.theta ?? null,
+    vega: setup.vega ?? null,
+    gamma: setup.gamma ?? null,
+    stopLoss: setup.stopLoss || null,
+    takeProfit: setup.takeProfit || null,
+    exitPlan: setup.exitPlan || null,
+    approvalReason: setup.approvalReason || setup.greenPolicy?.reasons?.join('; ') || null,
     risk: setup.riskClass || setup.gammaRisk || 'moderado',
     riskClass: setup.riskClass || setup.gammaRisk || 'moderado',
     reason: setup.reasoning?.join(' + ') || 'Setup generado por reglas deterministicas.',
@@ -349,7 +367,7 @@ function buildSigmaAudit({ signal, scan, guards, settings }) {
 export function createApp(settings = config, customProviders = null, options = { startBackground: true }) {
   const app = express();
   const providers = customProviders || createProviders(settings);
-  const scheduler = new ScanScheduler({ providers, settings });
+  const scheduler = new ScanScheduler({ providers, settings, useLock: options.useScanLock ?? options.startBackground !== false });
   const pushService = new GuardianPushService(settings.webPush || {}, new GuardianPushStore(repository));
   const guardianScheduler = new GuardianScheduler({
     scanScheduler: scheduler,
@@ -369,7 +387,8 @@ export function createApp(settings = config, customProviders = null, options = {
     const publicPaths = [
       '/health', '/status', '/doctor', '/debug/env', '/debug/providers',
       '/gemini/daily-summary', '/gemini/daily-lesson', '/gemini/quota-status', '/market/sentiment', '/market-sentiment', '/sentiment',
-      '/scan', '/guardian/scan', '/refresh', '/journal',
+      '/scan', '/scan/latest', '/scan/diagnostics', '/signals/ready', '/signals/candidates', '/provider-health',
+      '/guardian/scan', '/refresh', '/journal', '/risk/portfolio', '/risk/positions',
       '/positions/analyze', '/push/public-key', '/push/subscribe', '/push/unsubscribe',
       '/ping'
     ];
@@ -477,6 +496,19 @@ export function createApp(settings = config, customProviders = null, options = {
       next(error);
     }
   });
+
+  app.use('/api', createScanDiagnosticsRouter({
+    scheduler,
+    persistence: scanPersistence,
+    providerHealth: () => providerHealth(settings, providers),
+    runNow: () => scanLock.withLock('scanner', 170_000, async () => {
+      const scan = await scheduler.run(true);
+      await scanPersistence.saveScan(scan, { mode: 'api-run' });
+      return scan;
+    })
+  }));
+
+  app.use('/api/risk', createRiskRouter({ scheduler, repository, providers }));
 
   app.get('/api/macro/guard', async (_req, res, next) => {
     try {
@@ -715,6 +747,43 @@ export function createApp(settings = config, customProviders = null, options = {
       return res.status(503).json({ error: 'AI router unavailable' });
     } catch (error) {
       return next(error);
+    }
+  });
+
+  app.get('/api/gemini/guardian-brief', async (_req, res, next) => {
+    try {
+      const scan = await scheduler.snapshot();
+      if (typeof providers.ai?.explainScan === 'function') {
+        return res.json(await providers.ai.explainScan(scan, { manual: true, automatic: false, purpose: 'guardian_brief' }));
+      }
+      return res.json({ provider: 'deterministic', summary: scan.summary || 'No hay brief disponible.', scanAsOf: scan.asOf });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/gemini/review-signal', async (req, res, next) => {
+    try {
+      const scan = await scheduler.snapshot();
+      const signal = req.body?.signal || (scan.opportunities || [])[0] || (scan.rejected || [])[0];
+      if (!signal) return res.status(404).json({ error: 'No signal available to review' });
+      if (typeof providers.ai?.reviewSignal !== 'function') {
+        return res.json({ provider: 'deterministic', aiStatus: 'UNAVAILABLE', aiReason: 'Gemini unavailable, deterministic engine used', signal });
+      }
+      return res.json(await providers.ai.reviewSignal(signal, scan, { automatic: false, cycleKey: `manual-${Date.now()}` }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/gemini/review-position', async (req, res, next) => {
+    try {
+      const { analyzePositionRisk } = await import('./services/positionRiskAnalyzer.js');
+      const scan = await scheduler.snapshot();
+      const risk = analyzePositionRisk(req.body || {}, scan.market || {});
+      res.json({ provider: 'deterministic', aiStatus: 'FALLBACK', risk, note: 'Read-only position review. No order execution.' });
+    } catch (error) {
+      next(error);
     }
   });
 

@@ -21,17 +21,19 @@ function cleanJsonText(text = '') {
 }
 
 function normalizeReview(raw, fallbackSummary = 'Gemini Guardian no entrego una aprobacion operable.') {
-  const decision = ['APPROVE', 'CAUTION', 'BLOCK'].includes(raw?.decision) ? raw.decision : 'CAUTION';
+  const rawDecision = raw?.decision || raw?.verdict;
+  const decisionMap = { DOWNGRADE: 'CAUTION', NEEDS_DATA: 'CAUTION', APPROVED: 'APPROVE', BLOCKED: 'BLOCK' };
+  const decision = ['APPROVE', 'CAUTION', 'BLOCK'].includes(rawDecision) ? rawDecision : (decisionMap[rawDecision] || 'CAUTION');
   return {
     agent: 'VALIDO_GUARDIAN',
     decision,
     confidence: Number.isFinite(Number(raw?.confidence)) ? Math.max(0, Math.min(100, Number(raw.confidence))) : 50,
-    summary: String(raw?.summary || fallbackSummary).slice(0, 500),
-    why: Array.isArray(raw?.why) ? raw.why.map(String).slice(0, 5) : [],
-    risks: Array.isArray(raw?.risks) ? raw.risks.map(String).slice(0, 5) : [],
+    summary: String(raw?.summary || raw?.traderSummary || fallbackSummary).slice(0, 500),
+    why: Array.isArray(raw?.why) ? raw.why.map(String).slice(0, 5) : Array.isArray(raw?.missingData) ? raw.missingData.map(String).slice(0, 5) : [],
+    risks: Array.isArray(raw?.risks) ? raw.risks.map(String).slice(0, 5) : Array.isArray(raw?.riskNotes) ? raw.riskNotes.map(String).slice(0, 5) : [],
     entry_ok: Boolean(raw?.entry_ok) && decision === 'APPROVE',
     invalidation: String(raw?.invalidation || 'Revalidar precio, bid/ask, macro/news y soporte/resistencia antes de entrar.'),
-    position_management: String(raw?.position_management || 'Usar tamano pequeno, take profit definido y stop segun plan.'),
+    position_management: String(raw?.position_management || raw?.actionPlan || 'Usar tamano pequeno, take profit definido y stop segun plan.'),
     news_warning: Boolean(raw?.news_warning),
     macro_warning: Boolean(raw?.macro_warning),
     requires_manual_review: raw?.requires_manual_review !== undefined ? Boolean(raw.requires_manual_review) : decision !== 'APPROVE',
@@ -216,6 +218,8 @@ export class AiProviderRouter {
       news_warning: false,
       macro_warning: false,
       requires_manual_review: true,
+      aiStatus: 'UNAVAILABLE',
+      aiReason: summary,
       status: 'requires_manual_review',
       reviewHash: hash,
       cacheHit: false
@@ -228,7 +232,7 @@ export class AiProviderRouter {
       return unavailable(`Score ${score} debajo del minimo de revision Gemini ${minReviewScore}.`);
     }
     if (!this.gemini?.configured || !this.gemini?.enabled) {
-      return unavailable('Gemini no configurado o desactivado; fallback deterministico activo.');
+      return unavailable('Gemini unavailable, deterministic engine used');
     }
     const budgetStatus = this.budgetManager.status();
     if (budgetStatus.requestsUsed >= (this.agentSettings.maxAiVerificationsPerDay || this.settings.dailyRequestBudget || 8)) {
@@ -244,7 +248,7 @@ export class AiProviderRouter {
     const payload = compactSignalPayload(signal, scan);
     const estimatedTokens = Math.min(this.settings.maxTotalTokensPerCall || 3000, JSON.stringify(payload).length / 3 + 500);
     const allowed = this.budgetManager.canCall({ provider: 'gemini', estimatedTokens, automatic });
-    if (!allowed.allowed) return unavailable(allowed.reason || 'Presupuesto/cooldown de Gemini impide revision automatica.');
+    if (!allowed.allowed) return unavailable(allowed.reason || 'Gemini unavailable, deterministic engine used');
 
     const prompt = [
       'Eres Gemini Guardian, auditor final de una plataforma de opciones.',
@@ -254,7 +258,7 @@ export class AiProviderRouter {
       'Prioriza la auditoria de spreads de credito/venta de prima cuando el riesgo sea definido, el potencial estimado sea suficiente y el usuario pueda revisar manualmente en su broker.',
       'Si recibes tapeProxy, tratalo como confirmacion secundaria educativa; no es Level 2 ni order flow institucional confirmado.',
       'Responde SOLO JSON valido con exactamente estas claves:',
-      '{"agent":"VALIDO_GUARDIAN","decision":"APPROVE|CAUTION|BLOCK","confidence":0-100,"summary":"breve","why":["razon 1","razon 2","razon 3"],"risks":["riesgo 1","riesgo 2"],"entry_ok":true/false,"invalidation":"condicion","position_management":"plan","news_warning":true/false,"macro_warning":true/false,"requires_manual_review":true/false,"hallucination_check":"PASSED|FAILED"}'
+      '{"agent":"VALIDO_GUARDIAN","verdict":"APPROVE|DOWNGRADE|BLOCK|NEEDS_DATA","confidence":0-100,"institutionalBias":"string","riskNotes":["riesgo 1","riesgo 2"],"missingData":["dato"],"actionPlan":"plan","invalidation":"condicion","traderSummary":"breve","entry_ok":true/false,"news_warning":true/false,"macro_warning":true/false,"requires_manual_review":true/false,"hallucination_check":"PASSED|FAILED"}'
     ].join('\n');
 
     try {
@@ -278,9 +282,9 @@ export class AiProviderRouter {
       this.reviewCache.set(hash, { value, expiresAt: Date.now() + (this.agentSettings.cacheTtlMinutes || 180) * 60000 });
       return value;
     } catch (error) {
-      if (isRateLimit(error)) this.budgetManager.pause('gemini', this.settings.cooldownAfter429Minutes || 120, 'Gemini 429; requiere revision manual.');
+      if (isRateLimit(error)) this.budgetManager.pause('gemini', this.settings.cooldownAfter429Minutes || 30, 'Gemini 429; deterministic engine used.');
       else this.budgetManager.recordError(error.message);
-      return unavailable(`Gemini error: ${error.message}`);
+      return unavailable(`Gemini unavailable, deterministic engine used: ${error.message}`);
     }
   }
 

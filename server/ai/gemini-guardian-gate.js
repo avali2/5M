@@ -3,7 +3,7 @@ function list(value) {
 }
 
 function reviewAllowsEntry(review) {
-  return review?.decision === 'APPROVED' &&
+  return ['APPROVE', 'APPROVED'].includes(review?.decision) &&
     review.entry_ok === true &&
     review.hallucination_check === 'PASSED' &&
     review.requires_manual_review !== true &&
@@ -232,16 +232,16 @@ export async function applyGeminiGuardianGate(scan, { providers, settings } = {}
     const review = await providers.ai.reviewSignal(setup, scan, { automatic: true, cycleKey: scan.asOf });
     scan.aiGuardian.reviewed += 1;
     if (review.cacheHit) scan.aiGuardian.cacheHits += 1;
-    if (review.decision === 'APPROVED') scan.aiGuardian.approved += 1;
-    if (review.decision === 'WATCH_ONLY') scan.aiGuardian.cautioned += 1;
-    if (review.decision === 'BLOCKED') scan.aiGuardian.blocked += 1;
+    if (['APPROVE', 'APPROVED'].includes(review.decision)) scan.aiGuardian.approved += 1;
+    if (['CAUTION', 'WATCH_ONLY', 'DOWNGRADE'].includes(review.decision)) scan.aiGuardian.cautioned += 1;
+    if (['BLOCK', 'BLOCKED'].includes(review.decision)) scan.aiGuardian.blocked += 1;
 
     // Construir veredicto completo
     const verdict = buildGeminiVerdictTemplate();
     verdict.approved = reviewAllowsEntry(review);
     verdict.confidence = review.confidence || 50;
-    verdict.verdict = review.decision === 'APPROVED' ? 'APPROVED'
-      : review.decision === 'WATCH_ONLY' ? 'WATCH_ONLY'
+    verdict.verdict = ['APPROVE', 'APPROVED'].includes(review.decision) ? 'APPROVED'
+      : ['CAUTION', 'WATCH_ONLY', 'DOWNGRADE'].includes(review.decision) ? 'WATCH_ONLY'
       : 'REJECTED';
     verdict.summary = review.summary || 'Sin resumen de Gemini.';
     verdict.riskNotes = Array.isArray(review.risks) ? review.risks
