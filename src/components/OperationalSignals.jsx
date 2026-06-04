@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import InfoTooltip from './InfoTooltip';
+import { api } from '../lib/api.js';
 
 const GROUPS = [
   { key: 'ready', title: 'Listas para implementar', tone: 'green', statuses: ['READY', 'AGGRESSIVE', '0DTE_SCALP'] },
@@ -11,7 +12,7 @@ function decimal(value, digits = 2) { return Number.isFinite(Number(value)) ? Nu
 function pct(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 'SIN DATOS';
-  return `${Math.round((number > 1 ? number : number * 100))}%`;
+  return `${Math.round(number > 1 ? number : number * 100)}%`;
 }
 function Help({ text }) { return <InfoTooltip explanation={text} position="bottom" />; }
 function shortLeg(signal) { return signal.legs?.find((leg) => leg.side === 'SELL') || signal.legs?.[0] || {}; }
@@ -35,6 +36,8 @@ function statusLabel(status) {
 function Signal({ signal, tone, onAccept, taken }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [review, setReview] = useState(null);
+  const [reviewing, setReviewing] = useState(false);
   const sellLeg = shortLeg(signal);
   const buyLeg = longLeg(signal);
   const colors = tone === 'green'
@@ -42,6 +45,7 @@ function Signal({ signal, tone, onAccept, taken }) {
     : tone === 'amber'
       ? 'border-amber-300 bg-amber-50'
       : 'border-slate-300 bg-slate-100';
+
   async function accept() {
     setSaving(true);
     try {
@@ -50,6 +54,16 @@ function Signal({ signal, tone, onAccept, taken }) {
       setSaving(false);
     }
   }
+
+  async function askGemini() {
+    setReviewing(true);
+    try {
+      setReview(await api.symbolStudy(signal.symbol, { signal }));
+    } finally {
+      setReviewing(false);
+    }
+  }
+
   return (
     <article className={`rounded-2xl border p-3 space-y-3 text-slate-900 ${colors}`}>
       <div className="flex items-start justify-between gap-2">
@@ -62,7 +76,7 @@ function Signal({ signal, tone, onAccept, taken }) {
             Direccion: {signal.bias || 'neutral'} · Exp: {signal.expiration || 'SIN DATOS'} · {signal.dte ?? 'SIN DATOS'} DTE
           </p>
         </div>
-        <span className="pill">{statusLabel(signal.status)}</span>
+        <span className="pill">{statusLabel(signal.status)} · {pct(signal.pop)}</span>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs">
@@ -86,6 +100,14 @@ function Signal({ signal, tone, onAccept, taken }) {
         Gemini Guardian: {signal.geminiCoach?.decision?.toUpperCase?.() || (tone === 'green' ? 'APROBADA' : tone === 'amber' ? 'WATCH' : 'RECHAZADA')} · {signal.geminiCoach?.summary || signal.blockedReason || signal.technicalSummary || 'Revisar datos reales antes de decidir.'}
       </p>
 
+      {review?.study && (
+        <div className="rounded-xl border border-violet-100 bg-white p-3 text-xs text-slate-800 shadow-sm">
+          <p className="font-black text-violet-800">{review.study.verdict?.replaceAll('_', ' ') || 'REVISION'} · {review.study.probabilityPct ?? pct(signal.pop)}%</p>
+          <p className="mt-1 leading-5">{review.study.summary}</p>
+          <p className="mt-2 font-bold">Accion: {review.study.nextAction || 'No entrar sin confirmar cadena.'}</p>
+        </div>
+      )}
+
       <button type="button" className="text-xs font-black text-blue-700" onClick={() => setOpen(!open)}>
         {open ? 'Ocultar detalle' : 'Ver griegas, volumen, earnings y plan'}
       </button>
@@ -101,11 +123,16 @@ function Signal({ signal, tone, onAccept, taken }) {
         </div>
       )}
 
-      {tone !== 'red' && (
-        <button className="secondary-button w-full" type="button" disabled={taken || saving} onClick={accept}>
-          {taken ? 'Registrada en Journal' : saving ? 'Guardando...' : 'Tome esta señal: registrar en Journal'}
+      <div className="flex flex-wrap gap-2">
+        <button className="secondary-button small-action" type="button" disabled={reviewing} onClick={askGemini}>
+          {reviewing ? 'Gemini...' : 'Gemini'}
         </button>
-      )}
+        {tone !== 'red' && (
+          <button className="primary-button small-action" type="button" disabled={taken || saving} onClick={accept}>
+            {taken ? 'Guardada' : saving ? '...' : 'Journal'}
+          </button>
+        )}
+      </div>
     </article>
   );
 }
@@ -124,13 +151,13 @@ export function OperationalSignals({ signals = [], compact = false, onAccept = (
   const visibleGroups = GROUPS
     .map((group) => ({
       ...group,
-      items: signals.filter((signal) => group.statuses.includes(signal.status)).slice(0, compact ? 2 : group.key === 'blocked' ? 5 : 8)
+      items: signals.filter((signal) => group.statuses.includes(signal.status)).slice(0, compact ? 2 : 8)
     }))
     .filter((group) => group.items.length);
   return (
     <section id="signals" className="signal-card p-4 space-y-3">
       <div>
-        <h2 className="text-xl font-black text-slate-900">Radar de señales <Help text="Solo READY puede activar push. WATCH no es entrada implementable todavia." /></h2>
+        <h2 className="text-xl font-black text-slate-900">Radar de senales <Help text="Solo READY puede activar push. WATCH no es entrada implementable todavia." /></h2>
         <p className="text-sm text-slate-700">Verde exige strikes, vencimiento, riesgo maximo, plan de salida, liquidez, probabilidad y revision Gemini. Lo que Gemini descarta se oculta.</p>
       </div>
       {visibleGroups.length ? visibleGroups.map((group) => (

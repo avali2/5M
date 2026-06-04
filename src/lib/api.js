@@ -46,5 +46,15 @@ export const api = {
   async riskPositions() {
     try { return await requestJson("/api/risk/positions"); }
     catch (err) { return { ok: false, positions: [], warnings: [err?.message || "Riesgo no disponible"] }; }
+  },
+  async symbolStudy(symbol, payload = {}) {
+    try {
+      return await requestJson(`/api/symbol-study/${encodeURIComponent(symbol)}`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      return { ok: false, symbol, study: { verdict: "NO_TOMAR_AHORA", summary: err?.message || "Gemini no disponible", why: [], risks: [], nextAction: "Reintentar mas tarde." } };
+    }
   }
 };

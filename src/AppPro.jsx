@@ -12,7 +12,6 @@ import { DailyGeminiLesson } from './components/DailyGeminiLesson.jsx';
 import { DailyTradingWorkflow } from './components/DailyTradingWorkflow.jsx';
 import InfoTooltip from './components/InfoTooltip.jsx';
 import NoGreenTodayPanel from './features/scanner/NoGreenTodayPanel.jsx';
-import RiskCommandCenter from './features/risk/RiskCommandCenter.jsx';
 import { loadRiskConfig, saveRiskConfig } from './config/riskConfig.ts';
 import { classifyNewsEvent } from './services/newsImpactClassifier.ts';
 import { professionalSignalsFromScan } from './utils/proSignalAdapter.js';
@@ -80,7 +79,7 @@ function HomeHero({ scan, ready, watch, pulse }) {
   );
 }
 
-function WatchedUniversePanel({ scan }) {
+function WatchedUniversePanel({ scan, study, studyingSymbol, onStudy }) {
   const symbols = [
     ...(scan?.watchlist?.symbols || []),
     ...(scan?.universeCoverage?.rotatingThisCycle || [])
@@ -97,9 +96,24 @@ function WatchedUniversePanel({ scan }) {
         </div>
         <span className="pill">{unique.length} simbolos</span>
       </div>
+      {study?.study && (
+        <div className="rounded-2xl border border-violet-100 bg-violet-50 p-3 text-sm text-violet-950">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-violet-700">Gemini estudio {study.symbol}</p>
+          <p className="mt-1 font-black">{study.study.verdict?.replaceAll('_', ' ') || 'REVISION'}</p>
+          <p className="mt-1 leading-6">{study.study.summary}</p>
+          <p className="mt-2 text-xs font-bold">Accion: {study.study.nextAction || 'Revisar datos antes de operar.'}</p>
+        </div>
+      )}
       <div className="flex max-h-40 flex-wrap gap-2 overflow-auto pr-1">
         {unique.map((symbol) => (
-          <span key={symbol} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-700 shadow-sm">{symbol}</span>
+          <button
+            key={symbol}
+            type="button"
+            className={`rounded-full border px-3 py-1 text-xs font-black shadow-sm ${studyingSymbol === symbol ? 'border-violet-300 bg-violet-50 text-violet-800' : 'border-slate-200 bg-white text-slate-700'}`}
+            onClick={() => onStudy(symbol)}
+          >
+            {studyingSymbol === symbol ? 'Gemini...' : symbol}
+          </button>
         ))}
       </div>
     </section>
@@ -128,7 +142,7 @@ function TapeReadingCard({ tape }) {
   );
 }
 
-function RiskLimits({ profile, riskConfig }) {
+function RiskLimits({ profile, riskConfig, manualPositions = [] }) {
   const cfg = riskConfig || loadRiskConfig();
   const tradeBudget = cfg.accountValue * cfg.defaultRiskPct / 100;
   return (
@@ -138,7 +152,7 @@ function RiskLimits({ profile, riskConfig }) {
         <Metric icon="💼" tone="blue" label="Cuenta" value={`$${cfg.accountValue}`} />
         <Metric icon="🎯" tone="green" label="Riesgo / trade" value={`$${tradeBudget} (${cfg.defaultRiskPct}%)`} />
         <Metric icon="🏦" tone="violet" label="Colateral max." value={`${cfg.collateralCapPct}%`} />
-        <Metric icon="📌" tone="amber" label="Trades abiertos" value={`${profile?.activeSymbols?.length || loadManualBrokerPositions().length} / ${cfg.maxOpenTrades}`} />
+        <Metric icon="📌" tone="amber" label="Trades abiertos" value={`${manualPositions.length || profile?.activeSymbols?.length || 0} / ${cfg.maxOpenTrades}`} />
       </div>
     </section>
   );
@@ -200,7 +214,37 @@ function JournalMetric({ label, value, tone = 'slate' }) {
   return <div className={`rounded-xl border p-2 ${styles[tone]}`}><p className="text-[10px] font-black uppercase tracking-wide opacity-70">{label}</p><p className="mt-1 text-xs font-black">{value || 'N/D'}</p></div>;
 }
 
-function TradeJournal({ entries, onDelete }) {
+function JournalBrokerSummary({ entries = [], manualPositions = [] }) {
+  const openEntries = entries.filter((entry) => !String(entry.outcome || entry.status || '').toUpperCase().includes('CLOSED'));
+  const closedEntries = entries.length - openEntries.length;
+  const risk = entries.reduce((sum, entry) => {
+    const signal = parseSignal(entry);
+    const value = Number(signal.maxRiskUsd ?? signal.maxRisk ?? entry.maxRiskUsd);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
+  return (
+    <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <JournalMetric tone="blue" label="Broker manual" value={`${manualPositions.length} abiertas`} />
+        <JournalMetric tone="green" label="Journal open" value={openEntries.length} />
+        <JournalMetric tone="violet" label="Cerradas" value={closedEntries} />
+        <JournalMetric tone="amber" label="Riesgo registrado" value={risk ? `$${Math.round(risk)}` : 'N/D'} />
+      </div>
+      {manualPositions.length > 0 && (
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {manualPositions.slice(0, 4).map((position) => (
+            <div className="rounded-xl border border-blue-100 bg-white p-2 text-xs" key={position.id}>
+              <strong>{position.symbol} · {position.strategy}</strong>
+              <p className="mt-1 text-slate-600">{position.expiration || 'Sin vencimiento'} · Entrada {position.entryMark || 'N/D'} · Mark {position.currentMark || 'N/D'}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TradeJournal({ entries, onDelete, manualPositions = [] }) {
   return (
     <>
       <section id="journal" className="risk-card p-4 space-y-3">
@@ -211,6 +255,7 @@ function TradeJournal({ entries, onDelete }) {
           </div>
           <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">{entries?.length || 0} registros</span>
         </div>
+        <JournalBrokerSummary entries={entries} manualPositions={manualPositions} />
         {entries?.length ? entries.slice(0, 12).map((entry) => {
           const signal = parseSignal(entry);
           const expiration = entry.expiration || signal.expiration;
@@ -287,6 +332,9 @@ export default function AppPro() {
   const [dailyLesson, setDailyLesson] = useState(null);
   const [takenSignalIds, setTakenSignalIds] = useState(loadTakenSignals);
   const [toast, setToast] = useState('');
+  const [manualPositions, setManualPositions] = useState(loadManualBrokerPositions);
+  const [symbolStudy, setSymbolStudy] = useState(null);
+  const [studyingSymbol, setStudyingSymbol] = useState('');
 
   async function load(force = false) {
     setError('');
@@ -312,6 +360,16 @@ export default function AppPro() {
     setEntries(await loadJournalEntries());
     setToast('Operacion eliminada del Journal');
     window.setTimeout(() => setToast(''), 2500);
+  }
+
+  async function studySymbol(symbol) {
+    setStudyingSymbol(symbol);
+    try {
+      const result = await api.symbolStudy(symbol);
+      setSymbolStudy(result);
+    } finally {
+      setStudyingSymbol('');
+    }
   }
 
   async function acceptSignal(signal) {
@@ -360,8 +418,18 @@ export default function AppPro() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    function reloadPositions() { setManualPositions(loadManualBrokerPositions()); }
+    window.addEventListener('positions-updated', reloadPositions);
+    window.addEventListener('storage', reloadPositions);
+    return () => {
+      window.removeEventListener('positions-updated', reloadPositions);
+      window.removeEventListener('storage', reloadPositions);
+    };
+  }, []);
+
   const signals = useMemo(() => professionalSignalsFromScan(scan || {}), [scan]);
-  const activeSymbols = useMemo(() => new Set(loadManualBrokerPositions().map((position) => position.symbol)), [entries, activeTab]);
+  const activeSymbols = useMemo(() => new Set(manualPositions.map((position) => position.symbol)), [manualPositions]);
   const news = useMemo(() => {
     const macro = scan?.macro || {};
     const all = [
@@ -427,11 +495,11 @@ export default function AppPro() {
       <main className="home-pro pb-24">
         {toast && <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl border border-green-200 bg-white px-4 py-3 text-sm font-bold text-green-800 shadow-lg">{toast}</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
-        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} /><GeminiBriefCard {...brief} /><WatchedUniversePanel scan={scan} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /></>}
+        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /><WatchedUniversePanel scan={scan} study={symbolStudy} studyingSymbol={studyingSymbol} onStudy={studySymbol} /></>}
         {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} />}
         {activeTab === 'news' && <NewsImpactList news={news} />}
-        {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} /><RiskCommandCenter /><BrokerPositionsDesk /></>}
-        {activeTab === 'journal' && <TradeJournal entries={entries} onDelete={deleteJournal} />}
+        {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} manualPositions={manualPositions} /><BrokerPositionsDesk /></>}
+        {activeTab === 'journal' && <TradeJournal entries={entries} onDelete={deleteJournal} manualPositions={manualPositions} />}
         {activeTab === 'config' && <><SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} /><NotificationManager /><SystemStatus /></>}
         <footer className="text-xs text-slate-500 text-center py-4">Educational / decision-support only. No auto-trading enabled.<span className="block mt-1">v{VALIDO_VERSION}</span></footer>
       </main>

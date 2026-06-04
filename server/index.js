@@ -20,6 +20,7 @@ import { getSystemStatus } from './status.js';
 import geminiAssistantRouter from './geminiAssistant.js';
 import { createScanDiagnosticsRouter } from './routes/scanDiagnosticsRoutes.js';
 import { createRiskRouter } from './routes/riskRoutes.js';
+import { createSymbolStudyRouter } from './routes/symbolStudyRoutes.js';
 import { scanPersistence } from './services/scanPersistence.js';
 import { scanLock } from './services/scanLock.js';
 
@@ -392,6 +393,7 @@ export function createApp(settings = config, customProviders = null, options = {
       '/positions/analyze', '/push/public-key', '/push/subscribe', '/push/unsubscribe',
       '/ping'
     ];
+    if (req.path.startsWith('/symbol-study/')) return next();
     if (publicPaths.some(p => req.path === p || req.path === p + '/')) return next();
     if (settings.security?.requireAccessKey && !settings.security?.accessKey) {
       return res.status(503).json({
@@ -509,6 +511,7 @@ export function createApp(settings = config, customProviders = null, options = {
   }));
 
   app.use('/api/risk', createRiskRouter({ scheduler, repository, providers }));
+  app.use('/api/symbol-study', createSymbolStudyRouter({ scheduler }));
 
   app.get('/api/macro/guard', async (_req, res, next) => {
     try {

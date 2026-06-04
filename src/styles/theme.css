@@ -115,6 +115,15 @@ body {
 }
 .secondary-button:hover { background: #e2e8f0; }
 
+.primary-button.small-action,
+.secondary-button.small-action {
+  border-radius: 12px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1;
+  width: auto;
+}
+
 .pro-console {
   min-height: 100vh;
   padding-bottom: 90px;
