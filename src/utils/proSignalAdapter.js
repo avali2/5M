@@ -201,25 +201,6 @@ function fromRejected(item = {}, scan = {}) {
   };
 }
 
-function signalRank(signal = {}) {
-  const statusWeight = signal.status === 'READY' ? 400 : signal.status === 'AGGRESSIVE' ? 360 : signal.status === '0DTE_SCALP' ? 340 : signal.status === 'WATCH' ? 220 : signal.status === 'NO_DATA' ? 80 : 0;
-  const aiWeight = signal.geminiCoach?.decision === 'takeable' ? 60 : signal.geminiCoach?.decision === 'watch' ? 20 : 0;
-  const score = Number(signal.score) || 0;
-  const pop = normalizePop(signal.pop) || 0;
-  return statusWeight + aiWeight + score + pop * 100;
-}
-
-function dominantThesisOnly(signals = []) {
-  const bySymbol = new Map();
-  for (const signal of signals) {
-    const key = String(signal.symbol || '').toUpperCase();
-    if (!key) continue;
-    const current = bySymbol.get(key);
-    if (!current || signalRank(signal) > signalRank(current)) bySymbol.set(key, signal);
-  }
-  return [...bySymbol.values()].sort((a, b) => signalRank(b) - signalRank(a));
-}
-
 export function professionalSignalsFromScan(scan = {}) {
   const directReady = (scan.opportunities || []).map((item) => fromTicket(item, scan, 'approved'));
   const approvedFromAgent = (scan.agent?.approvedSignals || []).map((item) => fromTicket(item, scan, 'approved'));
@@ -233,13 +214,12 @@ export function professionalSignalsFromScan(scan = {}) {
   const all = [...directReady, ...approvedFromAgent, ...actionable, ...candidates, ...conditional, ...rejected]
     .filter((signal) => signal.status !== 'AVOID');
   const seen = new Set();
-  const unique = all.filter((signal) => {
+  return all.filter((signal) => {
     const key = `${signal.symbol}-${signal.strategyLabel}-${signal.expiration}-${signal.status}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-  return dominantThesisOnly(unique);
 }
 
 export function marketPulseFromScan(scan = {}) {

@@ -46,13 +46,12 @@ function candidateSignals(scan = {}) {
     .map(compactSignal);
 }
 
-export function createScanDiagnosticsRouter({ scheduler, persistence = scanPersistence, runNow = null, providerHealth = null, scanProvider = null }) {
+export function createScanDiagnosticsRouter({ scheduler, persistence = scanPersistence, runNow = null, providerHealth = null }) {
   const router = express.Router();
-  const readScan = async () => scanProvider ? scanProvider() : scheduler.snapshot();
 
   router.get('/scan/latest', async (_req, res, next) => {
     try {
-      const scan = await readScan();
+      const scan = await scheduler.snapshot();
       res.json({ ok: true, scan, asOf: scan.asOf, readyGreen: readyGreenSignals(scan).map(compactSignal) });
     } catch (error) {
       next(error);
@@ -61,9 +60,9 @@ export function createScanDiagnosticsRouter({ scheduler, persistence = scanPersi
 
   router.post('/scan/run', async (_req, res, next) => {
     try {
-      const result = runNow ? await runNow() : { value: { scan: await readScan() } };
+      const result = runNow ? await runNow() : { value: { scan: await scheduler.run(true) } };
       const scan = result.value?.scan || result.value || result.scan;
-      if (scan?.asOf && !result.value?.run) await persistence.saveScan(scan, { mode: 'api-run' });
+      if (scan?.asOf) await persistence.saveScan(scan, { mode: 'api-run' });
       res.json({ ok: true, result, scan });
     } catch (error) {
       next(error);
@@ -72,7 +71,7 @@ export function createScanDiagnosticsRouter({ scheduler, persistence = scanPersi
 
   router.get('/scan/diagnostics', async (_req, res, next) => {
     try {
-      const scan = await readScan();
+      const scan = await scheduler.snapshot();
       res.json(await persistence.diagnostics(scan));
     } catch (error) {
       next(error);
@@ -81,7 +80,7 @@ export function createScanDiagnosticsRouter({ scheduler, persistence = scanPersi
 
   router.get('/signals/ready', async (_req, res, next) => {
     try {
-      const scan = await readScan();
+      const scan = await scheduler.snapshot();
       res.json({ ok: true, signals: readyGreenSignals(scan).map(compactSignal), asOf: scan.asOf });
     } catch (error) {
       next(error);
@@ -90,7 +89,7 @@ export function createScanDiagnosticsRouter({ scheduler, persistence = scanPersi
 
   router.get('/signals/candidates', async (_req, res, next) => {
     try {
-      const scan = await readScan();
+      const scan = await scheduler.snapshot();
       res.json({ ok: true, signals: candidateSignals(scan), asOf: scan.asOf });
     } catch (error) {
       next(error);
@@ -99,7 +98,7 @@ export function createScanDiagnosticsRouter({ scheduler, persistence = scanPersi
 
   router.get('/provider-health', async (_req, res, next) => {
     try {
-      const scan = await readScan();
+      const scan = await scheduler.snapshot();
       res.json({
         ok: true,
         providers: providerHealth ? providerHealth() : scan.providers || [],

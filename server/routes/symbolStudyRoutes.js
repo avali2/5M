@@ -107,23 +107,14 @@ function normalizeGemini(local, gemini = {}) {
   };
 }
 
-export function createSymbolStudyRouter({ persistence = null }) {
+export function createSymbolStudyRouter({ scheduler }) {
   const router = express.Router();
 
   async function handle(req, res, next) {
     try {
       const symbol = text(req.params.symbol).toUpperCase();
       if (!/^[A-Z.]{1,8}$/.test(symbol)) return res.status(400).json({ ok: false, error: 'Simbolo invalido.' });
-      const stored = persistence ? await persistence.latestScanPayload() : null;
-      const scan = stored?.scan || {
-        asOf: null,
-        market: null,
-        macro: null,
-        opportunities: [],
-        rejected: [],
-        conditionalIdeas: [],
-        decision: { status: 'worker_pending', label: 'WAITING FOR BACKGROUND WORKER' }
-      };
+      const scan = await scheduler.snapshot();
       const proposedSignal = req.body?.signal || null;
       const local = localStudy({ symbol, scan, proposedSignal });
       const prompt = [

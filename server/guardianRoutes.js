@@ -91,7 +91,7 @@ export function createGuardianRouter({ guardianScheduler, repository }) {
   return router;
 }
 
-export function createPushRouter({ pushService, persistence = null }) {
+export function createPushRouter({ pushService }) {
   const router = express.Router();
   router.get('/public-key', (_req, res) => res.json(pushService.status()));
   router.post('/subscribe', async (req, res, next) => {
@@ -121,20 +121,6 @@ export function createPushRouter({ pushService, persistence = null }) {
         });
       }
       res.json(await pushService.test());
-    } catch (error) {
-      next(error);
-    }
-  });
-  router.post('/send', async (req, res, next) => {
-    try {
-      const result = await pushService.send(req.body || {});
-      await persistence?.recordPushEvent?.({
-        signalId: req.body?.signalId || req.body?.data?.signalId || null,
-        type: req.body?.type || req.body?.data?.type || null,
-        payload: req.body || {},
-        result
-      });
-      res.json(result);
     } catch (error) {
       next(error);
     }

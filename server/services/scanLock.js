@@ -31,21 +31,7 @@ export class ScanLock {
       connectionString: settings.url,
       ssl: settings.ssl ? { rejectUnauthorized: false } : false
     }) : null;
-    this.redisUrl = process.env.REDIS_URL || '';
-    this.redis = null;
     this.ready = null;
-  }
-
-  async redisClient() {
-    if (!this.redisUrl) return null;
-    if (this.redis) return this.redis;
-    const { default: Redis } = await import('ioredis');
-    this.redis = new Redis(this.redisUrl, {
-      maxRetriesPerRequest: 1,
-      lazyConnect: true
-    });
-    await this.redis.connect();
-    return this.redis;
   }
 
   async initialize() {
@@ -65,15 +51,6 @@ export class ScanLock {
   async acquire(lockName = 'scanner', ttlMs = 150000) {
     const now = new Date();
     const until = new Date(now.getTime() + ttlMs);
-    const redis = await this.redisClient().catch(() => null);
-    if (redis) {
-      const key = `valido:lock:${lockName}`;
-      const result = await redis.set(key, this.owner, 'PX', ttlMs, 'NX');
-      if (result === 'OK') return { acquired: true, owner: this.owner, lockedUntil: until.toISOString(), backend: 'redis' };
-      const owner = await redis.get(key);
-      const ttl = await redis.pttl(key);
-      return { acquired: false, owner, lockedUntil: new Date(now.getTime() + Math.max(0, ttl)).toISOString(), backend: 'redis' };
-    }
     if (!this.pool) {
       const locks = await readJson('scan-locks.json', {});
       const current = locks[lockName];
@@ -109,13 +86,6 @@ export class ScanLock {
   }
 
   async release(lockName = 'scanner') {
-    const redis = await this.redisClient().catch(() => null);
-    if (redis) {
-      const key = `valido:lock:${lockName}`;
-      const script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
-      const result = await redis.eval(script, 1, key, this.owner);
-      return Number(result) > 0;
-    }
     if (!this.pool) {
       const locks = await readJson('scan-locks.json', {});
       if (locks[lockName]?.owner === this.owner) {

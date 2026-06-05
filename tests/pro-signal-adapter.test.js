@@ -37,17 +37,3 @@ test('frontend adapter hides rejected avoid tickets but keeps useful no-data dia
   assert.deepEqual(signals.map((signal) => signal.symbol), ['NU']);
   assert.equal(signals[0].status, 'NO_DATA');
 });
-
-test('frontend adapter keeps one dominant thesis per symbol', () => {
-  const signals = professionalSignalsFromScan({
-    opportunities: [
-      { symbol: 'NVDA', strategy: 'Bull Put Spread', status: 'READY_GREEN', expiration: '2026-07-17', dte: 43, pop: 0.66, score: 72 },
-      { symbol: 'NVDA', strategy: 'Bear Call Spread', status: 'CANDIDATE', expiration: '2026-07-17', dte: 43, pop: 0.58, score: 61 },
-      { symbol: 'NVDA', strategy: 'Iron Condor', status: 'WATCHLIST', expiration: '2026-07-17', dte: 43, pop: 0.55, score: 59 }
-    ]
-  });
-
-  assert.equal(signals.length, 1);
-  assert.equal(signals[0].symbol, 'NVDA');
-  assert.equal(signals[0].strategyLabel, 'Bull Put Spread');
-});

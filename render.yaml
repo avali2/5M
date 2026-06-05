@@ -3,8 +3,8 @@ services:
     name: valido-1m
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm run start
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
@@ -42,8 +42,6 @@ services:
         sync: false
       - key: DATABASE_SSL
         value: "true"
-      - key: REDIS_URL
-        sync: false
       - key: TRADIER_TOKEN
         sync: false
       - key: TRADIER_ACCESS_TOKEN
@@ -175,7 +173,7 @@ services:
       - key: PUSH_INCLUDE_REASON_SUMMARY
         value: "true"
       - key: SCANNER_ENABLED
-        value: "false"
+        value: "true"
       - key: SCANNER_CORE_INTERVAL_MINUTES
         value: "5"
       - key: SCANNER_INTERVAL_MINUTES
@@ -336,8 +334,8 @@ services:
     name: valido-1m-scanner-worker
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm run worker
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run worker:scanner
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
@@ -350,8 +348,6 @@ services:
         sync: false
       - key: DATABASE_SSL
         value: "true"
-      - key: REDIS_URL
-        sync: false
       - key: APP_ACCESS_KEY
         sync: false
       - key: REQUIRE_ACCESS_KEY
@@ -396,8 +392,6 @@ services:
         value: "true"
       - key: SCANNER_INTERVAL_MINUTES
         value: "3"
-      - key: SCANNER_MARKET_OPEN_ONLY
-        value: "true"
       - key: SCANNER_AFTER_HOURS_INTERVAL_MINUTES
         value: "15"
       - key: PUSH_ENABLED
