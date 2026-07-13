@@ -11,7 +11,7 @@ export const SIGNAL_STATUSES = Object.freeze({
 const CREDIT_STRATEGY = /(Credit Spread|Bull Put|Bear Call|Iron Condor|Iron Fly|Cash Secured Put|Covered Call)/i;
 
 function finite(value) {
-  return Number.isFinite(Number(value));
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
 }
 
 function list(value) {
@@ -20,10 +20,13 @@ function list(value) {
 
 function hasQuotedLegs(setup = {}) {
   const legs = list(setup.legs);
-  return legs.length >= 2 && legs.every((leg) =>
+  const minimumLegs = /(Cash Secured Put|Covered Call|Long Call|Long Put)/i.test(String(setup.strategy || '')) ? 1 : 2;
+  return legs.length >= minimumLegs && legs.every((leg) =>
     finite(leg.strike) &&
     finite(leg.bid) &&
     finite(leg.ask) &&
+    Number(leg.bid) >= 0 &&
+    Number(leg.ask) > 0 &&
     Number(leg.ask) >= Number(leg.bid)
   );
 }
@@ -66,9 +69,9 @@ export function criticalDataIssues(setup = {}) {
   if (!finite(setup.dte)) issues.push('dte');
   if (!hasQuotedLegs(setup)) issues.push('quoted option legs');
   if (!setup.strikes && !list(setup.legs).every((leg) => finite(leg.strike))) issues.push('strikes');
-  if (!finite(creditOrDebit(setup).value)) issues.push('limit credit/debit');
+  if (!finite(creditOrDebit(setup).value) || Number(creditOrDebit(setup).value) <= 0) issues.push('limit credit/debit');
   if (!finite(setup.maxRisk) || Number(setup.maxRisk) <= 0) issues.push('max risk');
-  if (!finite(setup.maxProfit)) issues.push('max profit');
+  if (!finite(setup.maxProfit) || Number(setup.maxProfit) <= 0) issues.push('max profit');
   if (!finite(setup.liquidityScore)) issues.push('liquidity score');
   return issues;
 }
@@ -99,11 +102,16 @@ export function classifyGreenSignal(setup = {}, { settings = {}, profile = null,
   });
   const hardBlocks = [];
   if (globalBlocks.length) hardBlocks.push(...globalBlocks);
-  if (maxRisk > accountSize * riskPct / 100) hardBlocks.push(`Max risk ${maxRisk} exceeds ${riskPct}% account risk budget`);
-  if (collateral > accountSize * maxCollateralPct / 100) hardBlocks.push(`Collateral ${collateral} exceeds ${maxCollateralPct}% account cap`);
+  const maxRiskDollars = Number(profile?.maxRiskDollars ?? accountSize * riskPct / 100);
+  const maxCollateralDollars = Number(profile?.maxCollateralDollars ?? accountSize * maxCollateralPct / 100);
+  if (maxRisk > maxRiskDollars) hardBlocks.push(`Max risk ${maxRisk} exceeds $${Number(maxRiskDollars.toFixed(2))} account risk budget`);
+  if (collateral > maxCollateralDollars) hardBlocks.push(`Collateral ${collateral} exceeds $${Number(maxCollateralDollars.toFixed(2))} account cap`);
+  if (finite(setup.positionSizeContracts) && Number(setup.positionSizeContracts) < 1) hardBlocks.push('Account cannot support one contract within configured risk limits');
   if (maxSpreadIssue) hardBlocks.push('Bid/ask spread exceeds hard limit');
   if (dte < 0) hardBlocks.push('Expiration is invalid or expired');
-  if (dte <= 1 && !policy.allow0Dte && !profile?.allow0Dte) hardBlocks.push('0DTE/1DTE not allowed by risk mandate');
+  if (dte === 0 && !policy.allow0Dte && !profile?.allow0Dte) hardBlocks.push('0DTE not allowed by risk mandate');
+  if (dte === 1 && !policy.allow1DteApproval && !profile?.allow1DteApproval) hardBlocks.push('1DTE not allowed by risk mandate');
+  if (profile?.accountSync?.marginCall) hardBlocks.push('Tradier margin call blocks new positions');
   if (CREDIT_STRATEGY.test(String(setup.strategy)) && list(setup.blocks).some((block) => /earnings|resultados/i.test(block))) {
     hardBlocks.push('Earnings risk blocks short premium');
   }

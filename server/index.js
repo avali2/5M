@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { access } from 'node:fs/promises';
 import { buildInfo, config, providerStatus, UNIVERSE } from './config.js';
@@ -14,7 +14,6 @@ import { GuardianPushStore } from './pushStore.js';
 import { GuardianPushService } from './push.js';
 import { GuardianScheduler } from './guardianScheduler.js';
 import { createGuardianRouter, createPushRouter } from './guardianRoutes.js';
-import { startAutonomousSignalWorker } from './autonomousSignalWorker.js';
 import positionsRoutes from './routes/positionsRoutes.js';
 import { getSystemStatus } from './status.js';
 import geminiAssistantRouter from './geminiAssistant.js';
@@ -22,7 +21,47 @@ import { createScanDiagnosticsRouter } from './routes/scanDiagnosticsRoutes.js';
 import { createRiskRouter } from './routes/riskRoutes.js';
 import { createSymbolStudyRouter } from './routes/symbolStudyRoutes.js';
 import { scanPersistence } from './services/scanPersistence.js';
-import { scanLock } from './services/scanLock.js';
+import { getMarketSessionET } from './autonomousSignalWorker.js';
+
+const AUTH_COOKIE = 'valido_session';
+const AUTH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function safeTextEqual(left, right) {
+  const expected = Buffer.from(String(left || ''));
+  const supplied = Buffer.from(String(right || ''));
+  return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+}
+
+function sessionSecret(settings) {
+  return process.env.SESSION_SECRET || settings.security?.accessKey || '';
+}
+
+function signedSession(timestamp, secret) {
+  const signature = createHmac('sha256', secret).update(`valido:${timestamp}`).digest('hex');
+  return `${timestamp}.${signature}`;
+}
+
+function cookieValue(req, name) {
+  const source = String(req.headers.cookie || '');
+  const pair = source.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
+  if (!pair) return '';
+  try {
+    return decodeURIComponent(pair.slice(name.length + 1));
+  } catch {
+    return '';
+  }
+}
+
+function hasValidSession(req, settings) {
+  const secret = sessionSecret(settings);
+  const value = cookieValue(req, AUTH_COOKIE);
+  const [timestampText, signature] = value.split('.');
+  const timestamp = Number(timestampText);
+  if (!secret || !timestamp || !signature) return false;
+  const age = Date.now() - timestamp;
+  if (age < -5 * 60 * 1000 || age > AUTH_MAX_AGE_MS) return false;
+  return safeTextEqual(signedSession(timestamp, secret), value);
+}
 
 function enabledLabel(value) {
   return value ? 'enabled' : 'disabled';
@@ -68,6 +107,81 @@ function providerHealth(settings, providers) {
     activeMarketProvider: providers.market?.name || 'none',
     activeOptionsProvider: providers.options?.name || 'none',
     activeNewsProvider: providers.news?.name || 'none'
+  };
+}
+
+function compactGamma(value) {
+  if (!value || typeof value !== 'object') return value;
+  const summary = { ...value };
+  delete summary.profile;
+  return summary;
+}
+
+function compactSetupForClient(value) {
+  if (!value || typeof value !== 'object') return value;
+  return {
+    ...value,
+    ...(value.gammaProxy ? { gammaProxy: compactGamma(value.gammaProxy) } : {}),
+    ...(value.sourceSetup ? { sourceSetup: compactSetupForClient(value.sourceSetup) } : {})
+  };
+}
+
+function compactTicketCollection(value) {
+  return Array.isArray(value) ? value.map(compactSetupForClient) : value;
+}
+
+function compactTicketSummary(value) {
+  const compact = compactSetupForClient(value);
+  if (!compact || typeof compact !== 'object') return compact;
+  const summary = { ...compact };
+  delete summary.sourceSetup;
+  return summary;
+}
+
+function clientRejectedSet(value) {
+  const items = Array.isArray(value) ? value : [];
+  const dataErrors = items.filter((item) => /DATA_ERROR|NO_CHAIN|NO_QUOTE|NO_GREEKS/i.test(String(item.status || item.classification || ''))).slice(0, 5);
+  const selected = [...dataErrors, ...items.slice(0, 12)];
+  const seen = new Set();
+  return selected.filter((item) => {
+    const key = `${item.symbol}|${item.strategy}|${item.expiration}|${item.status}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map(compactSetupForClient);
+}
+
+export function compactScanForClient(scan = {}) {
+  const edge = scan.guardianEdge || {};
+  const agent = scan.agent || {};
+  return {
+    ...scan,
+    opportunities: compactTicketCollection(scan.opportunities),
+    rejected: clientRejectedSet(scan.rejected),
+    conditionalIdeas: compactTicketCollection(scan.conditionalIdeas),
+    gammaSurfaces: (Array.isArray(scan.gammaSurfaces) ? scan.gammaSurfaces : []).map(compactGamma),
+    guardianEdge: {
+      ...edge,
+      candidateTickets: compactTicketCollection(edge.candidateTickets),
+      actionableTickets: compactTicketCollection(edge.actionableTickets),
+      notifyableTickets: compactTicketCollection(edge.notifyableTickets),
+      tickets: compactTicketCollection(edge.tickets),
+      dailyBest: compactTicketSummary(edge.dailyBest),
+      bestBullish: compactTicketSummary(edge.bestBullish),
+      bestBearish: compactTicketSummary(edge.bestBearish),
+      bestNeutral: compactTicketSummary(edge.bestNeutral)
+    },
+    agent: {
+      ...agent,
+      approvedSignals: compactTicketCollection(agent.approvedSignals),
+      rejectedCandidates: []
+    },
+    macro: scan.macro ? {
+      ...scan.macro,
+      flow: (scan.macro.flow || []).slice(0, 20),
+      news: (scan.macro.news || []).slice(0, 20),
+      companyNews: (scan.macro.companyNews || []).slice(0, 30)
+    } : scan.macro
   };
 }
 
@@ -367,8 +481,17 @@ function buildSigmaAudit({ signal, scan, guards, settings }) {
 
 export function createApp(settings = config, customProviders = null, options = { startBackground: true }) {
   const app = express();
+  app.set('trust proxy', 1);
   const providers = customProviders || createProviders(settings);
-  const scheduler = new ScanScheduler({ providers, settings, useLock: options.useScanLock ?? options.startBackground !== false });
+  const webScannerEnabled = settings.scanner?.runInWeb !== false;
+  const scheduler = new ScanScheduler({
+    providers,
+    settings,
+    useLock: options.useScanLock ?? options.startBackground !== false,
+    persistence: scanPersistence,
+    readPersisted: !webScannerEnabled,
+    stateServiceName: webScannerEnabled ? 'web-scanner' : null
+  });
   const pushService = new GuardianPushService(settings.webPush || {}, new GuardianPushStore(repository));
   const guardianScheduler = new GuardianScheduler({
     scanScheduler: scheduler,
@@ -379,22 +502,19 @@ export function createApp(settings = config, customProviders = null, options = {
   });
   const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, consecutiveDailyLosses: 0, riskMode: settings.policy?.defaultRiskMode || 'MODERATE_AGGRESSIVE', tradingPaused: false };
   const defaultWatchlist = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
+  const runManualScan = async (mode) => {
+    const scan = await scheduler.run(true);
+    await scanPersistence.saveScan(scan, { mode, worker: 'web-manual' });
+    return scan;
+  };
 
   app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(cors({ origin: settings.clientOrigin }));
+  app.use(cors({ origin: settings.clientOrigin, credentials: true }));
   app.use(express.json({ limit: '64kb' }));
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
-    const publicPaths = [
-      '/health', '/status', '/doctor', '/debug/env', '/debug/providers',
-      '/gemini/daily-summary', '/gemini/daily-lesson', '/gemini/quota-status', '/market/sentiment', '/market-sentiment', '/sentiment',
-      '/scan', '/scan/latest', '/scan/diagnostics', '/signals/ready', '/signals/candidates', '/provider-health',
-      '/guardian/scan', '/refresh', '/journal', '/risk/portfolio', '/risk/positions',
-      '/positions/analyze', '/push/public-key', '/push/subscribe', '/push/unsubscribe',
-      '/ping'
-    ];
-    if (req.path.startsWith('/symbol-study/')) return next();
-    if (publicPaths.some(p => req.path === p || req.path === p + '/')) return next();
+    const publicPaths = ['/health', '/auth/status', '/auth/login', '/auth/logout', '/push/public-key', '/ping'];
+    if (publicPaths.some((publicPath) => req.path === publicPath || req.path === `${publicPath}/`)) return next();
     if (settings.security?.requireAccessKey && !settings.security?.accessKey) {
       return res.status(503).json({
         error: 'Private access is not configured',
@@ -402,9 +522,8 @@ export function createApp(settings = config, customProviders = null, options = {
       });
     }
     if (!settings.security?.accessKey) return next();
-    const expected = Buffer.from(settings.security.accessKey);
-    const supplied = Buffer.from(req.get('x-valido-key') || '');
-    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+    const headerAuthorized = safeTextEqual(settings.security.accessKey, req.get('x-valido-key'));
+    if (!headerAuthorized && !hasValidSession(req, settings)) {
       return res.status(401).json({ error: 'Access key required' });
     }
     return next();
@@ -412,7 +531,7 @@ export function createApp(settings = config, customProviders = null, options = {
   app.locals.scheduler = scheduler;
   app.locals.guardianScheduler = guardianScheduler;
   app.locals.pushService = pushService;
-  if (options.startBackground) {
+  if (options.startBackground && settings.scanner?.enabled !== false && webScannerEnabled) {
     scheduler.start();
     guardianScheduler.start();
   }
@@ -434,6 +553,7 @@ export function createApp(settings = config, customProviders = null, options = {
       protected: protectedAccess,
       accessRequired,
       securityStatus: accessRequired && !protectedAccess ? 'configuration_required' : 'ready',
+      scannerMode: webScannerEnabled ? 'web_fallback' : 'background_worker_reader',
       database: {
         configured: Boolean(settings.database?.url),
         ssl: Boolean(settings.database?.ssl),
@@ -503,11 +623,7 @@ export function createApp(settings = config, customProviders = null, options = {
     scheduler,
     persistence: scanPersistence,
     providerHealth: () => providerHealth(settings, providers),
-    runNow: () => scanLock.withLock('scanner', 170_000, async () => {
-      const scan = await scheduler.run(true);
-      await scanPersistence.saveScan(scan, { mode: 'api-run' });
-      return scan;
-    })
+    runNow: async () => ({ scan: await scheduler.run(true) })
   }));
 
   app.use('/api/risk', createRiskRouter({ scheduler, repository, providers }));
@@ -554,7 +670,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/agent/scan', async (_req, res, next) => {
     try {
-      const scan = await scheduler.run(true);
+      const scan = await runManualScan('agent-manual');
       const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
       res.json({
         ...buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }),
@@ -656,7 +772,87 @@ export function createApp(settings = config, customProviders = null, options = {
     try {
       const scan = await scheduler.snapshot();
       const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+      res.json(compactScanForClient({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) }));
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.get('/api/auth/status', (req, res) => {
+    const required = Boolean(settings.security?.requireAccessKey || settings.security?.accessKey);
+    const configured = Boolean(settings.security?.accessKey);
+    res.json({
+      ok: true,
+      required,
+      configured,
+      authenticated: !required || (configured && hasValidSession(req, settings))
+    });
+  });
+
+  app.post('/api/auth/login', (req, res) => {
+    if (!settings.security?.accessKey) {
+      return res.status(settings.security?.requireAccessKey ? 503 : 400).json({ error: 'Private access is not configured' });
+    }
+    if (!safeTextEqual(settings.security.accessKey, req.body?.accessKey)) {
+      return res.status(401).json({ error: 'Clave privada incorrecta' });
+    }
+    const timestamp = Date.now();
+    res.cookie(AUTH_COOKIE, signedSession(timestamp, sessionSecret(settings)), {
+      httpOnly: true,
+      secure: req.secure,
+      sameSite: 'strict',
+      maxAge: AUTH_MAX_AGE_MS,
+      path: '/'
+    });
+    return res.json({ ok: true, authenticated: true });
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    res.clearCookie(AUTH_COOKIE, {
+      httpOnly: true,
+      secure: req.secure,
+      sameSite: 'strict',
+      path: '/'
+    });
+    res.json({ ok: true, authenticated: false });
+  });
+
+  app.get('/api/worker/status', async (_req, res, next) => {
+    try {
+      const fallbackSession = getMarketSessionET();
+      let marketOpen = ['OPENING_NOISE', 'MORNING_PRIME', 'MIDDAY', 'AFTERNOON_PRIME', 'POWER_HOUR', 'FINAL_GAMMA_WINDOW'].includes(fallbackSession.phase);
+      let marketState = fallbackSession.phase;
+      if (typeof providers.tradier?.getMarketClock === 'function') {
+        const clock = await providers.tradier.getMarketClock().catch(() => null);
+        if (clock?.state) {
+          marketState = clock.state;
+          marketOpen = clock.state === 'open';
+        }
+      }
+      const serviceName = webScannerEnabled ? 'web-scanner' : 'scanner-worker';
+      const state = await scanPersistence.workerState(serviceName, { marketOpen });
+      res.json({ ok: true, ...state, marketOpen, marketState });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/account/status', async (_req, res, next) => {
+    try {
+      const account = typeof providers.tradier?.getAccountSnapshot === 'function'
+        ? await providers.tradier.getAccountSnapshot()
+        : { status: 'NOT_CONFIGURED', error: 'Tradier is not configured.' };
+      res.json({
+        ok: account.status === 'ONLINE',
+        status: account.status,
+        source: account.source,
+        readOnly: true,
+        accountIdMasked: account.accountIdMasked || null,
+        accountType: account.accountType || null,
+        positionCount: account.positions?.length || 0,
+        asOf: account.asOf || null,
+        error: account.error || null,
+        orderExecutionEnabled: false
+      });
     } catch (error) {
       next(error);
     }
@@ -664,9 +860,9 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/scan', async (_req, res, next) => {
     try {
-      const scan = await scheduler.run(true);
+      const scan = await runManualScan('api-manual');
       const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+      res.json(compactScanForClient({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) }));
     } catch (error) {
       next(error);
     }
@@ -674,9 +870,9 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/scan/refresh', async (_req, res, next) => {
     try {
-      const scan = await scheduler.run(true);
+      const scan = await runManualScan('api-refresh');
       const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+      res.json(compactScanForClient({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) }));
     } catch (error) {
       next(error);
     }
@@ -695,7 +891,7 @@ export function createApp(settings = config, customProviders = null, options = {
       if (!Array.isArray(req.body.symbols)) return res.status(400).json({ error: 'symbols array required' });
       cache.clear();
       const watchlist = await repository.saveWatchlist(req.body.symbols);
-      scheduler.run(true).catch(() => {});
+      if (webScannerEnabled) scheduler.run(true).catch(() => {});
       return res.json(watchlist);
     } catch (error) {
       return next(error);
@@ -714,7 +910,7 @@ export function createApp(settings = config, customProviders = null, options = {
     try {
       cache.clear();
       const profile = await repository.saveRiskProfile(req.body || {}, defaults);
-      scheduler.run(true).catch(() => {});
+      if (webScannerEnabled) scheduler.run(true).catch(() => {});
       res.json(profile);
     } catch (error) {
       next(error);
@@ -815,9 +1011,6 @@ export function createApp(settings = config, customProviders = null, options = {
     }
   });
 
-  if (options.startBackground) {
-    startAutonomousSignalWorker({ scheduler, guardianScheduler, pushService, repository });
-  }
   app.use('/api/guardian', createGuardianRouter({ guardianScheduler, repository }));
   app.use('/api/push', createPushRouter({ pushService }));
   app.use('/api/positions', positionsRoutes);
@@ -968,9 +1161,9 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.post('/api/refresh', async (_req, res, next) => {
     try {
-      const scan = await scheduler.run(true);
+      const scan = await runManualScan('api-refresh');
       const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) });
+      res.json(compactScanForClient({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) }));
     } catch (error) {
       next(error);
     }

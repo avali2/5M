@@ -5,10 +5,18 @@ export class MemoryCache {
 
   async remember(key, ttlMs, loader) {
     const cached = this.entries.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
-    const value = await loader();
-    this.entries.set(key, { value, expiresAt: Date.now() + ttlMs });
-    return value;
+    if (cached && cached.expiresAt > Date.now()) return await cached.value;
+    const pending = Promise.resolve().then(loader);
+    const entry = { value: pending, expiresAt: Date.now() + ttlMs };
+    this.entries.set(key, entry);
+    try {
+      const value = await pending;
+      if (this.entries.get(key) === entry) this.entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+      return value;
+    } catch (error) {
+      if (this.entries.get(key) === entry) this.entries.delete(key);
+      throw error;
+    }
   }
 
   clear(prefix = '') {

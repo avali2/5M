@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import InfoTooltip from './InfoTooltip';
 import { loadManualBrokerPositions, pruneSignalGeneratedPositions, saveWatchedPositions } from '../services/tradeStorage.js';
+import { api } from '../lib/api.js';
 
 const AUTO_REVIEW_MS = 120000;
 const STRATEGIES = [
@@ -44,6 +45,12 @@ function healthStyle(health) {
   return 'border-emerald-200 bg-emerald-50 text-emerald-800';
 }
 
+function serverHealthStyle(health) {
+  if (health === 'CRITICAL_RISK' || health === 'EXPIRED_OR_INVALID') return 'border-red-200 bg-red-50 text-red-800';
+  if (health === 'ROLL_CANDIDATE' || health === 'WATCH') return 'border-amber-200 bg-amber-50 text-amber-800';
+  return 'border-emerald-200 bg-emerald-50 text-emerald-800';
+}
+
 async function requestPositionReview(position) {
   const response = await fetch('/api/positions/analyze', {
     method: 'POST',
@@ -62,7 +69,9 @@ export function BrokerPositionsDesk() {
   const [loadingId, setLoadingId] = useState('');
   const [autoReviewing, setAutoReviewing] = useState(false);
   const [lastAutoReview, setLastAutoReview] = useState('');
-  const openCount = useMemo(() => positions.length, [positions]);
+  const [portfolio, setPortfolio] = useState({ positions: [], account: null, brokerConnected: false });
+  const brokerPositions = useMemo(() => (portfolio.positions || []).filter((position) => position.source === 'tradier'), [portfolio]);
+  const openCount = useMemo(() => positions.length + brokerPositions.length, [positions, brokerPositions]);
   const positionsKey = useMemo(() => positions.map((position) => `${position.id}:${position.updatedAt || position.currentMark || ''}`).join('|'), [positions]);
 
   React.useEffect(() => {
@@ -72,6 +81,20 @@ export function BrokerPositionsDesk() {
     return () => {
       window.removeEventListener('positions-updated', reload);
       window.removeEventListener('storage', reload);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let active = true;
+    async function reloadBroker() {
+      const next = await api.riskPortfolio();
+      if (active) setPortfolio(next);
+    }
+    reloadBroker();
+    const interval = window.setInterval(reloadBroker, 60000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -135,9 +158,9 @@ export function BrokerPositionsDesk() {
     <section className="risk-card p-4 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-700">Broker manual</p>
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-700">Tradier + control manual</p>
           <h2 className="text-xl font-black text-slate-900">Posiciones abiertas reales</h2>
-          <p className="text-sm text-slate-700">Aqui solo entra lo que tu agregas manualmente porque ya lo abriste en el broker. Las senales tomadas no aparecen en Riesgo.</p>
+          <p className="text-sm text-slate-700">Tradier es la fuente principal en solo lectura. Las senales tomadas no se convierten en posiciones hasta que el broker confirme que existen.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">{openCount} activas</span>
@@ -147,8 +170,47 @@ export function BrokerPositionsDesk() {
         </div>
       </div>
 
+      {portfolio.brokerConnected ? (
+        <div className="space-y-3 rounded-2xl border border-blue-100 bg-blue-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-black text-blue-900">
+            <span>Tradier {portfolio.account?.accountIdMasked || ''} · solo lectura</span>
+            <span>{brokerPositions.length} posiciones · actualizado {portfolio.account?.asOf ? new Date(portfolio.account.asOf).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'N/D'}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+            <RiskMetric label="Equity" value={money(portfolio.account?.balances?.totalEquity)} />
+            <RiskMetric label="Cash" value={money(portfolio.account?.balances?.totalCash)} />
+            <RiskMetric label="Buying power opciones" value={money(portfolio.account?.balances?.optionBuyingPower)} />
+            <RiskMetric label="P/L abierto" value={money(portfolio.account?.balances?.openPl)} />
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">Tradier account sync pendiente. {portfolio.note || 'Se mantiene el respaldo manual sin ejecutar ordenes.'}</div>
+      )}
+
+      {brokerPositions.map((position) => (
+        <article className="position-card rounded-2xl border border-blue-200 bg-white p-3 space-y-3 text-slate-900 shadow-sm" key={position.id}>
+          <div className="flex flex-wrap justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-blue-600">Tradier confirmado</p>
+              <h3 className="mt-1 text-lg font-black">{position.symbol} · {position.strategy}</h3>
+              <p className="text-xs text-slate-700">{position.currentRisk?.dte ?? 'N/D'} DTE · Riesgo {position.riskScore ?? 'N/D'}/100 · {position.action}</p>
+            </div>
+            <span className={`rounded-full border px-3 py-1 text-xs font-black ${serverHealthStyle(position.health)}`}>{position.health}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 lg:grid-cols-6">
+            <RiskMetric label="P/L $" value={money(position.currentRisk?.openPnL)} />
+            <RiskMetric label="P/L %" value={position.currentRisk?.openPnLPct == null ? 'N/D' : `${position.currentRisk.openPnLPct.toFixed(1)}%`} />
+            <RiskMetric label="Mark" value={position.currentRisk?.currentPrice == null ? 'N/D' : Number(position.currentRisk.currentPrice).toFixed(2)} />
+            <RiskMetric label="Subyacente" value={position.currentRisk?.underlyingPrice == null ? 'N/D' : `$${Number(position.currentRisk.underlyingPrice).toFixed(2)}`} />
+            <RiskMetric label="Max risk" value={money(position.currentRisk?.maxRisk)} />
+            <RiskMetric label="Accion" value={position.action} />
+          </div>
+          <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{position.reason}</p>
+        </article>
+      ))}
+
       <div className="rounded-2xl border border-violet-100 bg-violet-50 p-3 text-xs text-violet-900">
-        Gemini revisa todas las posiciones manuales al abrir Riesgo y cada 2 minutos. Usa precio del subyacente en vivo cuando esta disponible y tus marks manuales para estimar P/L.
+        Gemini revisa las posiciones manuales visibles cada 2 minutos. El worker audita las posiciones de Tradier aunque cierres la app.
       </div>
 
       <form onSubmit={addPosition} className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">

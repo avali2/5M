@@ -11,13 +11,14 @@ import {
   generateDefinedRiskSetups,
   generateVolatilityDebitSpread
 } from './strategies.js';
-import { scoreSetup, classifySignal } from './scoring.js';
+import { scoreSetup } from './scoring.js';
 import { createDailyAssistant, createExecutionPlan } from './guidance.js';
 import { buildDataHealth } from './data-health.js';
 import { calculateProbabilityEdge } from './probability-edge.js';
 import { evaluateRiskGovernor } from './risk-governor.js';
 import { buildGuardianEdgeTicketScan } from '../guardian/edge-tickets.js';
 import { enrichSignalForGreenPolicy, SIGNAL_STATUSES } from './greenSignalPolicy.js';
+import { applyTradierAccountSizing, positionSizeForSetup } from '../services/accountSizing.js';
 
 const DEFAULT_SYMBOLS = [...UNIVERSE.core, ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.opportunityEquities, ...UNIVERSE.liquidEtfs];
 const SHORT_DTE_SYMBOLS = new Set(['SPY', 'SPX', 'QQQ', 'IWM', 'DIA']);
@@ -121,7 +122,7 @@ function buildTapeProxy(technicals = {}, setup = {}) {
   };
 }
 
-function individualBlocks({ setup, ivRank, gamma, earningsRisk, policy, profile, flowBias }) {
+function individualBlocks({ setup, ivRank, gamma, earningsRisk, policy, profile }) {
   const blocks = [];
   const premiumTrade = !/Debit Spread/i.test(setup.strategy);
   if (ivRank === null && String(process.env.BLOCK_IF_IV_RANK_INCOMPLETE || '').toLowerCase() === 'true') blocks.push('IV Rank aun necesita mas observaciones reales persistidas');
@@ -131,9 +132,10 @@ function individualBlocks({ setup, ivRank, gamma, earningsRisk, policy, profile,
   if (setup.liquidityScore < 7) blocks.push('Liquidez debajo del umbral institucional');
   if (premiumTrade && setup.pop < Number(process.env.MIN_POP_CREDIT_SPREAD || policy.minPopCreditSpread || 58)) blocks.push('Probabilidad estimada debajo del umbral para vender prima');
   if (/Iron Condor/i.test(setup.strategy) && setup.creditWidthRatio < 20) blocks.push('Credito del iron condor menor al 20% del ancho');
-  if (setup.maxRisk > profile.accountSize * profile.riskPct / 100) blocks.push('Riesgo mayor al presupuesto por operacion');
-  if (setup.collateralRequired > profile.accountSize * profile.maxCollateralPct / 100) blocks.push('Colateral mayor al limite de la cuenta');
-  if (flowBias === 'opposed') blocks.push('El flujo inusual contradice la estructura');
+  const maxRiskDollars = Number(profile.maxRiskDollars ?? profile.accountSize * profile.riskPct / 100);
+  const maxCollateralDollars = Number(profile.maxCollateralDollars ?? profile.accountSize * profile.maxCollateralPct / 100);
+  if (setup.maxRisk > maxRiskDollars) blocks.push('Riesgo mayor al presupuesto por operacion');
+  if (setup.collateralRequired > maxCollateralDollars) blocks.push('Colateral mayor al limite de la cuenta');
   if (correlationRisk(setup.symbol, profile.activeSymbols)) blocks.push('Limite de exposicion correlacionada alcanzado');
   if (profile.activeSymbols.length >= profile.maxOpenTrades) blocks.push('Numero maximo de operaciones abiertas alcanzado');
   if (profile.dailyLossPct >= profile.maxDailyLossPct) blocks.push('Kill switch por perdida diaria activado');
@@ -276,7 +278,7 @@ function requiredProviderGates(providers) {
 export async function runAutonomousScan({ providers, settings = config } = {}) {
   const policy = settings.policy;
   const watchlist = await repository.getWatchlist(DEFAULT_SYMBOLS);
-  const profile = await repository.getRiskProfile({
+  const storedProfile = await repository.getRiskProfile({
     ...policy,
     holdings: {},
     activeSymbols: [],
@@ -285,6 +287,15 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     collateralUsedPct: 0,
     riskMode: policy.defaultRiskMode || 'MODERATE_AGGRESSIVE',
     tradingPaused: false
+  });
+  const accountSnapshot = typeof providers?.tradier?.getAccountSnapshot === 'function'
+    ? await providers.tradier.getAccountSnapshot()
+    : null;
+  const profile = applyTradierAccountSizing({
+    storedProfile,
+    policy,
+    snapshot: accountSnapshot,
+    syncLimitsFromEnv: settings.tradier?.syncRiskLimitsFromEnv !== false
   });
   const rotation = rotatingSymbols(UNIVERSE.sp100Equities.filter((symbol) => !NON_TRADABLE_SCANNER_SYMBOLS.has(symbol)));
   const symbols = [...new Set([...(settings.watchlist?.core || UNIVERSE.core), ...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.opportunityEquities, ...watchlist.symbols, ...rotation])];
@@ -372,6 +383,8 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   if (profile.dailyLossPct >= profile.maxDailyLossPct) globalBlocks.push('Se alcanzo la perdida diaria maxima');
   if (profile.weeklyLossPct >= profile.maxWeeklyLossPct) globalBlocks.push('Se alcanzo la perdida semanal maxima');
   if (profile.collateralUsedPct >= 80) globalBlocks.push('Colateral utilizado sobre 80%; solo paper trade');
+  if (profile.accountSync?.marginCall) globalBlocks.push('Tradier reporta margin call; se bloquean nuevas senales');
+  if (profile.capitalSource === 'tradier_live' && Number(profile.optionBuyingPower) <= 0) globalBlocks.push('Tradier no reporta poder de compra disponible para opciones');
   const limit = pLimit(3);
   const results = await Promise.all(symbols.map((symbol) => limit(() => scanSymbol({ symbol, providers, market, macro, policy, profile }))));
   const spyGamma = results.find((result) => result.symbol === 'SPY')?.gamma;
@@ -409,8 +422,9 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   const formatCandidate = (candidate) => {
     const setup = candidate.setup;
     const flowBias = flowAlignment(flow, setup);
-    const riskAllowed = setup.maxRisk <= profile.accountSize * profile.riskPct / 100;
-      const enriched = {
+    const positionSizeContracts = positionSizeForSetup(setup, profile);
+    const riskAllowed = positionSizeContracts >= 1;
+    const enriched = {
       ...setup,
       dte: candidate.dte,
       expectedMove: candidate.metrics.expectedMove,
@@ -424,7 +438,10 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
       technicals: candidate.technicals,
       tapeProxy: buildTapeProxy(candidate.technicals, setup),
       trend: candidate.technicals.trend,
-      flowBias
+      flowBias,
+      positionSizeContracts,
+      accountRiskPercent: profile.accountSize > 0 ? round(setup.maxRisk / profile.accountSize * 100, 2) : null,
+      capitalSource: profile.capitalSource
     };
     const edge = calculateProbabilityEdge(enriched, base.asOf);
     const scored = scoreSetup({
@@ -439,7 +456,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
       riskAllowed,
       edge
     });
-    const blocks = individualBlocks({ setup, ivRank: candidate.ivRank, gamma: candidate.gamma, earningsRisk: candidate.earningsRisk, policy, profile, flowBias });
+    const blocks = individualBlocks({ setup, ivRank: candidate.ivRank, gamma: candidate.gamma, earningsRisk: candidate.earningsRisk, policy, profile });
     const riskGovernor = evaluateRiskGovernor({
       setup: { ...enriched, blocks, tradeQualityScore: scored.score, confidenceScore: scored.score },
       profile,
@@ -525,8 +542,19 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
       missingValidation: [...new Set(setup.blocks.length ? setup.blocks : ['Requiere revalidacion de precio y chain al momento de entrada.'])]
     };
   });
-  const reasons = globalBlocks.length ? globalBlocks : opportunities.length ? [] : ['Ninguna estructura paso regimen, liquidez, riesgo, historial IV, gamma y probabilidad.'];
-  const decision = opportunities.length ? { status: 'eligible', label: 'PLANES INSTITUCIONALES APROBADOS', reasons: [] } : { status: 'no_trade', label: 'NO TRADE REAL', reasons };
+  const accountCannotFundAny = profile.capitalSource === 'tradier_live' &&
+    allSetups.length > 0 &&
+    !allSetups.some((setup) => Number(setup.positionSizeContracts) >= 1);
+  const reasons = accountCannotFundAny
+    ? [`Ningun contrato cabe en el presupuesto de riesgo de $${profile.maxRiskDollars ?? 0} ni en el poder de compra actual de Tradier.`]
+    : globalBlocks.length
+      ? globalBlocks
+      : opportunities.length
+        ? []
+        : ['Ninguna estructura paso regimen, liquidez, riesgo, historial IV, gamma y probabilidad.'];
+  const decision = opportunities.length
+    ? { status: 'eligible', label: 'PLANES INSTITUCIONALES APROBADOS', reasons: [] }
+    : { status: 'no_trade', label: accountCannotFundAny ? 'NO TRADE - CAPITAL INSUFICIENTE' : 'NO TRADE REAL', reasons };
   const scan = {
     ...base,
     decision,
@@ -550,7 +578,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   const hasConditionalEdge = scan.guardianEdge?.actionableTickets?.some((ticket) =>
     ['AGGRESSIVE_EDGE', 'TRADE_CANDIDATE', 'WAIT_TRIGGER', 'CAPITAL_HEAVY', 'HIGH_POP_BAD_PAYOUT'].includes(ticket.classification)
   );
-  if (!opportunities.length && hasConditionalEdge && scan.decision.status === 'no_trade') {
+  if (!opportunities.length && !accountCannotFundAny && hasConditionalEdge && scan.decision.status === 'no_trade') {
     scan.decision = {
       status: 'conditional_edge',
       label: 'EDGE CONDICIONAL - REVISAR TICKET',
@@ -562,7 +590,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   }
   if (opportunities[0]) {
     await appendAlert({ kind: 'a_setup', symbol: opportunities[0].symbol, message: `Detectado ${opportunities[0].strategy} con confianza ${opportunities[0].confidenceScore}/100.` });
-  } else if (scan.guardianEdge?.dailyBest) {
+  } else if (!accountCannotFundAny && scan.guardianEdge?.dailyBest) {
     await appendAlert({
       kind: 'trade_candidate',
       symbol: scan.guardianEdge.dailyBest.symbol,

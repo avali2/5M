@@ -73,6 +73,7 @@ export function scoreSetup({ setup, ivRank, trend, macroBlocked, gamma, flowBias
   if (gamma?.regime === 'positive') score += 10;
   if (gamma?.regime === 'negative') score -= 5;
   if (flowBias === 'aligned') score += 3;
+  if (flowBias === 'opposed') score -= 5;
   if (regime === 'BULL_TREND' || regime === 'BEAR_TREND') score += 3;
 
   const confidenceScore = clamp(Math.round(score), 0, 100);

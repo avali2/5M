@@ -13,7 +13,6 @@
 
 let workerStarted = false;
 let scheduler = null;
-let guardianScheduler = null;
 let pushService = null;
 let repository = null;
 
@@ -27,7 +26,6 @@ let consecutiveErrors = 0;
 export function startAutonomousSignalWorker(deps = {}) {
   if (workerStarted) return;
   scheduler = deps.scheduler || null;
-  guardianScheduler = deps.guardianScheduler || null;
   pushService = deps.pushService || null;
   repository = deps.repository || null;
   

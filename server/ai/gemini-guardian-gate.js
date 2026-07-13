@@ -167,10 +167,12 @@ export async function applyGeminiGuardianGate(scan, { providers, settings } = {}
   const agentSettings = settings?.agent || {};
   const aiStatus = typeof providers?.ai?.status === 'function' ? providers.ai.status() : null;
   const requireAi = signalSettings.requireAiConfirmation === true;
+  const failClosedOnAiError = signalSettings.failClosedOnAiError === true;
   const shouldAutoReview = Boolean(settings?.ai?.autoSignalDecision && agentSettings.autoVerifySignals);
   const candidates = buildReviewCandidates(scan, agentSettings, signalSettings);
   const candidateKeys = new Set(candidates.map((item) => setupKey(item.setup)));
   const opportunityKeys = new Set(list(scan.opportunities).map(setupKey));
+  const hadDeterministicOpportunities = opportunityKeys.size > 0;
 
   scan.aiGuardian = {
     enabled: Boolean(agentSettings.enabled),
@@ -204,7 +206,7 @@ export async function applyGeminiGuardianGate(scan, { providers, settings } = {}
   if (typeof providers?.ai?.reviewSignal !== 'function') {
     scan.aiGuardian.unavailable = true;
     scan.aiGuardian.reason = 'Proveedor IA no soporta revision estructurada.';
-    if (requireAi) {
+    if (requireAi && failClosedOnAiError) {
       scan.rejected = [
         ...list(scan.opportunities).map((setup) => ({
           ...setup,
@@ -215,6 +217,12 @@ export async function applyGeminiGuardianGate(scan, { providers, settings } = {}
         ...list(scan.rejected)
       ];
       scan.opportunities = [];
+    } else if (requireAi) {
+      scan.opportunities = list(scan.opportunities).map((setup) => ({
+        ...setup,
+        aiVerificationStatus: 'DETERMINISTIC_APPROVED_AI_UNAVAILABLE',
+        geminiReview: null
+      }));
     }
     return scan;
   }
@@ -290,8 +298,15 @@ export async function applyGeminiGuardianGate(scan, { providers, settings } = {}
       aiVerificationStatus: verdict.approved ? 'APPROVED_BY_GEMINI_GUARDIAN' : 'REQUIRES_MANUAL_REVIEW'
     };
 
-    if (verdict.approved && opportunityKeys.has(setupKey(setup))) {
-      approved.push(reviewedSetup);
+    const deterministicFallbackAllowed = review?.aiStatus === 'UNAVAILABLE' &&
+      !failClosedOnAiError &&
+      opportunityKeys.has(setupKey(setup));
+    if ((verdict.approved || deterministicFallbackAllowed) && opportunityKeys.has(setupKey(setup))) {
+      approved.push(deterministicFallbackAllowed ? {
+        ...reviewedSetup,
+        aiVerificationStatus: 'DETERMINISTIC_APPROVED_AI_UNAVAILABLE'
+      } : reviewedSetup);
+      if (deterministicFallbackAllowed) scan.aiGuardian.unavailable = true;
     } else {
       rejectedByAi.push({
         ...reviewedSetup,
@@ -316,7 +331,7 @@ export async function applyGeminiGuardianGate(scan, { providers, settings } = {}
       })),
       ...list(scan.rejected)
     ];
-    if (!approved.length) {
+    if (hadDeterministicOpportunities && !approved.length) {
       scan.decision = {
         status: 'no_trade',
         label: 'NO TRADE REAL - REQUIERE REVISION GEMINI',

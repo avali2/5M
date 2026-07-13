@@ -18,11 +18,12 @@ export function evaluateRiskGovernor({ setup, profile, globalBlocks = [], dataHe
   if (profile.weeklyLossPct >= profile.maxWeeklyLossPct) blocks.push('Perdida semanal maxima alcanzada.');
 
   // 4. Reglas por DTE
-  if (setup.dte <= 0 && !profile.allow0Dte) blocks.push('0DTE requiere permiso y confirmacion tecnica.');
-  if (setup.dte <= 1 && !profile.allow0Dte && !profile.allow1DteApproval) blocks.push('1DTE requiere aprobacion expresa en el mandato.');
+  if (setup.dte === 0 && !profile.allow0Dte) blocks.push('0DTE requiere permiso y confirmacion tecnica.');
+  if (setup.dte === 1 && !profile.allow1DteApproval) blocks.push('1DTE requiere aprobacion expresa en el mandato.');
 
   // 5. Sin margen para naked
-  if (/Cash Secured Put/i.test(setup.strategy) && !profile.allowMargin && setup.collateralRequired > profile.accountSize) {
+  const cashAvailable = Number(profile.cashAvailable ?? profile.accountSize);
+  if (/Cash Secured Put/i.test(setup.strategy) && !profile.allowMargin && setup.collateralRequired > cashAvailable) {
     blocks.push('CSP excede cash disponible sin margen permitido.');
   }
 

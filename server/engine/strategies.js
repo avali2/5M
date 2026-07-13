@@ -45,6 +45,17 @@ function protectiveLong(contracts, short, minWidth, policy) {
   return choices.sort((a, b) => Math.abs(a.strike - short.strike) - Math.abs(b.strike - short.strike))[0] || null;
 }
 
+function minimumWingWidth(contracts, type, policy) {
+  const strikes = [...new Set(contracts
+    .filter((contract) => contract.type === type && Number.isFinite(contract.strike))
+    .map((contract) => Number(contract.strike)))]
+    .sort((left, right) => left - right);
+  const spacings = strikes.slice(1).map((strike, index) => strike - strikes[index]).filter((spacing) => spacing > 0);
+  const chainSpacing = spacings.length ? Math.min(...spacings) : 0.5;
+  const configured = Number(policy.minSpreadWidth);
+  return Number.isFinite(configured) && configured > 0 ? Math.max(chainSpacing, configured) : chainSpacing;
+}
+
 function leg(side, contract) {
   return {
     side,
@@ -101,7 +112,8 @@ function baseCreditSetup({ symbol, strategy, expiration, legs, credit, width, po
 }
 
 export function generateDefinedRiskSetups({ symbol, spot, expiration, chain, trend, policy, condorOnly = false, strategyPrefix = '' }) {
-  const minWidth = spot >= 300 ? 5 : spot >= 100 ? 1 : 0.5;
+  const putWidth = minimumWingWidth(chain, 'put', policy);
+  const callWidth = minimumWingWidth(chain, 'call', policy);
   const putShort = targetShort(chain, 'put', spot, policy);
   const callShort = targetShort(chain, 'call', spot, policy);
   const setups = [];
@@ -109,7 +121,7 @@ export function generateDefinedRiskSetups({ symbol, spot, expiration, chain, tre
   let bearCall = null;
 
   if (putShort) {
-    const putLong = protectiveLong(chain, putShort, minWidth, policy);
+    const putLong = protectiveLong(chain, putShort, putWidth, policy);
     if (putLong) {
       const credit = midpoint(putShort) - midpoint(putLong);
       const width = putShort.strike - putLong.strike;
@@ -132,7 +144,7 @@ export function generateDefinedRiskSetups({ symbol, spot, expiration, chain, tre
     }
   }
   if (callShort) {
-    const callLong = protectiveLong(chain, callShort, minWidth, policy);
+    const callLong = protectiveLong(chain, callShort, callWidth, policy);
     if (callLong) {
       const credit = midpoint(callShort) - midpoint(callLong);
       const width = callLong.strike - callShort.strike;

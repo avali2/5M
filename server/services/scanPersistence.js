@@ -117,6 +117,31 @@ export class ScanPersistence {
         result JSONB,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS latest_scan_state (
+        service_name TEXT PRIMARY KEY,
+        scan_run_id TEXT,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS scanner_worker_state (
+        service_name TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        last_heartbeat_at TIMESTAMPTZ,
+        last_scan_at TIMESTAMPTZ,
+        last_success_at TIMESTAMPTZ,
+        last_error TEXT,
+        payload JSONB DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS position_risk_snapshots (
+        id TEXT PRIMARY KEY,
+        status TEXT,
+        positions_reviewed INTEGER DEFAULT 0,
+        critical_count INTEGER DEFAULT 0,
+        average_risk_score NUMERIC,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
     `);
     return this.ready;
   }
@@ -161,6 +186,12 @@ export class ScanPersistence {
         JSON.stringify(run.providerHealth), JSON.stringify(run.aiStatus || {}), JSON.stringify(run.decisionReasons),
         run.worker, run.timestamp]
     );
+    await this.pool.query(
+      `INSERT INTO latest_scan_state(service_name,scan_run_id,payload,updated_at)
+       VALUES($1,$2,$3,NOW())
+       ON CONFLICT(service_name) DO UPDATE SET scan_run_id=EXCLUDED.scan_run_id,payload=EXCLUDED.payload,updated_at=NOW()`,
+      ['scanner-worker', run.id, JSON.stringify(scan)]
+    );
     for (const signal of green) {
       const id = signal.id || `${signal.symbol}-${signal.strategy}-${signal.expiration}`;
       await this.pool.query(
@@ -176,8 +207,116 @@ export class ScanPersistence {
   async latest() {
     if (!this.pool) return readJson('latest-scan.json', null);
     await this.initialize();
+    const state = await this.pool.query(
+      `SELECT scan_run_id AS "scanRunId",payload AS scan,updated_at AS "updatedAt"
+       FROM latest_scan_state WHERE service_name=$1`,
+      ['scanner-worker']
+    );
+    if (state.rows[0]?.scan) return state.rows[0];
     const result = await this.pool.query('SELECT * FROM scan_runs ORDER BY timestamp DESC LIMIT 1');
-    return result.rows[0] || null;
+    return result.rows[0] ? { run: result.rows[0], scan: null } : null;
+  }
+
+  async saveWorkerState(state = {}) {
+    const value = {
+      serviceName: state.serviceName || 'scanner-worker',
+      status: state.status || 'ONLINE',
+      lastHeartbeatAt: state.lastHeartbeatAt || new Date().toISOString(),
+      lastScanAt: state.lastScanAt || null,
+      lastSuccessAt: state.lastSuccessAt || null,
+      lastError: state.lastError || null,
+      payload: state.payload || {}
+    };
+    if (!this.pool) {
+      await writeJson('scanner-worker-state.json', value);
+      return value;
+    }
+    await this.initialize();
+    await this.pool.query(
+      `INSERT INTO scanner_worker_state(service_name,status,last_heartbeat_at,last_scan_at,last_success_at,last_error,payload,updated_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,NOW())
+       ON CONFLICT(service_name) DO UPDATE SET status=EXCLUDED.status,last_heartbeat_at=EXCLUDED.last_heartbeat_at,
+       last_scan_at=COALESCE(EXCLUDED.last_scan_at,scanner_worker_state.last_scan_at),
+       last_success_at=COALESCE(EXCLUDED.last_success_at,scanner_worker_state.last_success_at),
+       last_error=EXCLUDED.last_error,payload=EXCLUDED.payload,updated_at=NOW()`,
+      [value.serviceName, value.status, value.lastHeartbeatAt, value.lastScanAt, value.lastSuccessAt, value.lastError, JSON.stringify(value.payload)]
+    );
+    return value;
+  }
+
+  async workerState(serviceName = 'scanner-worker', { marketOpen = true } = {}) {
+    let value;
+    if (!this.pool) {
+      value = await readJson('scanner-worker-state.json', null);
+    } else {
+      await this.initialize();
+      const result = await this.pool.query(
+        `SELECT service_name AS "serviceName",status,last_heartbeat_at AS "lastHeartbeatAt",
+         last_scan_at AS "lastScanAt",last_success_at AS "lastSuccessAt",last_error AS "lastError",payload
+         FROM scanner_worker_state WHERE service_name=$1`,
+        [serviceName]
+      );
+      value = result.rows[0] || null;
+    }
+    if (!value) return { status: 'STALE', reason: 'Worker has not reported yet.', lastScanAt: null };
+    const heartbeat = new Date(value.lastHeartbeatAt || 0).getTime();
+    const stale = !Number.isFinite(heartbeat) || Date.now() - heartbeat > 7 * 60 * 1000;
+    return { ...value, status: value.status === 'ERROR' ? 'ERROR' : marketOpen && stale ? 'STALE' : 'ONLINE', stale: marketOpen && stale };
+  }
+
+  async savePositionRisk(analysis = {}, meta = {}) {
+    const value = {
+      id: meta.id || `risk-${Date.now()}`,
+      status: analysis.status || 'NO_OPEN_POSITIONS',
+      positionsReviewed: analysis.summary?.total || 0,
+      criticalCount: analysis.summary?.critical || 0,
+      averageRiskScore: analysis.summary?.averageRiskScore || 0,
+      payload: analysis,
+      createdAt: new Date().toISOString()
+    };
+    if (!this.pool) {
+      const rows = await readJson('position-risk-snapshots.json', []);
+      rows.unshift(value);
+      await writeJson('position-risk-snapshots.json', rows.slice(0, 500));
+      return value;
+    }
+    await this.initialize();
+    await this.pool.query(
+      `INSERT INTO position_risk_snapshots(id,status,positions_reviewed,critical_count,average_risk_score,payload,created_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      [value.id, value.status, value.positionsReviewed, value.criticalCount, value.averageRiskScore, JSON.stringify(value.payload), value.createdAt]
+    );
+    return value;
+  }
+
+  async pushRecentlySent(signalId, type = 'READY_GREEN', cooldownMs = 45 * 60 * 1000) {
+    const cutoff = new Date(Date.now() - cooldownMs);
+    if (!this.pool) {
+      const rows = await readJson('push-events.json', []);
+      return rows.some((row) => row.signalId === signalId && row.type === type && new Date(row.createdAt) >= cutoff);
+    }
+    await this.initialize();
+    const result = await this.pool.query(
+      `SELECT 1 FROM push_events WHERE signal_id=$1 AND type=$2 AND created_at >= $3 LIMIT 1`,
+      [signalId, type, cutoff.toISOString()]
+    );
+    return result.rowCount > 0;
+  }
+
+  async recordPush({ signalId, type = 'READY_GREEN', payload = {}, result = {} } = {}) {
+    const value = { id: `push-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`, signalId, type, payload, result, createdAt: new Date().toISOString() };
+    if (!this.pool) {
+      const rows = await readJson('push-events.json', []);
+      rows.unshift(value);
+      await writeJson('push-events.json', rows.slice(0, 1000));
+      return value;
+    }
+    await this.initialize();
+    await this.pool.query(
+      `INSERT INTO push_events(id,signal_id,type,payload,result,created_at) VALUES($1,$2,$3,$4,$5,$6)`,
+      [value.id, value.signalId, value.type, JSON.stringify(value.payload), JSON.stringify(value.result), value.createdAt]
+    );
+    return value;
   }
 
   async diagnostics(scan = null) {

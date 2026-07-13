@@ -100,12 +100,33 @@ export class ScanLock {
     return result.rowCount > 0;
   }
 
+  async extend(lockName = 'scanner', ttlMs = 180000) {
+    const until = new Date(Date.now() + ttlMs);
+    if (!this.pool) {
+      const locks = await readJson('scan-locks.json', {});
+      if (locks[lockName]?.owner !== this.owner) return false;
+      locks[lockName].lockedUntil = until.toISOString();
+      locks[lockName].updatedAt = new Date().toISOString();
+      await writeJson('scan-locks.json', locks);
+      return true;
+    }
+    await this.initialize();
+    const result = await this.pool.query(
+      `UPDATE scan_locks SET locked_until=$1, updated_at=NOW() WHERE lock_name=$2 AND owner=$3`,
+      [until.toISOString(), lockName, this.owner]
+    );
+    return result.rowCount > 0;
+  }
+
   async withLock(lockName, ttlMs, fn) {
     const lock = await this.acquire(lockName, ttlMs);
     if (!lock.acquired) return { skipped: true, lock };
+    const heartbeat = setInterval(() => this.extend(lockName, ttlMs).catch(() => {}), Math.max(10000, Math.floor(ttlMs / 3)));
+    heartbeat.unref?.();
     try {
       return { skipped: false, lock, value: await fn(lock) };
     } finally {
+      clearInterval(heartbeat);
       await this.release(lockName);
     }
   }

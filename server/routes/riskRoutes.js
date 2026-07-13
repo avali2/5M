@@ -14,7 +14,24 @@ export function createRiskRouter({ scheduler, repository, providers }) {
   router.get('/portfolio', async (_req, res, next) => {
     try {
       const value = await portfolio();
-      res.json({ ...value.analysis, source: value.broker.source, brokerConfigured: value.broker.brokerConfigured, note: value.broker.note });
+      res.json({
+        ...value.analysis,
+        source: value.broker.source,
+        brokerConfigured: value.broker.brokerConfigured,
+        brokerConnected: value.broker.brokerConnected,
+        account: value.broker.account ? {
+          status: value.broker.account.status,
+          source: value.broker.account.source,
+          readOnly: true,
+          accountIdMasked: value.broker.account.accountIdMasked,
+          accountType: value.broker.account.accountType,
+          balances: value.broker.account.balances,
+          asOf: value.broker.account.asOf,
+          error: value.broker.account.error || null
+        } : null,
+        counts: { broker: value.broker.brokerPositions.length, manual: value.broker.manualPositions.length },
+        note: value.broker.note
+      });
     } catch (error) {
       next(error);
     }
@@ -23,7 +40,7 @@ export function createRiskRouter({ scheduler, repository, providers }) {
   router.get('/positions', async (_req, res, next) => {
     try {
       const value = await portfolio();
-      res.json({ ok: true, positions: value.analysis.positions, source: value.broker.source, asOf: value.scan.asOf });
+      res.json({ ok: true, positions: value.analysis.positions, source: value.broker.source, brokerConnected: value.broker.brokerConnected, asOf: value.scan.asOf });
     } catch (error) {
       next(error);
     }

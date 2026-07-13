@@ -227,3 +227,122 @@ test('Gemini Guardian 429 keeps scanner alive and requires manual review', async
   assert.equal(review.requires_manual_review, true);
   assert.match(review.summary, /Gemini error|429/i);
 });
+
+test('Gemini outage does not block a deterministic READY signal when fail-closed is disabled', async () => {
+  const scan = {
+    asOf: '2026-07-13T15:00:00.000Z',
+    decision: { status: 'eligible', label: 'READY', reasons: ['Todos los gates deterministas pasaron.'] },
+    macro: {},
+    opportunities: [{
+      symbol: 'SOFI',
+      strategy: 'Call Debit Spread',
+      expiration: '2026-07-17',
+      strikes: '24 / 25',
+      confidenceScore: 84,
+      pop: 68,
+      maxRisk: 35,
+      maxProfit: 65,
+      collateralRequired: 35,
+      riskGovernor: { allowedReal: true },
+      blocks: [],
+      legs: []
+    }],
+    rejected: [],
+    guardianEdge: { notifyableTickets: [], actionableTickets: [], tickets: [] }
+  };
+
+  const reviewed = await applyGeminiGuardianGate(scan, {
+    settings: {
+      ai: { autoSignalDecision: true },
+      agent: { enabled: true, autoVerifySignals: true, verifyMinScore: 70, reviewTopN: 3 },
+      signals: { requireAiConfirmation: true, failClosedOnAiError: false }
+    },
+    providers: {
+      ai: {
+        status: () => ({ automaticSignalDecision: true, budget: {} }),
+        async reviewSignal() {
+          return {
+            decision: 'CAUTION',
+            confidence: 40,
+            summary: 'Gemini HTTP 429; motor determinista activo.',
+            entry_ok: false,
+            requires_manual_review: true,
+            news_warning: false,
+            macro_warning: false,
+            hallucination_check: 'FAILED',
+            aiStatus: 'UNAVAILABLE'
+          };
+        }
+      }
+    }
+  });
+
+  assert.equal(reviewed.opportunities.length, 1);
+  assert.equal(reviewed.opportunities[0].aiVerificationStatus, 'DETERMINISTIC_APPROVED_AI_UNAVAILABLE');
+  assert.equal(reviewed.opportunities[0].geminiReview.approved, false);
+  assert.equal(reviewed.aiGuardian.unavailable, true);
+  assert.equal(reviewed.decision.label, 'READY');
+});
+
+test('Gemini outage preserves the real no-trade reason when capital blocked every setup', async () => {
+  const originalDecision = {
+    status: 'no_trade',
+    label: 'NO TRADE - CAPITAL INSUFICIENTE',
+    reasons: ['Ningun contrato cabe en el presupuesto de riesgo de la cuenta.']
+  };
+  const scan = {
+    asOf: '2026-07-13T15:00:00.000Z',
+    decision: { ...originalDecision, reasons: [...originalDecision.reasons] },
+    summary: 'NO TRADE: capital insuficiente.',
+    macro: {},
+    opportunities: [],
+    rejected: [{
+      symbol: 'SOFI',
+      strategy: 'Call Debit Spread',
+      expiration: '2026-07-17',
+      strikes: '24 / 25',
+      confidenceScore: 84,
+      pop: 68,
+      maxRisk: 35,
+      maxProfit: 65,
+      collateralRequired: 35,
+      riskGovernor: { allowedReal: false },
+      blocks: ['Riesgo mayor al presupuesto disponible.'],
+      legs: [
+        { side: 'buy', type: 'call', strike: 24 },
+        { side: 'sell', type: 'call', strike: 25 }
+      ]
+    }],
+    guardianEdge: { notifyableTickets: [], actionableTickets: [], tickets: [] }
+  };
+
+  const reviewed = await applyGeminiGuardianGate(scan, {
+    settings: {
+      ai: { autoSignalDecision: true },
+      agent: { enabled: true, autoVerifySignals: true, verifyMinScore: 70, reviewTopN: 3 },
+      signals: { requireAiConfirmation: true, failClosedOnAiError: false }
+    },
+    providers: {
+      ai: {
+        status: () => ({ automaticSignalDecision: true, budget: {} }),
+        async reviewSignal() {
+          return {
+            decision: 'CAUTION',
+            confidence: 40,
+            summary: 'Gemini HTTP 429; motor determinista activo.',
+            entry_ok: false,
+            requires_manual_review: true,
+            news_warning: false,
+            macro_warning: false,
+            hallucination_check: 'FAILED',
+            aiStatus: 'UNAVAILABLE'
+          };
+        }
+      }
+    }
+  });
+
+  assert.deepEqual(reviewed.decision, originalDecision);
+  assert.equal(reviewed.summary, 'NO TRADE: capital insuficiente.');
+  assert.equal(reviewed.opportunities.length, 0);
+});

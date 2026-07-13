@@ -9,30 +9,64 @@ import { GuardianPushService } from '../push.js';
 import { repository } from '../db/repository.js';
 import { getMarketSessionET } from '../autonomousSignalWorker.js';
 import { readyGreenSignals } from '../engine/greenSignalPolicy.js';
+import { loadBrokerPositions } from '../services/brokerPositionsService.js';
+import { analyzePortfolioRisk } from '../services/positionRiskAnalyzer.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const WORKER_OWNER = `worker:${process.pid}:${Date.now()}`;
 const SCAN_INTERVAL_MS = Number(process.env.SCANNER_INTERVAL_MINUTES || config.scanner?.intervalMinutes || 3) * 60 * 1000;
 const AFTER_HOURS_INTERVAL_MS = Number(process.env.SCANNER_AFTER_HOURS_INTERVAL_MINUTES || config.scanner?.afterHoursIntervalMinutes || 15) * 60 * 1000;
-const LOCK_TTL_MS = Math.max(90_000, Math.min(SCAN_INTERVAL_MS - 5_000, 170_000));
+const LOCK_TTL_MS = 180_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function shouldFullScan(session) {
-  if (config.scanner?.marketOpenOnly) return !['CLOSED', 'AFTER_CLOSE'].includes(session.phase);
-  return true;
+async function marketSession(providers) {
+  const fallback = getMarketSessionET();
+  const regularFallback = ['OPENING_NOISE', 'MORNING_PRIME', 'MIDDAY', 'AFTERNOON_PRIME', 'POWER_HOUR', 'FINAL_GAMMA_WINDOW'].includes(fallback.phase);
+  if (typeof providers?.tradier?.getMarketClock !== 'function') return { ...fallback, source: 'local_clock', marketOpen: regularFallback };
+  try {
+    const clock = await providers.tradier.getMarketClock();
+    return { ...fallback, source: 'tradier_clock', marketOpen: clock?.state === 'open', clock };
+  } catch (error) {
+    return { ...fallback, source: 'local_clock_fallback', marketOpen: regularFallback, clockError: error.message };
+  }
 }
 
-async function notifyReadyGreen({ scan, pushService }) {
+async function notifyReadyGreen({ scan, pushService, persistence }) {
   const ready = readyGreenSignals(scan);
   const results = [];
   for (const signal of ready) {
-    results.push(await pushService.sendReadyGreen(signal));
+    const id = signal.id || `${signal.symbol}-${signal.strategy}-${signal.expiration}`;
+    if (await persistence.pushRecentlySent(id, 'READY_GREEN')) {
+      results.push({ signalId: id, skipped: true, reason: 'cooldown' });
+      continue;
+    }
+    const result = await pushService.sendReadyGreen(signal);
+    await persistence.recordPush({ signalId: id, type: 'READY_GREEN', payload: { symbol: signal.symbol, strategy: signal.strategy }, result });
+    results.push({ signalId: id, ...result });
   }
   return results;
+}
+
+async function auditPositions({ scan, providers, persistence, pushService }) {
+  const broker = await loadBrokerPositions({ repository, providers });
+  const analysis = analyzePortfolioRisk({ positions: broker.positions, market: scan.market || {} });
+  await persistence.savePositionRisk(analysis);
+  for (const position of analysis.positions.filter((item) => item.status === 'CRITICAL_RISK')) {
+    const id = `risk-${position.id}-${position.action}`;
+    if (await persistence.pushRecentlySent(id, 'CRITICAL_RISK', 30 * 60 * 1000)) continue;
+    const result = await pushService.sendCriticalRisk({
+      symbol: position.symbol,
+      reason: position.reason,
+      action: position.action,
+      url: '/institutional-os.html?tab=risk'
+    });
+    await persistence.recordPush({ signalId: id, type: 'CRITICAL_RISK', payload: position, result });
+  }
+  return { source: broker.source, connected: broker.brokerConnected, ...analysis.summary };
 }
 
 export async function runScannerWorkerCycle({
@@ -43,27 +77,46 @@ export async function runScannerWorkerCycle({
   persistence = new ScanPersistence(config.database),
   pushService = new GuardianPushService(settings.webPush || {}, new GuardianPushStore(repository))
 } = {}) {
-  const session = getMarketSessionET();
+  const session = await marketSession(providers);
   if (!settings.scanner?.enabled) {
+    await persistence.saveWorkerState({ status: 'STALE', payload: { reason: 'SCANNER_ENABLED=false', session } });
     return { ok: true, skipped: true, reason: 'SCANNER_ENABLED=false', session };
   }
-  if (!shouldFullScan(session)) {
-    return { ok: true, skipped: true, reason: `Market session ${session.phase}`, session };
+  if (!session.marketOpen) {
+    await persistence.saveWorkerState({ status: 'ONLINE', payload: { reason: 'Market is not open', session } });
+    return { ok: true, skipped: true, reason: `Market session ${session.clock?.state || session.phase}`, session };
   }
-  return lock.withLock('scanner', LOCK_TTL_MS, async () => {
-    const scheduler = new ScanScheduler({ providers, settings });
-    const scan = await scheduler.run(true);
-    const run = await persistence.saveScan(scan, { mode, worker: WORKER_OWNER });
-    const push = await notifyReadyGreen({ scan, pushService });
-    return {
-      ok: true,
-      skipped: false,
-      session,
-      run,
-      readyGreen: readyGreenSignals(scan).length,
-      push
-    };
-  });
+  try {
+    const result = await lock.withLock('scanner', LOCK_TTL_MS, async () => {
+      const scheduler = new ScanScheduler({ providers, settings });
+      const scan = await scheduler.run(true);
+      const run = await persistence.saveScan(scan, { mode, worker: WORKER_OWNER });
+      const risk = await auditPositions({ scan, providers, persistence, pushService });
+      const push = await notifyReadyGreen({ scan, pushService, persistence });
+      await persistence.saveWorkerState({
+        status: 'ONLINE',
+        lastScanAt: scan.asOf,
+        lastSuccessAt: new Date().toISOString(),
+        payload: { runId: run.id, readyGreen: readyGreenSignals(scan).length, positionsReviewed: risk.total, session }
+      });
+      return {
+        ok: true,
+        skipped: false,
+        session,
+        run,
+        risk,
+        readyGreen: readyGreenSignals(scan).length,
+        push
+      };
+    });
+    if (result.skipped) {
+      await persistence.saveWorkerState({ status: 'ONLINE', payload: { reason: 'Another backend process owns the scan lock.', lock: result.lock, session } });
+    }
+    return result;
+  } catch (error) {
+    await persistence.saveWorkerState({ status: 'ERROR', lastError: error.message, payload: { session } });
+    throw error;
+  }
 }
 
 export async function startScannerWorker() {
@@ -77,9 +130,7 @@ export async function startScannerWorker() {
     } catch (error) {
       console.error('Scanner worker cycle failed:', error.message);
     }
-    const session = getMarketSessionET();
-    const interval = ['CLOSED', 'AFTER_CLOSE'].includes(session.phase) ? AFTER_HOURS_INTERVAL_MS : SCAN_INTERVAL_MS;
-    await sleep(Math.max(10_000, interval - (Date.now() - started)));
+    await sleep(Math.max(10_000, SCAN_INTERVAL_MS - (Date.now() - started)));
   }
 }
 

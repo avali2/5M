@@ -14,7 +14,7 @@ const { computeTechnicals, deriveTechnicals } = await import('../server/engine/t
 const { runAutonomousScan } = await import('../server/engine/scanner.js');
 const { classifyEventRisk, classifySoftEventRisk } = await import('../server/engine/market-intelligence.js');
 const { UNIVERSE } = await import('../server/config.js');
-const { createApp } = await import('../server/index.js');
+const { createApp, compactScanForClient } = await import('../server/index.js');
 
 test.after(async () => {
   await rm(testStore, { recursive: true, force: true });
@@ -120,6 +120,18 @@ test('keeps SOFI in the focused options universe', () => {
   assert.ok(UNIVERSE.focusEquities.includes('SOFI'));
 });
 
+test('client scan payload removes heavy gamma profiles without removing account risk profile', () => {
+  const compact = compactScanForClient({
+    profile: { accountSize: 10000 },
+    rejected: [{ symbol: 'SOFI', gammaProxy: { regime: 'positive', profile: [{ strike: 10 }] } }],
+    gammaSurfaces: [{ symbol: 'SPY', regime: 'positive', profile: [{ strike: 500 }] }]
+  });
+  assert.equal(compact.profile.accountSize, 10000);
+  assert.equal(compact.rejected[0].gammaProxy.regime, 'positive');
+  assert.equal('profile' in compact.rejected[0].gammaProxy, false);
+  assert.equal('profile' in compact.gammaSurfaces[0], false);
+});
+
 test('protects public dashboard APIs when an access key is configured', async () => {
   const app = createApp({
     clientOrigin: 'https://valido.example',
@@ -129,6 +141,24 @@ test('protects public dashboard APIs when an access key is configured', async ()
   }, {}, { startBackground: false });
   await request(app).get('/api/explainers').expect(401);
   await request(app).get('/api/explainers').set('X-Valido-Key', 'long-private-mobile-key').expect(200);
+});
+
+test('private browser session unlocks financial APIs without exposing the access key', async () => {
+  const app = createApp({
+    clientOrigin: 'https://valido.example',
+    security: { accessKey: 'long-private-mobile-key', requireAccessKey: true },
+    refreshSeconds: 300,
+    policy
+  }, {}, { startBackground: false });
+  const browser = request.agent(app);
+  const initial = await browser.get('/api/auth/status').expect(200);
+  assert.equal(initial.body.authenticated, false);
+  await browser.post('/api/auth/login').send({ accessKey: 'incorrecta' }).expect(401);
+  const login = await browser.post('/api/auth/login').send({ accessKey: 'long-private-mobile-key' }).expect(200);
+  const cookie = login.headers['set-cookie'][0].split(';')[0];
+  await browser.get('/api/explainers').set('Cookie', cookie).expect(200);
+  await browser.post('/api/auth/logout').set('Cookie', cookie).expect(200);
+  await browser.get('/api/explainers').expect(401);
 });
 
 test('agent endpoints expose guarded status without requiring AI', async () => {
@@ -181,6 +211,7 @@ test('fails closed in public hosting when the required access key is missing', a
 });
 
 test('ranks a live sourced credit spread when all work-mode gates pass', async () => {
+  const expiration = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
   const quote = (symbol) => ({ symbol, price: symbol === 'VIX' ? 18 : 100, changePercent: 0.2, source: 'fixture' });
   const history = Array.from({ length: 60 }, (_, index) => {
     const close = 80 + index / 2;
@@ -196,7 +227,7 @@ test('ranks a live sourced credit spread when all work-mode gates pass', async (
   const marketProvider = {
     async getQuotes(symbols) { return symbols.map(quote); },
     async getHistory() { return history; },
-    async getExpirations() { return ['2026-06-26']; },
+    async getExpirations() { return [expiration]; },
     async getOptionChain() { return chain; }
   };
   const calendar = {

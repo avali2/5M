@@ -10,20 +10,34 @@ function number(value, fallback = null) {
 export function analyzePositionRisk(position = {}, market = {}) {
   const symbol = String(position.symbol || position.underlying || '').toUpperCase();
   const quote = list(market.quotes).find((item) => item.symbol === symbol);
-  const price = number(quote?.price ?? position.currentPrice ?? position.mark);
-  const entry = number(position.realEntry ?? position.plannedEntry ?? position.entryPrice ?? position.entry);
-  const pnl = number(position.pnl ?? position.openPnL, entry !== null && price !== null ? Number((price - entry).toFixed(2)) : null);
+  const underlyingPrice = number(quote?.price ?? position.underlyingPrice);
+  const optionPosition = Boolean(position.expiration || list(position.legs).some((leg) => leg.securityType === 'option'));
+  const price = number(optionPosition ? (position.currentMark ?? position.mark) : (position.currentPrice ?? position.mark ?? underlyingPrice));
+  const entry = number(position.realEntry ?? position.plannedEntry ?? position.entryMark ?? position.entryPrice ?? position.entry);
+  const maxRisk = number(position.maxRiskUsd ?? position.maxRisk ?? position.maxLoss);
+  const contracts = Math.max(1, number(position.quantity, 1));
+  const isCredit = /credit|condor|butterfly|covered call|cash secured/i.test(String(position.strategy));
+  const calculatedPnl = entry !== null && price !== null
+    ? (isCredit ? entry - price : price - entry) * contracts * (optionPosition ? 100 : 1)
+    : null;
+  const pnl = number(position.pnl ?? position.openPnL, calculatedPnl);
   const stopText = String(position.plannedExit || position.stopLoss || '');
   const stop = number(stopText.match(/(\d+\.?\d*)/)?.[1]);
   const dte = position.expiration ? Math.ceil((new Date(`${position.expiration}T16:00:00`).getTime() - Date.now()) / 86400000) : null;
-  const lossPct = entry && pnl !== null ? (pnl / Math.abs(entry)) * 100 : null;
-  const nearStop = stop !== null && price !== null && price <= stop * 1.05;
+  const lossPct = number(position.openPnLPct, maxRisk && pnl !== null ? pnl / maxRisk * 100 : entry && pnl !== null ? pnl / (Math.abs(entry) * contracts * (optionPosition ? 100 : 1)) * 100 : null);
+  const nearStop = stop !== null && price !== null && (isCredit ? price >= stop * 0.95 : price <= stop * 1.05);
   const urgentDte = dte !== null && dte <= 2;
+  const undefinedShortRisk = position.definedRisk === false && list(position.legs).some((leg) => leg.side === 'SHORT');
   let health = 'HEALTHY';
   let action = 'MANTENER';
   let urgency = 'LOW';
   const reasons = [];
-  if (dte !== null && dte < 0) {
+  if (undefinedShortRisk) {
+    health = 'CRITICAL_RISK';
+    action = 'REVISAR_RIESGO_INDEFINIDO';
+    urgency = 'HIGH';
+    reasons.push('Tradier reports a short option position without a verified protective leg.');
+  } else if (dte !== null && dte < 0) {
     health = 'EXPIRED_OR_INVALID';
     action = 'REVISAR_MANUAL';
     urgency = 'HIGH';
@@ -49,6 +63,13 @@ export function analyzePositionRisk(position = {}, market = {}) {
     urgency = 'MEDIUM';
     reasons.push('Low DTE requires active monitoring.');
   }
+  let riskScore = 15;
+  if (urgentDte) riskScore += 25;
+  if (lossPct !== null && lossPct <= -25) riskScore += 20;
+  if (lossPct !== null && lossPct <= -50) riskScore += 25;
+  if (nearStop) riskScore += 25;
+  if (undefinedShortRisk) riskScore = 100;
+  riskScore = Math.max(0, Math.min(100, Math.round(riskScore)));
   return {
     id: position.id || `${symbol}-${position.strategy || 'position'}`,
     symbol,
@@ -58,12 +79,16 @@ export function analyzePositionRisk(position = {}, market = {}) {
     status: health === 'CRITICAL_RISK' ? 'CRITICAL_RISK' : 'MANAGE_POSITION',
     action,
     urgency,
+    riskScore,
     reason: reasons[0] || 'Position is within current risk limits.',
     currentRisk: {
       openPnL: pnl,
       openPnLPct: lossPct === null ? null : Number(lossPct.toFixed(2)),
       dte,
       currentPrice: price,
+      underlyingPrice,
+      maxRisk,
+      marketValue: number(position.marketValue),
       stop,
       assignmentRisk: urgentDte ? 'MEDIUM' : 'LOW',
       liquidityRisk: 'UNKNOWN'
@@ -95,7 +120,8 @@ export function analyzePortfolioRisk({ positions = [], market = {} } = {}) {
     summary: {
       total: analyzed.length,
       critical: critical.length,
-      manage: analyzed.filter((item) => item.status === 'MANAGE_POSITION').length
+      manage: analyzed.filter((item) => item.status === 'MANAGE_POSITION').length,
+      averageRiskScore: analyzed.length ? Math.round(analyzed.reduce((sum, item) => sum + item.riskScore, 0) / analyzed.length) : 0
     }
   };
 }

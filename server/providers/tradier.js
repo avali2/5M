@@ -1,5 +1,6 @@
 import { cache } from '../lib/cache.js';
 import { daysFromNow, requestJson, toArray } from '../lib/http.js';
+import { buildTradierAccountSnapshot, selectTradierAccountId } from '../services/tradierAccount.js';
 
 const symbolForTradier = (symbol) => {
   if (symbol === 'VIX') return 'VIX';
@@ -17,6 +18,10 @@ export class TradierProvider {
     return Boolean(this.settings.token);
   }
 
+  get accountSyncEnabled() {
+    return this.configured && this.settings.accountSync !== false;
+  }
+
   headers() {
     return { Authorization: `Bearer ${this.settings.token}` };
   }
@@ -29,12 +34,77 @@ export class TradierProvider {
       return toArray(data.quotes?.quote).map((quote) => ({
         symbol: quote.symbol,
         price: Number(quote.last ?? quote.close),
+        last: Number(quote.last),
+        bid: Number(quote.bid),
+        ask: Number(quote.ask),
+        close: Number(quote.close),
         changePercent: Number(quote.change_percentage),
         volume: Number(quote.volume),
         source: this.name,
         timestamp: quote.trade_date || Date.now()
       }));
     });
+  }
+
+  async getMarketClock() {
+    return cache.remember('tradier:market-clock', 15000, async () => {
+      const data = await requestJson(this.name, `${this.settings.baseUrl}/markets/clock`, { headers: this.headers() });
+      return data.clock || null;
+    });
+  }
+
+  async resolveAccountId() {
+    if (this.settings.accountId) return this.settings.accountId;
+    return cache.remember('tradier:account-id', 3600000, async () => {
+      const data = await requestJson(this.name, `${this.settings.baseUrl}/user/profile`, { headers: this.headers() });
+      const accountId = selectTradierAccountId(data);
+      if (!accountId) throw new Error('Tradier profile has no active brokerage account.');
+      return accountId;
+    });
+  }
+
+  async getAccountBalances(accountId = null) {
+    const resolved = accountId || await this.resolveAccountId();
+    return cache.remember(`tradier:balances:${resolved}`, 15000, async () => {
+      const url = `${this.settings.baseUrl}/accounts/${encodeURIComponent(resolved)}/balances`;
+      return requestJson(this.name, url, { headers: this.headers() });
+    });
+  }
+
+  async getAccountPositions(accountId = null) {
+    const resolved = accountId || await this.resolveAccountId();
+    return cache.remember(`tradier:positions:${resolved}`, 15000, async () => {
+      const url = `${this.settings.baseUrl}/accounts/${encodeURIComponent(resolved)}/positions`;
+      const data = await requestJson(this.name, url, { headers: this.headers() });
+      return toArray(data.positions?.position);
+    });
+  }
+
+  async getAccountSnapshot() {
+    if (!this.accountSyncEnabled) {
+      return { status: 'NOT_CONFIGURED', source: 'configured_fallback', readOnly: true, error: 'Tradier account sync is disabled.' };
+    }
+    try {
+      const accountId = await this.resolveAccountId();
+      const [balances, positions] = await Promise.all([
+        this.getAccountBalances(accountId),
+        this.getAccountPositions(accountId)
+      ]);
+      const quotes = [];
+      const symbols = [...new Set(positions.map((position) => String(position.symbol || '').trim()).filter(Boolean))];
+      for (let index = 0; index < symbols.length; index += 50) {
+        quotes.push(...await this.getQuotes(symbols.slice(index, index + 50)));
+      }
+      return buildTradierAccountSnapshot({ accountId, balances, positions, quotes });
+    } catch (error) {
+      return {
+        status: 'ERROR',
+        source: 'configured_fallback',
+        readOnly: true,
+        error: error.message,
+        asOf: new Date().toISOString()
+      };
+    }
   }
 
   async getHistory(symbol) {

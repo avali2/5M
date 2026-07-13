@@ -57,8 +57,9 @@ function Metric({ label, value, help, tone = 'slate', icon = '•' }) {
   );
 }
 
-function HomeHero({ scan, ready, watch, pulse }) {
+function HomeHero({ scan, ready, watch, pulse, workerStatus, accountStatus }) {
   const mood = ready.length ? 'Hay tickets verdes para revisar' : watch.length ? 'Mercado en vigilancia' : 'Capital protegido';
+  const workerTone = workerStatus?.status === 'ONLINE' ? 'green' : workerStatus?.status === 'STALE' ? 'amber' : 'red';
   return (
     <section className="home-hero p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -69,12 +70,14 @@ function HomeHero({ scan, ready, watch, pulse }) {
         </div>
         <span className="rounded-2xl border border-blue-100 bg-white px-4 py-2 text-sm font-black text-blue-700 shadow-sm">✨ {pulse.bestModeNow?.replaceAll('_', ' ') || 'ESPERAR'}</span>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
         <Metric icon="🟢" tone="green" label="READY" value={ready.length} />
         <Metric icon="🟡" tone="amber" label="WATCH" value={watch.length} />
-        <Metric icon="🧠" tone="violet" label="Gemini" value={scan?.agent?.aiAvailable ? 'Activo' : 'Fallback'} />
+        <Metric icon="📡" tone={workerTone} label="Scanner" value={workerStatus?.status || 'VERIFICANDO'} />
+        <Metric icon="💼" tone="violet" label="Capital" value={accountStatus?.status === 'ONLINE' ? 'Tradier' : 'Respaldo'} />
         <Metric icon="📡" tone="blue" label="Ultimo scan" value={scan?.asOf ? new Date(scan.asOf).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'N/D'} />
       </div>
+      {workerStatus?.status !== 'ONLINE' && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">Scanner {workerStatus?.status || 'sin estado'}: {workerStatus?.lastError || workerStatus?.reason || 'esperando heartbeat del worker.'}</p>}
     </section>
   );
 }
@@ -144,22 +147,26 @@ function TapeReadingCard({ tape }) {
 
 function RiskLimits({ profile, riskConfig, manualPositions = [] }) {
   const cfg = riskConfig || loadRiskConfig();
-  const tradeBudget = cfg.accountValue * cfg.defaultRiskPct / 100;
+  const accountValue = Number(profile?.accountSize ?? cfg.accountValue);
+  const riskPct = Number(profile?.riskPct ?? cfg.defaultRiskPct);
+  const tradeBudget = Number(profile?.maxRiskDollars ?? accountValue * riskPct / 100);
+  const account = profile?.accountSync;
   return (
     <section className="risk-card p-4 space-y-3">
-      <h2 className="text-xl font-black text-slate-900">🛡️ Limites de riesgo</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-xl font-black text-slate-900">🛡️ Limites de riesgo</h2><span className="pill">{account?.status === 'ONLINE' ? `Tradier ${account.accountIdMasked || ''} · solo lectura` : 'Respaldo configurado'}</span></div>
       <div className="grid grid-cols-2 gap-3">
-        <Metric icon="💼" tone="blue" label="Cuenta" value={`$${cfg.accountValue}`} />
-        <Metric icon="🎯" tone="green" label="Riesgo / trade" value={`$${tradeBudget} (${cfg.defaultRiskPct}%)`} />
-        <Metric icon="🏦" tone="violet" label="Colateral max." value={`${cfg.collateralCapPct}%`} />
-        <Metric icon="📌" tone="amber" label="Trades abiertos" value={`${manualPositions.length || profile?.activeSymbols?.length || 0} / ${cfg.maxOpenTrades}`} />
+        <Metric icon="💼" tone="blue" label="Cuenta" value={`$${Math.round(accountValue).toLocaleString()}`} />
+        <Metric icon="🎯" tone="green" label="Riesgo / trade" value={`$${Math.round(tradeBudget)} (${riskPct}%)`} />
+        <Metric icon="🏦" tone="violet" label="Buying power opciones" value={profile?.optionBuyingPower == null ? 'N/D' : `$${Math.round(profile.optionBuyingPower).toLocaleString()}`} />
+        <Metric icon="📌" tone="amber" label="Trades abiertos" value={`${profile?.openPositionCount ?? manualPositions.length} / ${profile?.maxOpenTrades ?? cfg.maxOpenTrades}`} />
       </div>
+      {account?.marginCall && <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-800">Tradier reporta margin call. Las nuevas senales quedan bloqueadas.</p>}
     </section>
   );
 }
 
 function GuardianActivity({ scan, signals }) {
-  const ready = signals.filter((signal) => ['READY', 'AGGRESSIVE', '0DTE_SCALP'].includes(signal.status)).length;
+  const ready = signals.filter((signal) => ['READY', '0DTE_SCALP'].includes(signal.status)).length;
   const watch = signals.filter((signal) => signal.status === 'WATCH').length;
   const blocked = signals.filter((signal) => ['AVOID', 'NO_DATA', 'LOCKED_BY_RISK'].includes(signal.status)).length;
   return (
@@ -335,10 +342,26 @@ export default function AppPro() {
   const [manualPositions, setManualPositions] = useState(loadManualBrokerPositions);
   const [symbolStudy, setSymbolStudy] = useState(null);
   const [studyingSymbol, setStudyingSymbol] = useState('');
+  const [workerStatus, setWorkerStatus] = useState({ status: 'VERIFICANDO' });
+  const [accountStatus, setAccountStatus] = useState({ status: 'VERIFICANDO' });
 
   async function load(force = false) {
     setError('');
-    try { setScan(force ? await api.refresh() : await api.scan()); } catch (loadError) { setError(loadError.message); }
+    try {
+      const [nextScan, nextWorker, nextAccount] = await Promise.all([
+        force ? api.refresh() : api.scan(),
+        api.workerStatus(),
+        api.accountStatus()
+      ]);
+      setScan(nextScan);
+      setWorkerStatus(nextWorker);
+      setAccountStatus(nextAccount);
+    } catch (loadError) { setError(loadError.message); }
+  }
+
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+    window.dispatchEvent(new Event('valido-auth-required'));
   }
 
   async function loadJournalEntries() {
@@ -443,7 +466,7 @@ export default function AppPro() {
     return all.map((event) => activeSymbols.has(event.symbol) ? { ...event, stars: Math.max(event.stars || 0, 5), action: event.action || 'MANAGE_NOW', whyItMatters: event.whyItMatters || 'Relacionada con una posicion activa o vigilada en Riesgo.' } : event);
   }, [scan, activeSymbols]);
 
-  const ready = signals.filter((signal) => ['READY', 'AGGRESSIVE', '0DTE_SCALP'].includes(signal.status));
+  const ready = signals.filter((signal) => ['READY', '0DTE_SCALP'].includes(signal.status));
   const watch = signals.filter((signal) => signal.status === 'WATCH');
   const pulse = {
     spyTrend: scan?.market?.spyTrend || scan?.market?.regime || 'NO_DATA',
@@ -470,7 +493,7 @@ export default function AppPro() {
       `Mercado: ${scan?.market?.regime || 'SIN DATOS'}`,
       'Estrategia base: moderada-agresiva con riesgo definido',
       `READY: ${ready.length} · WATCH: ${watch.length}`,
-      'Broker: no conectado; Riesgo usa LocalJournalAdapter'
+      accountStatus?.status === 'ONLINE' ? `Broker: Tradier ${accountStatus.accountIdMasked || ''} conectado en solo lectura` : 'Broker: usando respaldo configurado; revisa sincronizacion Tradier'
     ],
     bestSymbols,
     blockedSymbols: signals.filter((signal) => signal.status === 'AVOID').slice(0, 3).map((signal) => signal.symbol),
@@ -489,13 +512,16 @@ export default function AppPro() {
             <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-600 text-lg font-black text-white shadow-sm">V</div>
             <div><h1 className="text-lg font-black text-slate-950">VALIDO 1M</h1><p className="text-xs text-slate-500">Options Guardian · Gemini Auditor</p></div>
           </div>
-          <span className="hidden rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-black text-blue-700 sm:inline-flex">Moderado-agresivo · riesgo definido</span>
+          <div className="flex items-center gap-2">
+            <span className="hidden rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-black text-blue-700 sm:inline-flex">Moderado-agresivo · riesgo definido</span>
+            <button aria-label="Cerrar sesion" className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 hover:bg-slate-50" onClick={logout} title="Cerrar sesion" type="button">Salir</button>
+          </div>
         </div>
       </header>
       <main className="home-pro pb-24">
         {toast && <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl border border-green-200 bg-white px-4 py-3 text-sm font-bold text-green-800 shadow-lg">{toast}</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
-        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /><WatchedUniversePanel scan={scan} study={symbolStudy} studyingSymbol={studyingSymbol} onStudy={studySymbol} /></>}
+        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} workerStatus={workerStatus} accountStatus={accountStatus} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /><WatchedUniversePanel scan={scan} study={symbolStudy} studyingSymbol={studyingSymbol} onStudy={studySymbol} /></>}
         {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} />}
         {activeTab === 'news' && <NewsImpactList news={news} />}
         {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} manualPositions={manualPositions} /><BrokerPositionsDesk /></>}

@@ -3,7 +3,7 @@ import InfoTooltip from './InfoTooltip';
 import { api } from '../lib/api.js';
 
 const GROUPS = [
-  { key: 'ready', title: 'Listas para implementar', tone: 'green', statuses: ['READY', 'AGGRESSIVE', '0DTE_SCALP'] },
+  { key: 'ready', title: 'Listas para implementar', tone: 'green', statuses: ['READY', '0DTE_SCALP'] },
   { key: 'watch', title: 'Vigilancia activa', tone: 'amber', statuses: ['WATCH', 'NO_DATA'] }
 ];
 
@@ -89,11 +89,12 @@ function Signal({ signal, tone, onAccept, taken }) {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
         <Metric label="Score" value={signal.score ?? 'SIN DATOS'} help="Puntuacion combinada de tendencia, liquidez, opciones, noticias, earnings y riesgo." />
         <Metric label="Prob. ganadora" value={pct(signal.pop)} help="Probabilidad estimada de beneficio. No garantiza resultado; ayuda a comparar calidad del setup." />
         <Metric label="Max risk" value={money(signal.maxRiskUsd)} help="Perdida maxima estimada. Debe existir para estar READY." />
         <Metric label="Max profit" value={money(signal.maxProfitUsd)} help="Ganancia maxima teorica estimada por estructura." />
+        <Metric label="Contratos" value={signal.positionSizeContracts ?? 'SIN DATOS'} help="Tamano maximo calculado con equity, poder de compra y limites sincronizados. Confirma siempre en Tradier." />
       </div>
 
       <p className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs font-semibold text-violet-900">
@@ -158,7 +159,7 @@ export function OperationalSignals({ signals = [], compact = false, onAccept = (
     <section id="signals" className="signal-card p-4 space-y-3">
       <div>
         <h2 className="text-xl font-black text-slate-900">Radar de senales <Help text="Solo READY puede activar push. WATCH no es entrada implementable todavia." /></h2>
-        <p className="text-sm text-slate-700">Verde exige strikes, vencimiento, riesgo maximo, plan de salida, liquidez, probabilidad y revision Gemini. Lo que Gemini descarta se oculta.</p>
+        <p className="text-sm text-slate-700">Verde exige strikes, vencimiento, riesgo maximo, plan de salida, liquidez, probabilidad y capacidad real de la cuenta. Gemini explica y audita; no inventa datos ni sustituye los filtros.</p>
       </div>
       {visibleGroups.length ? visibleGroups.map((group) => (
         <div className="space-y-2" key={group.key}>

@@ -1,4 +1,5 @@
 function toNumber(value, fallback = null) {
+  if (value === null || value === undefined || value === '') return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
@@ -36,19 +37,17 @@ function strategyType(strategy = '') {
 
 function mapStatus(item = {}, source = 'candidate') {
   const classification = String(item.classification || item.status || '').toUpperCase();
+  const sourceStatus = String(item.sourceSetup?.status || item.sourceSetup?.signalStatus || '').toUpperCase();
   const dte = toNumber(item.dte, 99);
   if (/kill switch|daily loss|risk limit|limite/i.test(String(item.blockedReason || item.warnings?.join(' ') || ''))) return 'LOCKED_BY_RISK';
-  if (/READY_GREEN/.test(classification)) return dte === 0 ? '0DTE_SCALP' : 'READY';
+  if (/READY_GREEN/.test(classification) || /READY_GREEN/.test(sourceStatus)) return dte === 0 ? '0DTE_SCALP' : 'READY';
   if (/DATA_ERROR|NO_CHAIN|NO_QUOTE|NO_GREEKS/.test(classification)) return 'NO_DATA';
   if (/CANDIDATE|WATCHLIST|WAIT_TRIGGER/.test(classification)) return 'WATCH';
   if (/BLOCKED/.test(classification)) return 'AVOID';
-  if (source === 'approved' && dte === 0) return '0DTE_SCALP';
-  if (source === 'approved' && /EDGE_READY|READY|APPROVE/.test(classification)) return 'READY';
-  if (source === 'approved' && /AGGRESSIVE|CAPITAL|HIGH_POP/.test(classification)) return 'AGGRESSIVE';
   if (/NO_DATA|NO_READY/.test(classification)) return 'NO_DATA';
   if (/NO_TRADE|REJECTED|AVOID|BLOCK/.test(classification)) return 'AVOID';
   if (/WAIT|TRIGGER|WATCH|TRADE_CANDIDATE/.test(classification)) return 'WATCH';
-  if (/AGGRESSIVE|CAPITAL|HIGH_POP/.test(classification)) return source === 'candidate' ? 'WATCH' : 'AGGRESSIVE';
+  if (/EDGE_READY|READY|APPROVE|AGGRESSIVE|CAPITAL|HIGH_POP/.test(classification)) return 'WATCH';
   return source === 'rejected' ? 'AVOID' : 'WATCH';
 }
 
@@ -147,7 +146,7 @@ function buildTicketText(item = {}) {
   ].join('\n');
 }
 
-function fromTicket(item = {}, scan = {}, source = 'candidate') {
+function fromTicket(item = {}, scan = {}, source = 'candidate', origin = source) {
   const setup = item.sourceSetup || item;
   const legs = (item.legs || setup.legs || []).map((leg) => mapLeg(leg, item.expiration || setup.expiration));
   const status = mapStatus(item, source);
@@ -176,6 +175,9 @@ function fromTicket(item = {}, scan = {}, source = 'candidate') {
     breakevens: String(item.breakEven || setup.breakEven || '').split('/').map((value) => toNumber(value.trim())).filter((value) => value !== null),
     rewardRisk: toNumber(item.riskReward ?? setup.riskReward),
     collateralRequired: toNumber(item.collateralRequired ?? setup.collateralRequired),
+    positionSizeContracts: toNumber(item.positionSizeContracts ?? setup.positionSizeContracts),
+    accountRiskPercent: toNumber(item.accountRiskPercent ?? setup.accountRiskPercent),
+    capitalSource: setup.capitalSource || item.capitalSource || scan.profile?.capitalSource || 'configured_fallback',
     gammaRisk: gammaRisk({ ...setup, ...item }),
     executionPlan: executionPlan({ ...setup, ...item }),
     legs,
@@ -185,7 +187,8 @@ function fromTicket(item = {}, scan = {}, source = 'candidate') {
     newsSummary: scan.macro?.breakingRisk?.[0]?.headline || 'Sin noticia critica reportada.',
     ticketText: buildTicketText({ ...setup, ...item }),
     geminiCoach: coachFromReview(setup),
-    blockedReason: item.warnings?.[0] || setup.blocks?.[0] || null
+    blockedReason: item.warnings?.[0] || setup.blocks?.[0] || null,
+    origin
   };
 }
 
@@ -202,24 +205,43 @@ function fromRejected(item = {}, scan = {}) {
 }
 
 export function professionalSignalsFromScan(scan = {}) {
-  const directReady = (scan.opportunities || []).map((item) => fromTicket(item, scan, 'approved'));
-  const approvedFromAgent = (scan.agent?.approvedSignals || []).map((item) => fromTicket(item, scan, 'approved'));
-  const actionable = (scan.guardianEdge?.actionableTickets || []).map((item) => fromTicket(item, scan, 'approved'));
-  const candidates = (scan.guardianEdge?.candidateTickets || scan.guardianEdge?.tickets || []).map((item) => fromTicket(item, scan, 'candidate'));
-  const conditional = (scan.conditionalIdeas || []).map((item) => fromTicket(item, scan, 'candidate'));
+  const directReady = (scan.opportunities || []).map((item) => fromTicket(item, scan, 'approved', 'scanner_ready'));
+  const approvedFromAgent = (scan.agent?.approvedSignals || []).map((item) => fromTicket(item, scan, 'approved', 'agent'));
+  const actionable = (scan.guardianEdge?.actionableTickets || []).map((item) => fromTicket(item, scan, 'candidate', 'guardian'));
+  const candidates = (scan.guardianEdge?.candidateTickets || scan.guardianEdge?.tickets || []).map((item) => fromTicket(item, scan, 'candidate', 'candidate'));
+  const conditional = (scan.conditionalIdeas || []).map((item) => fromTicket(item, scan, 'candidate', 'scenario'));
   const rejected = (scan.rejected || [])
     .filter((item) => /NO_DATA|DATA_ERROR/i.test(String(item.classification || item.status || '')))
     .slice(0, 5)
     .map((item) => fromRejected(item, scan));
   const all = [...directReady, ...approvedFromAgent, ...actionable, ...candidates, ...conditional, ...rejected]
     .filter((signal) => signal.status !== 'AVOID');
-  const seen = new Set();
-  return all.filter((signal) => {
-    const key = `${signal.symbol}-${signal.strategyLabel}-${signal.expiration}-${signal.status}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const statusRank = { READY: 60, '0DTE_SCALP': 60, WATCH: 35, NO_DATA: 10, LOCKED_BY_RISK: 5 };
+  const originRank = { scanner_ready: 50, agent: 40, guardian: 30, candidate: 20, scenario: 10, rejected: 0 };
+  const regime = String(scan.market?.regime || '').toLowerCase();
+  const groups = new Map();
+  for (const signal of all) {
+    if (!signal.symbol) continue;
+    if (!groups.has(signal.symbol)) groups.set(signal.symbol, []);
+    groups.get(signal.symbol).push(signal);
+  }
+  return [...groups.values()].map((signals) => signals.sort((left, right) => {
+    const trend = String(scan.market?.technicals?.[left.symbol]?.trend || regime).toLowerCase();
+    const alignment = (signal) => {
+      if (signal.bias === 'neutral') return trend.includes('range') || trend.includes('chop') ? 5 : 0;
+      if (trend.includes('bull') && signal.bias === 'bullish') return 10;
+      if (trend.includes('bear') && signal.bias === 'bearish') return 10;
+      if ((trend.includes('bull') && signal.bias === 'bearish') || (trend.includes('bear') && signal.bias === 'bullish')) return -15;
+      return 0;
+    };
+    return (statusRank[right.status] || 0) - (statusRank[left.status] || 0)
+      || (originRank[right.origin] || 0) - (originRank[left.origin] || 0)
+      || alignment(right) - alignment(left)
+      || right.score - left.score
+      || (right.pop || 0) - (left.pop || 0);
+  })[0]).sort((left, right) =>
+    (statusRank[right.status] || 0) - (statusRank[left.status] || 0) || right.score - left.score
+  );
 }
 
 export function marketPulseFromScan(scan = {}) {

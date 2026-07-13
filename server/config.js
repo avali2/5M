@@ -67,7 +67,9 @@ export const config = {
     token: process.env.TRADIER_TOKEN || process.env.TRADIER_ACCESS_TOKEN || '',
     baseUrl: process.env.TRADIER_BASE_URL || 'https://api.tradier.com/v1',
     accountId: process.env.TRADIER_ACCOUNT_ID || '',
-    sandbox: String(process.env.TRADIER_SANDBOX || '').toLowerCase() === 'true'
+    sandbox: String(process.env.TRADIER_SANDBOX || '').toLowerCase() === 'true',
+    accountSync: asBool(process.env.TRADIER_ACCOUNT_SYNC, true),
+    syncRiskLimitsFromEnv: asBool(process.env.SYNC_RISK_LIMITS_FROM_ENV, true)
   },
   polygon: {
     apiKey: process.env.POLYGON_API_KEY || '',
@@ -175,6 +177,10 @@ export const config = {
     requireMacroClearance: asBool(process.env.SIGNAL_REQUIRE_MACRO_CLEARANCE, true),
     requireNewsClearance: asBool(process.env.SIGNAL_REQUIRE_NEWS_CLEARANCE, false),
     requireAiConfirmation: asBool(process.env.SIGNAL_REQUIRE_AI_CONFIRMATION, false),
+    failClosedOnAiError: asBool(
+      process.env.FAIL_CLOSED_ON_GEMINI_ERROR,
+      asBool(process.env.FAIL_CLOSED_ON_AI_ERROR, false)
+    ),
     maxPerDay: asNumber(process.env.SIGNAL_MAX_PER_DAY, 3),
     minReadyScore: asNumber(process.env.MIN_READY_SCORE, 70),
     minCandidateScore: asNumber(process.env.MIN_CANDIDATE_SCORE, 58),
@@ -251,6 +257,9 @@ export const config = {
   },
   scanner: {
     enabled: String(process.env.SCANNER_ENABLED || 'true').toLowerCase() !== 'false',
+    // Keep the server-side fallback active until a dedicated Render worker
+    // explicitly disables it with SCANNER_RUN_IN_WEB=false.
+    runInWeb: asBool(process.env.SCANNER_RUN_IN_WEB, true),
     intervalMinutes: asNumber(process.env.SCANNER_INTERVAL_MINUTES, 3),
     marketOpenOnly: asBool(process.env.SCANNER_MARKET_OPEN_ONLY, false),
     coreIntervalMinutes: asNumber(process.env.SCANNER_CORE_INTERVAL_MINUTES, 5),
