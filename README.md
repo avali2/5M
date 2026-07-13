@@ -70,6 +70,8 @@ The `Tradier` dashboard tab deliberately separates two environments:
 
 - Production Tradier is read-only. The app can retrieve balances/positions and request `preview=true` for a current `READY_GREEN` ticket, but it exposes no production order-submit endpoint.
 - Autonomous entry, cancellation and rule-based exit are restricted to `https://sandbox.tradier.com/v1`. The paper broker rejects any other host before making a request.
+- The paper heartbeat starts with the server/worker even while credentials are missing, so the dashboard reports the exact blocker instead of a false open market or an empty cycle history. It never borrows the production Tradier clock.
+- Existing paper mandates migrate to autonomous Sandbox mode with Gemini as an optional veto: an explicit veto blocks an entry, while an unavailable Gemini/429 does not override the deterministic `READY_GREEN` engine. The kill switch always remains authoritative.
 - The `AGGRESSIVE_DEFINED_RISK` profile is autonomous by default in Sandbox. Every entry must still be `READY_GREEN`, use one to four valid option legs, have defined maximum loss, at least 1 DTE, sufficient liquidity and fit available Sandbox buying power.
 - Gemini is an advisory veto by default. An explicit Gemini rejection blocks an entry, while a 429 or unavailable response does not override a deterministic `READY_GREEN` decision. Operators can enable mandatory Gemini approval from the dashboard.
 - Orders use day limit tickets and a mandatory Tradier preview. The bot deduplicates the same setup for 24 hours, blocks duplicate symbols, caps six entries per day, and enforces position, daily-loss, risk and contract limits. It checks paper take-profit, stop-loss and DTE exit rules each cycle.

@@ -77,18 +77,16 @@ export async function runScannerWorkerCycle({
   lock = new ScanLock({ settings: config.database, owner: WORKER_OWNER }),
   persistence = new ScanPersistence(config.database),
   pushService = new GuardianPushService(settings.webPush || {}, new GuardianPushStore(repository)),
-  paperAutopilot = providers.tradierPaper?.configured ? new PaperAutopilot({ providers, settings }) : null
+  paperAutopilot = new PaperAutopilot({ providers, settings })
 } = {}) {
   const session = await marketSession(providers);
-  const paper = paperAutopilot
-    ? await paperAutopilot.run({ mode: `${mode}-paper` }).catch((error) => ({ status: 'ERROR', error: error.message }))
-    : null;
+  const paper = await paperAutopilot.run({ mode: `${mode}-paper` }).catch((error) => ({ status: 'ERROR', error: error.message }));
   if (!settings.scanner?.enabled) {
-    await persistence.saveWorkerState({ status: 'STALE', payload: { reason: 'SCANNER_ENABLED=false', session } });
+    await persistence.saveWorkerState({ status: 'STALE', payload: { reason: 'SCANNER_ENABLED=false', session, paperStatus: paper.status } });
     return { ok: true, skipped: true, reason: 'SCANNER_ENABLED=false', session, paper };
   }
   if (!session.marketOpen) {
-    await persistence.saveWorkerState({ status: 'ONLINE', payload: { reason: 'Market is not open', session } });
+    await persistence.saveWorkerState({ status: 'ONLINE', payload: { reason: 'Market is not open', session, paperStatus: paper.status } });
     return { ok: true, skipped: true, reason: `Market session ${session.clock?.state || session.phase}`, session, paper };
   }
   try {
@@ -102,7 +100,7 @@ export async function runScannerWorkerCycle({
         status: 'ONLINE',
         lastScanAt: scan.asOf,
         lastSuccessAt: new Date().toISOString(),
-        payload: { runId: run.id, readyGreen: readyGreenSignals(scan).length, positionsReviewed: risk.total, session }
+        payload: { runId: run.id, readyGreen: readyGreenSignals(scan).length, positionsReviewed: risk.total, session, paperStatus: paper.status }
       });
       return {
         ok: true,
@@ -129,14 +127,17 @@ export async function startScannerWorker() {
   console.log(`VALIDO 1M scanner worker started. Interval=${SCAN_INTERVAL_MS}ms afterHours=${AFTER_HOURS_INTERVAL_MS}ms owner=${WORKER_OWNER}`);
   while (true) {
     const started = Date.now();
+    let waitMs = SCAN_INTERVAL_MS;
     try {
       const result = await runScannerWorkerCycle({ mode: 'worker' });
+      const session = result.session || result.value?.session;
+      waitMs = session?.marketOpen ? SCAN_INTERVAL_MS : AFTER_HOURS_INTERVAL_MS;
       if (result.skipped) console.log('Scanner worker skipped:', result.reason || result.lock?.owner || 'locked');
       else console.log('Scanner worker cycle:', JSON.stringify({ readyGreen: result.value?.readyGreen, runId: result.value?.run?.id }));
     } catch (error) {
       console.error('Scanner worker cycle failed:', error.message);
     }
-    await sleep(Math.max(10_000, SCAN_INTERVAL_MS - (Date.now() - started)));
+    await sleep(Math.max(10_000, waitMs - (Date.now() - started)));
   }
 }
 

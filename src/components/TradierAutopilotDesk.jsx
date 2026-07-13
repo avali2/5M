@@ -32,7 +32,7 @@ function signalKey(setup = {}) {
 
 function tone(status) {
   if (/ONLINE|READY|SUBMITTED|FILLED|OPEN/i.test(String(status || ''))) return 'border-green-200 bg-green-50 text-green-800';
-  if (/ERROR|REJECTED|LOCK|KILL/i.test(String(status || ''))) return 'border-red-200 bg-red-50 text-red-800';
+  if (/ERROR|REJECTED|LOCK|KILL|STALE|NOT_CONFIGURED|DISABLED|OFF/i.test(String(status || ''))) return 'border-red-200 bg-red-50 text-red-800';
   return 'border-amber-200 bg-amber-50 text-amber-800';
 }
 
@@ -134,25 +134,36 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun,
   const tracked = Array.isArray(paper?.trackedOrders) ? paper.trackedOrders : [];
   const management = Array.isArray(latest?.management) ? latest.management : [];
   const configured = Boolean(paper?.broker?.configured);
+  const runtime = paper?.runtime || {};
+  const blockers = Array.isArray(runtime.blockers) ? runtime.blockers : [];
+  const marketState = configured ? (paper?.market?.state || 'N/D') : 'NO_CONECTADO';
+  const marketDetail = !configured
+    ? 'Sandbox sin credencial'
+    : paper?.market?.verified ? 'Reloj Sandbox verificado' : 'Reloj Sandbox no verificado';
   return (
     <>
       <section className="risk-card overflow-hidden">
         <div className="border-b border-green-100 bg-green-50/70 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div><h2 className="text-lg font-black text-slate-950">Tradier Sandbox: agresivo autonomo</h2><p className="text-xs text-slate-600">Selecciona, previsualiza, abre y gestiona estrategias de opciones de practica.</p></div>
-            <div className="flex flex-wrap gap-2"><Badge>{form?.profile || 'AGGRESSIVE_DEFINED_RISK'}</Badge><Badge>{paper?.account?.status || 'NOT_CONFIGURED'}</Badge><Badge>{latest?.status || 'SIN_CICLOS'}</Badge></div>
+            <div className="flex flex-wrap gap-2"><Badge>{form?.profile || 'AGGRESSIVE_DEFINED_RISK'}</Badge><Badge>{runtime.state || 'COMPROBANDO'}</Badge><Badge>{latest?.status || 'SIN_CICLOS'}</Badge></div>
           </div>
         </div>
-        {!configured && <div className="border-b border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong>Falta conectar Sandbox.</strong> Configura los secretos <code>TRADIER_PAPER_TOKEN</code> y, si hace falta, <code>TRADIER_PAPER_ACCOUNT_ID</code>. El host se valida contra <code>sandbox.tradier.com</code>.</div>}
+        {!configured && <div className="border-b border-red-200 bg-red-50 p-4 text-sm text-red-900"><strong>Autonomia bloqueada: falta conectar Tradier Sandbox.</strong> Agrega en Render un <code>TRADIER_PAPER_TOKEN</code> propio de Sandbox, distinto del token real, y solo si Tradier no detecta la cuenta agrega <code>TRADIER_PAPER_ACCOUNT_ID</code>. Web y worker deben reiniciarse con el secreto.</div>}
+        {configured && blockers.length > 0 && <div className="border-b border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong>El motor paper necesita atencion.</strong> {blockers.join(' ')}</div>}
         <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="Paper equity" value={money(paper?.account?.balances?.totalEquity)} />
           <Metric label="Paper buying power" value={money(paper?.account?.balances?.optionBuyingPower)} />
-          <Metric label="Mercado" value={paper?.market?.state || 'N/D'} detail={paper?.market?.verified ? 'Reloj Tradier verificado' : 'No verificado'} />
-          <Metric label="Posiciones paper" value={positions.length} detail={`Cada ${paper?.runtime?.intervalMinutes || 3} min`} />
+          <Metric label="Mercado Sandbox" value={marketState} detail={marketDetail} />
+          <Metric label="Posiciones paper" value={positions.length} detail={`Ciclo cada ${runtime.intervalMinutes || 3} min`} />
         </div>
         <div className="border-t border-slate-100 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><p className="text-sm font-black text-slate-900">Ultimo ciclo</p><p className="text-xs text-slate-500">{latest ? `${latest.reason || latest.status} | ${shortDate(latest.asOf)}` : 'Aun no hay ciclos registrados.'}</p></div>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-black text-slate-900">Motor autonomo</p><Badge>{runtime.backgroundActive ? runtime.state : 'SIN_HEARTBEAT'}</Badge></div>
+              <p className="mt-1 break-words text-xs text-slate-500">{latest ? `${latest.reason || latest.status} | ${shortDate(latest.asOf)}` : 'Esperando el primer ciclo del backend.'}</p>
+              <p className="mt-1 text-[11px] font-bold text-slate-500">{runtime.schedulerMode === 'BACKGROUND_WORKER' ? 'Render Background Worker' : 'Web Service fallback'} | Siguiente ciclo: {shortDate(runtime.nextCycleAt)}</p>
+            </div>
             <button className="primary-button small-action" disabled={!configured || busy} onClick={onRun} type="button">Ejecutar ciclo ahora</button>
           </div>
         </div>
@@ -165,7 +176,7 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun,
           <div>
             <Toggle label="Bot habilitado" detail="Permite ciclos programados en el backend." checked={form.enabled} onChange={(value) => setForm({ ...form, enabled: value })} />
             <Toggle label="Autoejecucion Sandbox" detail="Envia ordenes limitadas despues del preview y todos los controles del servidor." checked={form.autoExecute} onChange={(value) => setForm({ ...form, autoExecute: value })} />
-            <Toggle label="Exigir aprobacion Gemini" detail="Apagado: el motor decide y Gemini conserva poder de veto; un 429 no detiene el paper bot." checked={form.requireGeminiApproval} onChange={(value) => setForm({ ...form, requireGeminiApproval: value })} />
+            <Toggle label="Gemini debe aprobar cada entrada" detail={form.requireGeminiApproval ? 'Encendido: una falta de respuesta o error 429 bloquea la entrada.' : 'Apagado: el motor READY_GREEN decide; Gemini conserva poder de veto y un 429 no detiene el paper bot.'} checked={form.requireGeminiApproval} onChange={(value) => setForm({ ...form, requireGeminiApproval: value })} />
             <Toggle label="Permitir 1 DTE" detail="Modo agresivo: admite 1 DTE con riesgo definido. Nunca permite 0 DTE." checked={form.allow1Dte} onChange={(value) => setForm({ ...form, allow1Dte: value })} />
             <Toggle danger label="Kill switch" detail="Apaga bot y autoejecucion inmediatamente al guardar." checked={form.killSwitch} onChange={(value) => setForm({ ...form, killSwitch: value })} />
           </div>

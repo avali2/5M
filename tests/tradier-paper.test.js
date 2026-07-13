@@ -105,13 +105,39 @@ test('legacy paper settings migrate once to the autonomous aggressive profile', 
     requireGeminiApproval: false
   });
   const migrated = migratePaperBotSettings({ enabled: false, autoExecute: false }, defaults);
-  assert.equal(migrated.settingsVersion, 2);
+  assert.equal(migrated.settingsVersion, 3);
   assert.equal(migrated.profile, 'AGGRESSIVE_DEFINED_RISK');
   assert.equal(migrated.enabled, true);
   assert.equal(migrated.autoExecute, true);
   assert.equal(migrated.requireGeminiApproval, false);
 
   const stopped = migratePaperBotSettings({ killSwitch: true }, defaults);
+  assert.equal(stopped.killSwitch, true);
+  assert.equal(stopped.enabled, false);
+  assert.equal(stopped.autoExecute, false);
+});
+
+test('version 2 settings migrate to autonomous mode while preserving the kill switch', () => {
+  const defaults = paperBotDefaults({
+    profile: 'AGGRESSIVE_DEFINED_RISK',
+    defaultBotEnabled: true,
+    defaultAutoExecute: true,
+    requireGeminiApproval: false
+  });
+  const migrated = migratePaperBotSettings({
+    settingsVersion: 2,
+    enabled: false,
+    autoExecute: false,
+    requireGeminiApproval: true,
+    maxRiskPct: 1.25
+  }, defaults);
+  assert.equal(migrated.settingsVersion, 3);
+  assert.equal(migrated.enabled, true);
+  assert.equal(migrated.autoExecute, true);
+  assert.equal(migrated.requireGeminiApproval, false);
+  assert.equal(migrated.maxRiskPct, 1.25);
+
+  const stopped = migratePaperBotSettings({ settingsVersion: 2, killSwitch: true }, defaults);
   assert.equal(stopped.killSwitch, true);
   assert.equal(stopped.enabled, false);
   assert.equal(stopped.autoExecute, false);
@@ -140,6 +166,68 @@ function createStore(settings) {
     }
   };
 }
+
+test('paper market state never borrows the production Tradier clock', async () => {
+  let liveClockCalls = 0;
+  const autopilot = new PaperAutopilot({
+    providers: {
+      tradier: {
+        configured: true,
+        async getMarketClock() { liveClockCalls += 1; return { state: 'open' }; }
+      },
+      tradierPaper: {
+        configured: false,
+        status() { return { configured: false, error: 'TRADIER_PAPER_TOKEN is not configured.' }; }
+      }
+    },
+    settings: { tradierPaper: {}, database: {} }
+  });
+  const market = await autopilot.marketState();
+  assert.equal(market.state, 'not_configured');
+  assert.equal(market.marketOpen, false);
+  assert.equal(market.verified, false);
+  assert.equal(liveClockCalls, 0);
+});
+
+test('a manual paper run never impersonates the scheduled worker heartbeat', async () => {
+  const settings = {
+    enabled: true,
+    autoExecute: true,
+    killSwitch: false,
+    maxRiskPct: 1,
+    maxDailyLossPct: 2,
+    maxOpenPositions: 3,
+    maxContracts: 1,
+    maxEntriesPerDay: 6,
+    minScore: 75,
+    minPop: 60,
+    minLiquidityScore: 6,
+    takeProfitPct: 50,
+    stopLossPct: 50,
+    allow1Dte: true,
+    requireGeminiApproval: false
+  };
+  const store = createStore(settings);
+  store.state.runs.push({ mode: 'manual', createdAt: new Date().toISOString(), payload: { status: 'NO_TRADE' } });
+  const paper = {
+    configured: true,
+    status() { return { configured: true, sandboxSafe: true, environment: 'paper' }; },
+    async getMarketClock() { return { state: 'open', description: 'Market is open' }; },
+    async getAccountSnapshot() {
+      return { status: 'ONLINE', paperTrading: true, balances: {}, positions: [], asOf: new Date().toISOString() };
+    },
+    async getOrders() { return []; }
+  };
+  const autopilot = new PaperAutopilot({
+    providers: { tradierPaper: paper },
+    settings: { tradierPaper: { intervalMinutes: 3 }, scanner: { runInWeb: false }, database: {} },
+    store
+  });
+  const status = await autopilot.status();
+  assert.equal(status.runtime.backgroundActive, false);
+  assert.equal(status.runtime.state, 'BACKGROUND_STALE');
+  assert.equal(status.runtime.lastScheduledCycleAt, null);
+});
 
 function createAutopilot({ gemini = 'approved', requireGeminiApproval = true } = {}) {
   let placed = 0;

@@ -23,7 +23,7 @@ function clamp(value, min, max, fallback) {
 
 export function paperBotDefaults(settings = config.tradierPaper) {
   return {
-    settingsVersion: 2,
+    settingsVersion: 3,
     profile: settings.profile || 'AGGRESSIVE_DEFINED_RISK',
     enabled: Boolean(settings.defaultBotEnabled),
     autoExecute: Boolean(settings.defaultAutoExecute),
@@ -47,7 +47,7 @@ export function paperBotDefaults(settings = config.tradierPaper) {
 export function normalizePaperBotSettings(input = {}, defaults = paperBotDefaults()) {
   return {
     ...defaults,
-    settingsVersion: 2,
+    settingsVersion: 3,
     profile: input.profile === 'AGGRESSIVE_DEFINED_RISK' ? input.profile : defaults.profile,
     enabled: input.enabled === undefined ? defaults.enabled : Boolean(input.enabled),
     autoExecute: input.autoExecute === undefined ? defaults.autoExecute : Boolean(input.autoExecute),
@@ -69,13 +69,17 @@ export function normalizePaperBotSettings(input = {}, defaults = paperBotDefault
 }
 
 export function migratePaperBotSettings(input = {}, defaults = paperBotDefaults()) {
-  if (Number(input.settingsVersion) >= 2) return normalizePaperBotSettings(input, defaults);
+  if (Number(input.settingsVersion) >= 3) return normalizePaperBotSettings(input, defaults);
   const killSwitch = Boolean(input.killSwitch);
   return normalizePaperBotSettings({
     ...defaults,
+    ...input,
+    settingsVersion: 3,
+    profile: 'AGGRESSIVE_DEFINED_RISK',
     killSwitch,
     enabled: !killSwitch,
     autoExecute: !killSwitch,
+    requireGeminiApproval: false,
     updatedAt: input.updatedAt || null
   }, defaults);
 }
@@ -296,8 +300,8 @@ export class PaperBotStore {
       strategies: [...strategies.values()].sort((left, right) => right.trades - left.trades),
       confidence: exits.length >= 30 ? 'MEDIUM' : 'LOW_SAMPLE',
       recommendation: exits.length < 30
-        ? 'Keep rules fixed until at least 30 closed paper trades; do not optimize from noise.'
-        : losses.length > wins.length ? 'Reduce size and review losing regimes before changing thresholds.' : 'Continue validating expectancy by regime and strategy.',
+        ? 'Mantener las reglas fijas hasta completar al menos 30 operaciones paper cerradas; no optimizar con una muestra pequena.'
+        : losses.length > wins.length ? 'Reducir tamano y revisar los regimenes perdedores antes de cambiar umbrales.' : 'Continuar validando la expectativa por regimen y estrategia.',
       updatedAt: new Date().toISOString()
     };
   }

@@ -233,19 +233,31 @@ export class PaperAutopilot {
   async applyAggressivePreset() {
     return this.store.saveSettings({
       ...this.defaults(),
-      settingsVersion: 2,
+      settingsVersion: 3,
       profile: 'AGGRESSIVE_DEFINED_RISK',
       enabled: true,
       autoExecute: true,
+      requireGeminiApproval: false,
       killSwitch: false,
       updatedAt: null
     }, this.defaults());
   }
 
   async marketState() {
-    const provider = this.providers.tradier?.configured ? this.providers.tradier : this.providers.tradierPaper;
-    if (!provider || typeof provider.getMarketClock !== 'function') {
-      return { verified: false, marketOpen: false, state: 'unknown', description: 'No Tradier market clock is available.' };
+    const provider = this.providers.tradierPaper;
+    const paperStatus = typeof provider?.status === 'function'
+      ? provider.status()
+      : { configured: Boolean(provider?.configured), error: 'Tradier Paper provider is unavailable.' };
+    if (!paperStatus.configured) {
+      return {
+        verified: false,
+        marketOpen: false,
+        state: 'not_configured',
+        description: paperStatus.error || 'Tradier Sandbox is not configured.'
+      };
+    }
+    if (typeof provider.getMarketClock !== 'function') {
+      return { verified: false, marketOpen: false, state: 'unknown', description: 'No Tradier Sandbox market clock is available.' };
     }
     try {
       const clock = await provider.getMarketClock();
@@ -592,6 +604,42 @@ export class PaperAutopilot {
         ])
       : [{ status: 'NOT_CONFIGURED', paperTrading: true, readOnly: false, error: paperStatus.error }, [], await this.marketState()];
     const adaptation = effectiveBotSettings(settings, learning);
+    const intervalMinutes = Math.max(1, finite(this.settings.tradierPaper?.intervalMinutes, 3));
+    const scheduledRun = runs.find((run) => /scheduled|worker/i.test(String(run.mode || '')));
+    const lastCycleAt = this.lastResult?.asOf || runs[0]?.createdAt || null;
+    const lastScheduledCycleAt = scheduledRun?.createdAt || null;
+    const lastCycleTime = lastCycleAt ? new Date(lastCycleAt).getTime() : Number.NaN;
+    const lastScheduledCycleTime = lastScheduledCycleAt ? new Date(lastScheduledCycleAt).getTime() : Number.NaN;
+    const scheduledCycleAgeMs = Number.isFinite(lastScheduledCycleTime) ? Date.now() - lastScheduledCycleTime : null;
+    const backgroundActive = Boolean(this.timer) || (scheduledCycleAgeMs !== null && scheduledCycleAgeMs <= Math.max(7, intervalMinutes * 2 + 1) * 60_000);
+    const nextCycleAnchor = Number.isFinite(lastScheduledCycleTime)
+      ? lastScheduledCycleTime
+      : this.timer && Number.isFinite(lastCycleTime) ? lastCycleTime : Number.NaN;
+    const blockers = [];
+    if (!paperStatus.configured) blockers.push(paperStatus.error || 'Tradier Sandbox no esta configurado.');
+    if (paperStatus.configured && account.status !== 'ONLINE') blockers.push(account.error || 'La cuenta Tradier Sandbox no esta disponible.');
+    if (settings.killSwitch) blockers.push('El kill switch del bot paper esta activo.');
+    if (!settings.killSwitch && !settings.enabled) blockers.push('El bot paper esta deshabilitado.');
+    if (!settings.killSwitch && settings.enabled && !settings.autoExecute) blockers.push('La autoejecucion Sandbox esta deshabilitada.');
+    if (paperStatus.configured && !backgroundActive) blockers.push('No se detecta un ciclo paper programado reciente.');
+    if (paperStatus.configured && market.state === 'error') blockers.push(market.description || 'Fallo el reloj de mercado de Tradier Sandbox.');
+    const operational = paperStatus.configured && account.status === 'ONLINE' && settings.enabled && settings.autoExecute &&
+      !settings.killSwitch && backgroundActive && market.verified;
+    const runtimeState = !paperStatus.configured
+      ? 'NOT_CONFIGURED'
+      : settings.killSwitch
+        ? 'KILL_SWITCH'
+        : !settings.enabled
+          ? 'BOT_DISABLED'
+          : !settings.autoExecute
+            ? 'AUTO_EXECUTE_OFF'
+            : account.status !== 'ONLINE'
+              ? 'ACCOUNT_ERROR'
+              : !backgroundActive
+                ? 'BACKGROUND_STALE'
+                : !market.verified
+                  ? 'MARKET_CLOCK_ERROR'
+                  : market.marketOpen ? 'ONLINE' : 'WAITING_MARKET';
     return {
       ok: true,
       safety: {
@@ -603,7 +651,16 @@ export class PaperAutopilot {
       runtime: {
         running: Boolean(this.running),
         scheduled: Boolean(this.timer),
-        intervalMinutes: this.settings.tradierPaper?.intervalMinutes || 3,
+        backgroundActive,
+        operational,
+        readyToTradeNow: operational && market.marketOpen,
+        state: runtimeState,
+        blockers,
+        schedulerMode: this.settings.scanner?.runInWeb === false ? 'BACKGROUND_WORKER' : 'WEB_FALLBACK',
+        intervalMinutes,
+        lastCycleAt,
+        lastScheduledCycleAt,
+        nextCycleAt: Number.isFinite(nextCycleAnchor) ? new Date(nextCycleAnchor + intervalMinutes * 60_000).toISOString() : null,
         lastResult: this.lastResult,
         lastError: this.lastError
       },

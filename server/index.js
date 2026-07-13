@@ -539,7 +539,7 @@ export function createApp(settings = config, customProviders = null, options = {
     scheduler.start();
     guardianScheduler.start();
   }
-  if (options.startBackground && webScannerEnabled && providers.tradierPaper?.configured) paperAutopilot.start();
+  if (options.startBackground && settings.scanner?.enabled !== false && webScannerEnabled) paperAutopilot.start();
 
   app.get('/api/health', (_req, res) => {
     const accessRequired = Boolean(settings.security?.requireAccessKey);
