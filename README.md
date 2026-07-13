@@ -17,6 +17,7 @@ VALIDO 1M OS is a semiautonomous scanner, trade-ticket desk and learning assista
 - `src/services/notifications.js` and `public/sw.js` implement mobile-safe PWA notifications.
 - `src/features/options-guardian-agent/` contains Options Guardian Agent Pro: deterministic event rules, learning coach, visible-tab scheduler, Web Push client and operational panel.
 - `server/guardianScheduler.js`, `server/guardianRoutes.js`, `server/push.js` and `server/pushStore.js` run protected Guardian scans and optional VAPID Web Push from the backend.
+- `server/services/paperAutopilot.js`, `server/services/tradierPaperBroker.js` and `server/routes/tradierRoutes.js` implement the server-side Tradier Sandbox autopilot and the production preview-only boundary.
 - `data/` is a local development fallback for watchlists, snapshots, journal, alerts, risk mandate, and IV observations.
 - The Express scheduler continues rescanning on the configured interval while the server is running, even when the browser tab is closed.
 - The Guardian scheduler adds Work Mode throttles: no more than three noncritical pushes per hour, symbol/type cooldowns and no live Guardian scans while the market is closed.
@@ -62,6 +63,27 @@ Naked calls and unprotected short puts are blocked by validation unless the put 
 `Paper Trading de Opciones` accepts a scanner plan, a simulator setup or an explicitly labeled manual/educational template even while the market is closed. It calculates payoff, break-even and risk from entered legs, stores practice locally, can send a closed practice to the journal and exposes a chain checklist. It never sends orders.
 
 Probability and EV are displayed only when required inputs exist. Manual templates with no numeric Greeks show `No disponible`; the system does not replace missing Delta/IV with a favorable probability. For real-chain setups, `Probability & Edge Engine` labels POP, EV, ROC and slippage as modeled estimates and exposes the formula audit.
+
+## Tradier Sandbox Autopilot
+
+The `Tradier` dashboard tab deliberately separates two environments:
+
+- Production Tradier is read-only. The app can retrieve balances/positions and request `preview=true` for a current `READY_GREEN` ticket, but it exposes no production order-submit endpoint.
+- Autonomous entry, cancellation and rule-based exit are restricted to `https://sandbox.tradier.com/v1`. The paper broker rejects any other host before making a request.
+- Every automatic paper entry must be `READY_GREEN`, defined-risk, at least 2 DTE, funded by Sandbox buying power, inside the server-side mandate and explicitly approved by Gemini Guardian. A 429, unavailable AI or manual-review verdict blocks submission.
+- Orders use day limit tickets and a mandatory Tradier preview. The bot deduplicates the same setup for 24 hours, enforces position/daily-loss/risk/contract caps, and checks paper take-profit, stop-loss and DTE exit rules each cycle.
+- Paper runs, tracked orders and outcomes persist in PostgreSQL when configured, with ignored JSON fallback for local development. Learning remains fixed for the first 30 closed paper trades and may only tighten thresholds after a negative sample; it never increases risk automatically.
+- The web service runs the paper cycle server-side while it is awake; the existing `npm run worker` process also runs it when a dedicated Render worker is deployed. PostgreSQL is required when more than one backend process is active so the shared lock and deduplication remain authoritative.
+
+Configure a separate Tradier Sandbox token. Production and Sandbox credentials must never be reused or committed:
+
+```text
+TRADIER_PAPER_TOKEN=
+TRADIER_PAPER_ACCOUNT_ID=
+TRADIER_PAPER_BASE_URL=https://sandbox.tradier.com/v1
+PAPER_BOT_DEFAULT_ENABLED=false
+PAPER_BOT_DEFAULT_AUTO_EXECUTE=false
+```
 
 ## Optional AI Tutor
 
@@ -178,6 +200,11 @@ The test suite asserts that page code contains no unsafe `new Notification(...)`
 - `GET|POST /api/journal` reads and records the audited decision journal.
 - `GET /api/explainers` returns plain-language and institutional metric explanations.
 - `GET /api/ai/status` reports optional AI availability, Gemini/OpenAI state and token budget without exposing keys.
+- `GET /api/tradier/overview` returns safe production read-only and Sandbox bot status.
+- `PUT /api/tradier/paper/settings` updates the server-side paper mandate.
+- `POST /api/tradier/paper/run` runs one analysis/preview cycle; submission still requires the saved Sandbox auto-execution mandate.
+- `POST /api/tradier/paper/orders/:id/cancel` cancels only an order already tracked in Tradier Sandbox.
+- `POST /api/tradier/live/preview` validates only a current server-side `READY_GREEN` ticket with `preview=true`; it never submits a live order.
 - `POST /api/ai/explain` requests a manual explanation; if Gemini/OpenAI are missing or rate-limited, it returns deterministic tutor guidance instead of blocking.
 - `POST /api/ai/test-gemini` validates the Gemini connection without exposing `GEMINI_API_KEY`.
 - `GET|PUT /api/guardian/settings`, `GET /api/guardian/status`, `GET /api/guardian/events`, `GET /api/guardian/learning` and `POST /api/guardian/run` expose Guardian through the same private access middleware.

@@ -275,7 +275,7 @@ function requiredProviderGates(providers) {
   ];
 }
 
-export async function runAutonomousScan({ providers, settings = config } = {}) {
+export async function runAutonomousScan({ providers, settings = config, accountSnapshot: accountSnapshotOverride } = {}) {
   const policy = settings.policy;
   const watchlist = await repository.getWatchlist(DEFAULT_SYMBOLS);
   const storedProfile = await repository.getRiskProfile({
@@ -288,9 +288,11 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
     riskMode: policy.defaultRiskMode || 'MODERATE_AGGRESSIVE',
     tradingPaused: false
   });
-  const accountSnapshot = typeof providers?.tradier?.getAccountSnapshot === 'function'
-    ? await providers.tradier.getAccountSnapshot()
-    : null;
+  const accountSnapshot = accountSnapshotOverride !== undefined
+    ? accountSnapshotOverride
+    : typeof providers?.tradier?.getAccountSnapshot === 'function'
+      ? await providers.tradier.getAccountSnapshot()
+      : null;
   const profile = applyTradierAccountSizing({
     storedProfile,
     policy,
@@ -384,7 +386,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
   if (profile.weeklyLossPct >= profile.maxWeeklyLossPct) globalBlocks.push('Se alcanzo la perdida semanal maxima');
   if (profile.collateralUsedPct >= 80) globalBlocks.push('Colateral utilizado sobre 80%; solo paper trade');
   if (profile.accountSync?.marginCall) globalBlocks.push('Tradier reporta margin call; se bloquean nuevas senales');
-  if (profile.capitalSource === 'tradier_live' && Number(profile.optionBuyingPower) <= 0) globalBlocks.push('Tradier no reporta poder de compra disponible para opciones');
+  if (['tradier_live', 'tradier_paper'].includes(profile.capitalSource) && Number(profile.optionBuyingPower) <= 0) globalBlocks.push('Tradier no reporta poder de compra disponible para opciones');
   const limit = pLimit(3);
   const results = await Promise.all(symbols.map((symbol) => limit(() => scanSymbol({ symbol, providers, market, macro, policy, profile }))));
   const spyGamma = results.find((result) => result.symbol === 'SPY')?.gamma;
@@ -542,7 +544,7 @@ export async function runAutonomousScan({ providers, settings = config } = {}) {
       missingValidation: [...new Set(setup.blocks.length ? setup.blocks : ['Requiere revalidacion de precio y chain al momento de entrada.'])]
     };
   });
-  const accountCannotFundAny = profile.capitalSource === 'tradier_live' &&
+  const accountCannotFundAny = ['tradier_live', 'tradier_paper'].includes(profile.capitalSource) &&
     allSetups.length > 0 &&
     !allSetups.some((setup) => Number(setup.positionSizeContracts) >= 1);
   const reasons = accountCannotFundAny

@@ -70,5 +70,23 @@ export const api = {
     } catch (err) {
       return { ok: false, symbol, study: { verdict: "NO_TOMAR_AHORA", summary: err?.message || "Gemini no disponible", why: [], risks: [], nextAction: "Reintentar mas tarde." } };
     }
+  },
+  async tradierOverview() {
+    return await requestJson("/api/tradier/overview");
+  },
+  async savePaperBotSettings(settings) {
+    return await requestJson("/api/tradier/paper/settings", { method: "PUT", body: JSON.stringify(settings) });
+  },
+  async runPaperBot() {
+    return await requestJson("/api/tradier/paper/run", { method: "POST" });
+  },
+  async cancelPaperOrder(id) {
+    return await requestJson(`/api/tradier/paper/orders/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+  },
+  async previewLiveSignal(signalKey, contracts = 1) {
+    return await requestJson("/api/tradier/live/preview", {
+      method: "POST",
+      body: JSON.stringify({ signalKey, contracts })
+    });
   }
 };

@@ -10,9 +10,11 @@ import { GeminiProvider } from './gemini.js';
 import { AlphaVantageProvider } from './alphaVantage.js';
 import { AiBudgetManager } from '../ai/ai-budget.js';
 import { AiProviderRouter } from '../ai/provider-router.js';
+import { TradierPaperBroker } from '../services/tradierPaperBroker.js';
 
 export function createProviders(settings = config) {
   const tradier = new TradierProvider(settings.tradier);
+  const tradierPaper = new TradierPaperBroker(settings.tradierPaper);
   const polygon = new PolygonProvider(settings.polygon);
   const finnhub = new FinnhubProvider(settings.finnhub);
   const fmp = new FmpProvider(settings.fmp);
@@ -26,6 +28,7 @@ export function createProviders(settings = config) {
 
   return {
     tradier,
+    tradierPaper,
     polygon,
     finnhub,
     fmp,

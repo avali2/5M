@@ -71,6 +71,24 @@ export const config = {
     accountSync: asBool(process.env.TRADIER_ACCOUNT_SYNC, true),
     syncRiskLimitsFromEnv: asBool(process.env.SYNC_RISK_LIMITS_FROM_ENV, true)
   },
+  tradierPaper: {
+    enabled: asBool(process.env.TRADIER_PAPER_ENABLED, true),
+    token: process.env.TRADIER_PAPER_TOKEN || '',
+    baseUrl: process.env.TRADIER_PAPER_BASE_URL || 'https://sandbox.tradier.com/v1',
+    accountId: process.env.TRADIER_PAPER_ACCOUNT_ID || '',
+    defaultBotEnabled: asBool(process.env.PAPER_BOT_DEFAULT_ENABLED, false),
+    defaultAutoExecute: asBool(process.env.PAPER_BOT_DEFAULT_AUTO_EXECUTE, false),
+    intervalMinutes: asNumber(process.env.PAPER_BOT_INTERVAL_MINUTES, 3),
+    maxRiskPct: asNumber(process.env.PAPER_BOT_MAX_RISK_PCT, 1),
+    maxDailyLossPct: asNumber(process.env.PAPER_BOT_MAX_DAILY_LOSS_PCT, 2),
+    maxOpenPositions: asNumber(process.env.PAPER_BOT_MAX_OPEN_POSITIONS, 3),
+    maxContracts: asNumber(process.env.PAPER_BOT_MAX_CONTRACTS, 1),
+    minScore: asNumber(process.env.PAPER_BOT_MIN_SCORE, 75),
+    minPop: asNumber(process.env.PAPER_BOT_MIN_POP, 60),
+    takeProfitPct: asNumber(process.env.PAPER_BOT_TAKE_PROFIT_PCT, 50),
+    stopLossPct: asNumber(process.env.PAPER_BOT_STOP_LOSS_PCT, 50),
+    requireGeminiApproval: asBool(process.env.PAPER_BOT_REQUIRE_GEMINI, true)
+  },
   polygon: {
     apiKey: process.env.POLYGON_API_KEY || '',
     baseUrl: 'https://api.polygon.io'

@@ -20,7 +20,9 @@ import geminiAssistantRouter from './geminiAssistant.js';
 import { createScanDiagnosticsRouter } from './routes/scanDiagnosticsRoutes.js';
 import { createRiskRouter } from './routes/riskRoutes.js';
 import { createSymbolStudyRouter } from './routes/symbolStudyRoutes.js';
+import { createTradierRouter } from './routes/tradierRoutes.js';
 import { scanPersistence } from './services/scanPersistence.js';
+import { PaperAutopilot } from './services/paperAutopilot.js';
 import { getMarketSessionET } from './autonomousSignalWorker.js';
 
 const AUTH_COOKIE = 'valido_session';
@@ -500,6 +502,7 @@ export function createApp(settings = config, customProviders = null, options = {
     enabled: settings.guardian?.enabled !== false,
     regularMinutes: settings.agent?.refreshIntervalMinutes || 5
   });
+  const paperAutopilot = new PaperAutopilot({ providers, settings });
   const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, consecutiveDailyLosses: 0, riskMode: settings.policy?.defaultRiskMode || 'MODERATE_AGGRESSIVE', tradingPaused: false };
   const defaultWatchlist = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
   const runManualScan = async (mode) => {
@@ -531,10 +534,12 @@ export function createApp(settings = config, customProviders = null, options = {
   app.locals.scheduler = scheduler;
   app.locals.guardianScheduler = guardianScheduler;
   app.locals.pushService = pushService;
+  app.locals.paperAutopilot = paperAutopilot;
   if (options.startBackground && settings.scanner?.enabled !== false && webScannerEnabled) {
     scheduler.start();
     guardianScheduler.start();
   }
+  if (options.startBackground && providers.tradierPaper?.configured) paperAutopilot.start();
 
   app.get('/api/health', (_req, res) => {
     const accessRequired = Boolean(settings.security?.requireAccessKey);
@@ -548,6 +553,9 @@ export function createApp(settings = config, customProviders = null, options = {
       startedAt: buildInfo.startedAt,
       timestamp: new Date().toISOString(),
       providers: providerHealth(settings, providers),
+      tradierPaper: typeof providers.tradierPaper?.status === 'function'
+        ? providers.tradierPaper.status()
+        : { configured: false, environment: 'paper' },
       feeds: feedAvailability(settings),
       mode: 'defined-risk-manual-review',
       protected: protectedAccess,
@@ -628,6 +636,7 @@ export function createApp(settings = config, customProviders = null, options = {
 
   app.use('/api/risk', createRiskRouter({ scheduler, repository, providers }));
   app.use('/api/symbol-study', createSymbolStudyRouter({ scheduler }));
+  app.use('/api/tradier', createTradierRouter({ scheduler, providers, paperAutopilot }));
 
   app.get('/api/macro/guard', async (_req, res, next) => {
     try {

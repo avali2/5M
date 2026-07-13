@@ -1,6 +1,7 @@
 import { cache } from '../lib/cache.js';
 import { daysFromNow, requestJson, toArray } from '../lib/http.js';
 import { buildTradierAccountSnapshot, selectTradierAccountId } from '../services/tradierAccount.js';
+import { encodeTradierOrder } from '../services/tradierOrders.js';
 
 const symbolForTradier = (symbol) => {
   if (symbol === 'VIX') return 'VIX';
@@ -105,6 +106,16 @@ export class TradierProvider {
         asOf: new Date().toISOString()
       };
     }
+  }
+
+  async previewOptionOrder(order) {
+    if (!this.accountSyncEnabled) throw new Error('Tradier live preview is not configured.');
+    const accountId = await this.resolveAccountId();
+    return requestJson(this.name, `${this.settings.baseUrl}/accounts/${encodeURIComponent(accountId)}/orders`, {
+      method: 'POST',
+      headers: { ...this.headers(), 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: encodeTradierOrder(order, true)
+    });
   }
 
   async getHistory(symbol) {

@@ -10,6 +10,7 @@ import { OperationalSignals } from './components/OperationalSignals.jsx';
 import { BrokerPositionsDesk } from './components/BrokerPositionsDesk.jsx';
 import { DailyGeminiLesson } from './components/DailyGeminiLesson.jsx';
 import { DailyTradingWorkflow } from './components/DailyTradingWorkflow.jsx';
+import { TradierAutopilotDesk } from './components/TradierAutopilotDesk.jsx';
 import InfoTooltip from './components/InfoTooltip.jsx';
 import NoGreenTodayPanel from './features/scanner/NoGreenTodayPanel.jsx';
 import { loadRiskConfig, saveRiskConfig } from './config/riskConfig.ts';
@@ -501,7 +502,7 @@ export default function AppPro() {
   };
   const tabs = [
     ['inicio', '🏠', 'Inicio'], ['signals', '📡', 'Señales'], ['news', '📰', 'Noticias'],
-    ['risk', '🛡️', 'Riesgo'], ['journal', '📓', 'Journal'], ['config', '⚙️', 'Config']
+    ['risk', '🛡️', 'Riesgo'], ['tradier', 'T', 'Tradier'], ['journal', '📓', 'Journal'], ['config', '⚙️', 'Config']
   ];
 
   return (
@@ -525,12 +526,13 @@ export default function AppPro() {
         {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} />}
         {activeTab === 'news' && <NewsImpactList news={news} />}
         {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} manualPositions={manualPositions} /><BrokerPositionsDesk /></>}
+        {activeTab === 'tradier' && <TradierAutopilotDesk scan={scan} />}
         {activeTab === 'journal' && <TradeJournal entries={entries} onDelete={deleteJournal} manualPositions={manualPositions} />}
         {activeTab === 'config' && <><SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} /><NotificationManager /><SystemStatus /></>}
-        <footer className="text-xs text-slate-500 text-center py-4">Educational / decision-support only. No auto-trading enabled.<span className="block mt-1">v{VALIDO_VERSION}</span></footer>
+        <footer className="text-xs text-slate-500 text-center py-4">Cuenta real: decision y preview manual. Autopilot aislado en Tradier Sandbox.<span className="block mt-1">v{VALIDO_VERSION}</span></footer>
       </main>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-blue-100 bg-white/95 px-1 py-2 shadow-[0_-12px_30px_rgba(37,99,235,0.08)] backdrop-blur">
-        <div className="flex justify-around max-w-lg mx-auto">{tabs.map(([id, icon, label]) => <button key={id} onClick={() => setActiveTab(id)} className={`flex flex-col items-center px-2 py-1.5 rounded-2xl text-[11px] font-bold transition ${activeTab === id ? 'bg-blue-600 text-white shadow-md shadow-blue-200' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-700'}`}><span className="text-base">{icon}</span><span>{label}</span></button>)}</div>
+        <div className="mx-auto flex max-w-2xl justify-start gap-1 overflow-x-auto px-1 sm:justify-around">{tabs.map(([id, icon, label]) => <button key={id} onClick={() => setActiveTab(id)} className={`flex min-w-[64px] shrink-0 flex-col items-center rounded-md px-2 py-1.5 text-[11px] font-bold transition ${activeTab === id ? 'bg-blue-600 text-white shadow-md shadow-blue-200' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-700'}`}><span className="text-base">{icon}</span><span>{label}</span></button>)}</div>
       </nav>
     </div>
   );

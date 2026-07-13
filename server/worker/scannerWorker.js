@@ -11,6 +11,7 @@ import { getMarketSessionET } from '../autonomousSignalWorker.js';
 import { readyGreenSignals } from '../engine/greenSignalPolicy.js';
 import { loadBrokerPositions } from '../services/brokerPositionsService.js';
 import { analyzePortfolioRisk } from '../services/positionRiskAnalyzer.js';
+import { PaperAutopilot } from '../services/paperAutopilot.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -75,16 +76,20 @@ export async function runScannerWorkerCycle({
   settings = config,
   lock = new ScanLock({ settings: config.database, owner: WORKER_OWNER }),
   persistence = new ScanPersistence(config.database),
-  pushService = new GuardianPushService(settings.webPush || {}, new GuardianPushStore(repository))
+  pushService = new GuardianPushService(settings.webPush || {}, new GuardianPushStore(repository)),
+  paperAutopilot = providers.tradierPaper?.configured ? new PaperAutopilot({ providers, settings }) : null
 } = {}) {
   const session = await marketSession(providers);
+  const paper = paperAutopilot
+    ? await paperAutopilot.run({ mode: `${mode}-paper` }).catch((error) => ({ status: 'ERROR', error: error.message }))
+    : null;
   if (!settings.scanner?.enabled) {
     await persistence.saveWorkerState({ status: 'STALE', payload: { reason: 'SCANNER_ENABLED=false', session } });
-    return { ok: true, skipped: true, reason: 'SCANNER_ENABLED=false', session };
+    return { ok: true, skipped: true, reason: 'SCANNER_ENABLED=false', session, paper };
   }
   if (!session.marketOpen) {
     await persistence.saveWorkerState({ status: 'ONLINE', payload: { reason: 'Market is not open', session } });
-    return { ok: true, skipped: true, reason: `Market session ${session.clock?.state || session.phase}`, session };
+    return { ok: true, skipped: true, reason: `Market session ${session.clock?.state || session.phase}`, session, paper };
   }
   try {
     const result = await lock.withLock('scanner', LOCK_TTL_MS, async () => {
@@ -106,7 +111,8 @@ export async function runScannerWorkerCycle({
         run,
         risk,
         readyGreen: readyGreenSignals(scan).length,
-        push
+        push,
+        paper
       };
     });
     if (result.skipped) {

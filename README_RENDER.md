@@ -24,6 +24,23 @@ TRADIER_BASE_URL=https://api.tradier.com/v1
 TRADIER_ACCOUNT_ID=
 TRADIER_SANDBOX=false
 
+TRADIER_PAPER_ENABLED=true
+TRADIER_PAPER_TOKEN=
+TRADIER_PAPER_BASE_URL=https://sandbox.tradier.com/v1
+TRADIER_PAPER_ACCOUNT_ID=
+PAPER_BOT_DEFAULT_ENABLED=false
+PAPER_BOT_DEFAULT_AUTO_EXECUTE=false
+PAPER_BOT_INTERVAL_MINUTES=3
+PAPER_BOT_MAX_RISK_PCT=1
+PAPER_BOT_MAX_DAILY_LOSS_PCT=2
+PAPER_BOT_MAX_OPEN_POSITIONS=3
+PAPER_BOT_MAX_CONTRACTS=1
+PAPER_BOT_MIN_SCORE=75
+PAPER_BOT_MIN_POP=60
+PAPER_BOT_TAKE_PROFIT_PCT=50
+PAPER_BOT_STOP_LOSS_PCT=50
+PAPER_BOT_REQUIRE_GEMINI=true
+
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash-lite
 AI_PRIMARY_PROVIDER=gemini
@@ -162,4 +179,6 @@ APP_BASE_URL=https://TU_APP_RENDER.onrender.com
 - No uses variables `VITE_*` para tokens privados.
 - `TRADIER_ACCESS_TOKEN`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `DATABASE_URL` y VAPID private key viven solo en Render.
 - La app no ejecuta ordenes reales.
+- La cuenta real solo permite lectura y `preview=true`; no existe endpoint de envio a produccion.
+- La autoejecucion usa un token separado y se bloquea salvo que el host sea exactamente `https://sandbox.tradier.com/v1`.
 - AI explica; no calcula trades.

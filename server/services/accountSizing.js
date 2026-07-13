@@ -13,6 +13,7 @@ function round(value, digits = 2) {
 
 export function applyTradierAccountSizing({ storedProfile = {}, policy = {}, snapshot = null, syncLimitsFromEnv = true } = {}) {
   const online = snapshot?.status === 'ONLINE';
+  const paperTrading = online && snapshot?.paperTrading === true;
   const accountSize = online
     ? Math.max(0, finite(snapshot?.balances?.totalEquity, finite(snapshot?.balances?.totalCash, 0)))
     : finite(storedProfile.accountSize, finite(policy.accountSize, 2000));
@@ -52,10 +53,10 @@ export function applyTradierAccountSizing({ storedProfile = {}, policy = {}, sna
       : round(Math.max(finite(storedProfile.collateralUsedPct, 0), brokerCollateralPct)),
     dailyLossPct: round(Math.max(finite(storedProfile.dailyLossPct, 0), brokerDailyLossPct)),
     limitsSource: online && syncLimitsFromEnv ? 'render_env_and_tradier' : 'stored_profile',
-    capitalSource: online ? 'tradier_live' : 'configured_fallback',
+    capitalSource: online ? (paperTrading ? 'tradier_paper' : 'tradier_live') : 'configured_fallback',
     accountSync: {
       status: online ? 'ONLINE' : snapshot?.status || 'NOT_CONFIGURED',
-      source: online ? 'Tradier read-only' : 'Configured fallback',
+      source: online ? (paperTrading ? 'Tradier Sandbox' : 'Tradier read-only') : 'Configured fallback',
       accountIdMasked: snapshot?.accountIdMasked || null,
       accountType: snapshot?.accountType || null,
       totalEquity: online ? round(snapshot.balances.totalEquity) : null,
@@ -67,7 +68,8 @@ export function applyTradierAccountSizing({ storedProfile = {}, policy = {}, sna
       pendingOrdersCount: online ? snapshot.balances.pendingOrdersCount : null,
       positionCount: online ? snapshot.positions.length : null,
       asOf: snapshot?.asOf || null,
-      readOnly: true,
+      readOnly: !paperTrading,
+      paperTrading,
       error: snapshot?.error || null
     }
   };
