@@ -29,7 +29,7 @@ services:
       - key: CLIENT_ORIGIN
         sync: false
       - key: VALIDO_BUILD_VERSION
-        value: "2.2.1"
+        value: "2.3.0"
       - key: VALIDO_BUILD_TIMESTAMP
         sync: false
       - key: ENABLE_YAHOO_PROVIDER
@@ -391,7 +391,7 @@ services:
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
       - key: VALIDO_BUILD_VERSION
-        value: "2.2.1"
+        value: "2.3.0"
       - key: DATABASE_URL
         fromService:
           type: web

@@ -12,3 +12,17 @@ test('chart hover and tooltip styles avoid full black overlays', async () => {
   assert.doesNotMatch(`${app}\n${simulator}\n${gex}`, /contentStyle=\{\{\s*background:\s*['"]#111a2d/i);
   assert.doesNotMatch(`${app}\n${simulator}\n${gex}`, /<Tooltip[^>]*#273453/i);
 });
+
+test('Paper and live Tradier are independent broker workspaces', async () => {
+  const app = await readFile(new URL('../src/AppPro.jsx', import.meta.url), 'utf8');
+  const desk = await readFile(new URL('../src/components/TradierAutopilotDesk.jsx', import.meta.url), 'utf8');
+  const coach = await readFile(new URL('../src/components/GeminiBrokerCoach.jsx', import.meta.url), 'utf8');
+  assert.match(app, /\['paper',\s*'P',\s*'Paper'\]/);
+  assert.match(app, /\['tradier',\s*'T',\s*'En vivo'\]/);
+  assert.match(app, /activeTab === 'paper'[\s\S]*view="paper"[\s\S]*<TradeJournal/);
+  assert.match(app, /activeTab === 'tradier'[\s\S]*view="live"/);
+  assert.doesNotMatch(app, /\['journal',/);
+  assert.match(desk, /GeminiBrokerCoach environment="paper"/);
+  assert.match(desk, /GeminiBrokerCoach environment="live"/);
+  assert.match(coach, /Pedir criterio a Gemini/);
+});

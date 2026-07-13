@@ -1,7 +1,7 @@
 {
   "name": "valido-1m-options-assistant",
   "private": true,
-  "version": "2.2.1",
+  "version": "2.3.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"vite --host 127.0.0.1\" \"node --watch server/index.js\"",

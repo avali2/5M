@@ -66,7 +66,7 @@ Probability and EV are displayed only when required inputs exist. Manual templat
 
 ## Tradier Sandbox Autopilot
 
-The `Tradier` dashboard tab deliberately separates two environments:
+The broker area deliberately separates two environments:
 
 - Production Tradier is read-only. The app can retrieve balances/positions and request `preview=true` for a current `READY_GREEN` ticket, but it exposes no production order-submit endpoint.
 - Autonomous entry, cancellation and rule-based exit are restricted to `https://sandbox.tradier.com/v1`. The paper broker rejects any other host before making a request.
@@ -77,6 +77,8 @@ The `Tradier` dashboard tab deliberately separates two environments:
 - Orders use day limit tickets and a mandatory Tradier preview. The bot deduplicates the same setup for 24 hours, blocks duplicate symbols, caps six entries per day, and enforces position, daily-loss, risk and contract limits. It checks paper take-profit, stop-loss and DTE exit rules each cycle.
 - Paper runs, tracked orders and outcomes persist in PostgreSQL when configured, with ignored JSON fallback for local development. After five closed paper trades, per-strategy results can adjust ranking within a small bounded range; learning cannot increase risk or contract limits.
 - The Render web service only reads persisted scans and serves the dashboard. The `npm run worker` process owns scheduled scanning and paper cycles. PostgreSQL is required so the shared lock, deduplication and history remain authoritative.
+- The primary navigation exposes independent `Paper` and `En vivo` broker workspaces. Paper includes autonomous controls, Sandbox activity, learning metrics and the Journal; En vivo focuses on real balances, imported positions and order preview without exposing production submission.
+- Both broker workspaces include Gemini Broker Coach. It can study the current green setup, best candidate or leading rejection, but explicitly preserves quotes, risk controls and the deterministic engine as the source of operational truth.
 
 Configure a separate Tradier Sandbox token. Production and Sandbox credentials must never be reused or committed:
 

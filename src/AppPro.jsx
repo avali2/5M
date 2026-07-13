@@ -429,9 +429,9 @@ export default function AppPro() {
     markSignalTaken(signal.id);
     setTakenSignalIds(loadTakenSignals());
     setEntries(await loadJournalEntries());
-    setToast('Señal registrada en Journal. Riesgo queda solo para posiciones manuales.');
+    setToast('Señal registrada en el Journal de Paper. Riesgo queda solo para posiciones manuales.');
     window.setTimeout(() => setToast(''), 3500);
-    setActiveTab('journal');
+    setActiveTab('paper');
   }
 
   useEffect(() => {
@@ -502,7 +502,7 @@ export default function AppPro() {
   };
   const tabs = [
     ['inicio', '🏠', 'Inicio'], ['signals', '📡', 'Señales'], ['news', '📰', 'Noticias'],
-    ['risk', '🛡️', 'Riesgo'], ['tradier', 'T', 'Tradier'], ['journal', '📓', 'Journal'], ['config', '⚙️', 'Config']
+    ['risk', '🛡️', 'Riesgo'], ['paper', 'P', 'Paper'], ['tradier', 'T', 'En vivo'], ['config', '⚙️', 'Config']
   ];
 
   return (
@@ -526,10 +526,10 @@ export default function AppPro() {
         {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} />}
         {activeTab === 'news' && <NewsImpactList news={news} />}
         {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} manualPositions={manualPositions} /><BrokerPositionsDesk /></>}
-        {activeTab === 'tradier' && <TradierAutopilotDesk scan={scan} />}
-        {activeTab === 'journal' && <TradeJournal entries={entries} onDelete={deleteJournal} manualPositions={manualPositions} />}
+        {activeTab === 'paper' && <><TradierAutopilotDesk scan={scan} view="paper" /><TradeJournal entries={entries} onDelete={deleteJournal} manualPositions={manualPositions} /></>}
+        {activeTab === 'tradier' && <TradierAutopilotDesk scan={scan} view="live" />}
         {activeTab === 'config' && <><SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} /><NotificationManager /><SystemStatus /></>}
-        <footer className="text-xs text-slate-500 text-center py-4">Cuenta real: decision y preview manual. Autopilot aislado en Tradier Sandbox.<span className="block mt-1">v{VALIDO_VERSION}</span></footer>
+        <footer className="text-xs text-slate-500 text-center py-4">Paper autonomo en Tradier Sandbox. Cuenta real: datos, criterio Gemini y preview bajo control humano.<span className="block mt-1">v{VALIDO_VERSION}</span></footer>
       </main>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-blue-100 bg-white/95 px-1 py-2 shadow-[0_-12px_30px_rgba(37,99,235,0.08)] backdrop-blur">
         <div className="mx-auto flex max-w-2xl justify-start gap-1 overflow-x-auto px-1 sm:justify-around">{tabs.map(([id, icon, label]) => <button key={id} onClick={() => setActiveTab(id)} className={`flex min-w-[64px] shrink-0 flex-col items-center rounded-md px-2 py-1.5 text-[11px] font-bold transition ${activeTab === id ? 'bg-blue-600 text-white shadow-md shadow-blue-200' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-700'}`}><span className="text-base">{icon}</span><span>{label}</span></button>)}</div>

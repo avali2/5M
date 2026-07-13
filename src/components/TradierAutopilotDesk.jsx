@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
+import { GeminiBrokerCoach } from './GeminiBrokerCoach.jsx';
 
 function money(value) {
   if (value === null || value === undefined || value === '') return 'N/D';
@@ -13,6 +14,13 @@ function percent(value) {
   if (value === null || value === undefined || value === '') return 'N/D';
   const parsed = Number(value);
   return Number.isFinite(parsed) ? `${parsed.toFixed(1)}%` : 'N/D';
+}
+
+function pnlTone(value) {
+  if (value === null || value === undefined || value === '') return 'text-slate-600';
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed === 0) return 'text-slate-600';
+  return parsed < 0 ? 'text-red-700' : 'text-green-700';
 }
 
 function shortDate(value) {
@@ -82,20 +90,23 @@ function NumberField({ label, value, min, max, step = 1, onChange }) {
 function RealAccount({ live, scan, busy, onPreview, preview }) {
   const opportunities = Array.isArray(scan?.opportunities) ? scan.opportunities : [];
   const candidate = opportunities.find((setup) => setup.status === 'READY_GREEN');
+  const coachTarget = candidate || scan?.conditionalIdeas?.[0] || scan?.rejected?.[0] || null;
   const positions = Array.isArray(live?.positions) ? live.positions : [];
   return (
     <>
       <section className="risk-card overflow-hidden">
         <div className="border-b border-blue-100 bg-blue-50/70 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div><h2 className="text-lg font-black text-slate-950">Tradier real: copiloto de decision</h2><p className="text-xs text-slate-600">Saldos y posiciones en vivo, siempre en solo lectura.</p></div>
+            <div><p className="text-[11px] font-black uppercase text-blue-700">Mi broker personal</p><h2 className="text-xl font-black text-slate-950">Cuenta Tradier en vivo</h2><p className="text-xs text-slate-600">Capital, posiciones y tickets revisados con Gemini. La orden final sigue bajo tu control.</p></div>
             <Badge>{live?.status || 'NOT_CONFIGURED'}</Badge>
           </div>
         </div>
-        <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-6">
           <Metric label="Equity" value={money(live?.balances?.totalEquity)} />
+          <Metric label="Cash disponible" value={money(live?.balances?.cashAvailable ?? live?.balances?.totalCash)} />
           <Metric label="Buying power opciones" value={money(live?.balances?.optionBuyingPower)} />
           <Metric label="P/L abierto" value={money(live?.balances?.openPl)} />
+          <Metric label="P/L cerrado" value={money(live?.balances?.closePl)} />
           <Metric label="Posiciones" value={positions.length} detail={live?.accountIdMasked || 'Cuenta no vinculada'} />
         </div>
         <div className="border-t border-slate-100 p-4">
@@ -110,14 +121,16 @@ function RealAccount({ live, scan, busy, onPreview, preview }) {
         </div>
       </section>
 
+      <GeminiBrokerCoach environment="live" target={coachTarget} />
+
       <section className="risk-card p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-base font-black text-slate-950">Posiciones reales</h3><span className="text-xs font-bold text-slate-500">Gestion humana obligatoria</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-base font-black text-slate-950">Cartera real</h3><p className="text-xs text-slate-500">Posiciones importadas directamente desde Tradier.</p></div><span className="text-xs font-bold text-slate-500">Gestion humana obligatoria</span></div>
         <div className="mt-3 divide-y divide-slate-100">
           {!positions.length && <p className="py-4 text-sm text-slate-500">Tradier no reporta posiciones abiertas.</p>}
           {positions.map((position) => (
             <div className="grid gap-2 py-3 text-sm sm:grid-cols-[1fr_auto_auto] sm:items-center" key={position.id}>
-              <div className="min-w-0"><p className="font-black text-slate-900">{position.symbol} | {position.strategy}</p><p className="break-words text-xs text-slate-500">{position.strikes || `${position.quantity || 0} unidades`} {position.expiration ? `| Exp ${position.expiration}` : ''}</p></div>
-              <span className="font-bold text-slate-700">P/L {money(position.openPnL)}</span>
+              <div className="min-w-0"><p className="font-black text-slate-900">{position.symbol} | {position.strategy}</p><p className="break-words text-xs text-slate-500">{position.strikes || `${position.quantity || 0} unidades`} {position.expiration ? `| Exp ${position.expiration}` : ''} {position.maxRiskUsd ? `| Riesgo max ${money(position.maxRiskUsd)}` : ''}</p></div>
+              <span className={`font-black ${pnlTone(position.openPnL)}`}>P/L {money(position.openPnL)}</span>
               <Badge>{position.definedRisk ? 'DEFINED_RISK' : 'REVIEW_RISK'}</Badge>
             </div>
           ))}
@@ -127,7 +140,7 @@ function RealAccount({ live, scan, busy, onPreview, preview }) {
   );
 }
 
-function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun, onCancel }) {
+function PaperAccount({ paper, scan, form, setForm, busy, onSave, onAggressive, onRun, onCancel }) {
   const latest = paper?.runtime?.lastResult || paper?.runs?.[0]?.payload || null;
   const recommendation = latest?.selection?.recommendation;
   const positions = Array.isArray(paper?.account?.positions) ? paper.account.positions : [];
@@ -140,20 +153,23 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun,
   const marketDetail = !configured
     ? 'Sandbox sin credencial'
     : paper?.market?.verified ? 'Reloj Sandbox verificado' : 'Reloj Sandbox no verificado';
+  const coachTarget = recommendation || scan?.opportunities?.[0] || scan?.conditionalIdeas?.[0] || scan?.rejected?.[0] || null;
   return (
     <>
       <section className="risk-card overflow-hidden">
         <div className="border-b border-green-100 bg-green-50/70 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div><h2 className="text-lg font-black text-slate-950">Tradier Sandbox: agresivo autonomo</h2><p className="text-xs text-slate-600">Selecciona, previsualiza, abre y gestiona estrategias de opciones de practica.</p></div>
+            <div><p className="text-[11px] font-black uppercase text-green-700">Mi laboratorio de opciones</p><h2 className="text-xl font-black text-slate-950">Broker Paper autonomo</h2><p className="text-xs text-slate-600">Tradier Sandbox selecciona, previsualiza, abre y gestiona practica con riesgo definido.</p></div>
             <div className="flex flex-wrap gap-2"><Badge>{form?.profile || 'AGGRESSIVE_DEFINED_RISK'}</Badge><Badge>{runtime.state || 'COMPROBANDO'}</Badge><Badge>{latest?.status || 'SIN_CICLOS'}</Badge></div>
           </div>
         </div>
         {!configured && <div className="border-b border-red-200 bg-red-50 p-4 text-sm text-red-900"><strong>Autonomia bloqueada: falta conectar Tradier Sandbox.</strong> Agrega en Render un <code>TRADIER_PAPER_TOKEN</code> propio de Sandbox, distinto del token real, y solo si Tradier no detecta la cuenta agrega <code>TRADIER_PAPER_ACCOUNT_ID</code>. Web y worker deben reiniciarse con el secreto.</div>}
         {configured && blockers.length > 0 && <div className="border-b border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong>El motor paper necesita atencion.</strong> {blockers.join(' ')}</div>}
-        <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-6">
           <Metric label="Paper equity" value={money(paper?.account?.balances?.totalEquity)} />
+          <Metric label="Cash paper" value={money(paper?.account?.balances?.cashAvailable ?? paper?.account?.balances?.totalCash)} />
           <Metric label="Paper buying power" value={money(paper?.account?.balances?.optionBuyingPower)} />
+          <Metric label="P/L paper" value={money(paper?.account?.balances?.openPl)} />
           <Metric label="Mercado Sandbox" value={marketState} detail={marketDetail} />
           <Metric label="Posiciones paper" value={positions.length} detail={`Ciclo cada ${runtime.intervalMinutes || 3} min`} />
         </div>
@@ -169,10 +185,16 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun,
         </div>
       </section>
 
-      <section className="risk-card p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-base font-black text-slate-950">Mandato del bot paper</h3><p className="text-xs text-slate-500">Los limites se aplican en el servidor y no dependen del navegador.</p></div><Badge>{form?.killSwitch ? 'KILL_SWITCH' : form?.autoExecute ? 'AGRESIVO_AUTONOMO' : 'PREVIEW_ONLY'}</Badge></div>
-        <button className="primary-button mt-4 w-full" disabled={busy} onClick={onAggressive} type="button">Activar perfil agresivo autonomo ahora</button>
-        <div className="mt-3 grid gap-x-6 lg:grid-cols-2">
+      <GeminiBrokerCoach environment="paper" target={coachTarget} />
+
+      <details className="risk-card overflow-hidden">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 p-4">
+          <div><h3 className="text-base font-black text-slate-950">Mandato y limites del bot</h3><p className="text-xs text-slate-500">Abrir para ajustar riesgo, autoejecucion y filtros del servidor.</p></div>
+          <Badge>{form?.killSwitch ? 'KILL_SWITCH' : form?.autoExecute ? 'AGRESIVO_AUTONOMO' : 'PREVIEW_ONLY'}</Badge>
+        </summary>
+        <div className="border-t border-slate-100 p-4">
+          <button className="primary-button w-full" disabled={busy} onClick={onAggressive} type="button">Activar perfil agresivo autonomo ahora</button>
+          <div className="mt-3 grid gap-x-6 lg:grid-cols-2">
           <div>
             <Toggle label="Bot habilitado" detail="Permite ciclos programados en el backend." checked={form.enabled} onChange={(value) => setForm({ ...form, enabled: value })} />
             <Toggle label="Autoejecucion Sandbox" detail="Envia ordenes limitadas despues del preview y todos los controles del servidor." checked={form.autoExecute} onChange={(value) => setForm({ ...form, autoExecute: value })} />
@@ -192,9 +214,10 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun,
             <NumberField label="Take profit %" min={20} max={80} value={form.takeProfitPct} onChange={(value) => setForm({ ...form, takeProfitPct: value })} />
             <NumberField label="Stop loss %" min={20} max={100} value={form.stopLossPct} onChange={(value) => setForm({ ...form, stopLossPct: value })} />
           </div>
+          </div>
+          <button className="primary-button mt-4 w-full" disabled={busy} onClick={onSave} type="button">Guardar mandato paper</button>
         </div>
-        <button className="primary-button mt-4 w-full" disabled={busy} onClick={onSave} type="button">Guardar mandato paper</button>
-      </section>
+      </details>
 
       <section className="risk-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-base font-black text-slate-950">Seleccion de estrategia por capital</h3><Badge>{latest?.selection?.capitalBand?.id || 'ESPERANDO'}</Badge></div>
@@ -221,6 +244,7 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun,
       </section>
 
       <section className="risk-card p-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><div><p className="text-[11px] font-black uppercase text-violet-700">Academia Gemini</p><h3 className="text-base font-black text-slate-950">Aprendizaje con operaciones reales de Sandbox</h3><p className="text-xs text-slate-500">El historial ajusta ranking, pero nunca aumenta por si solo el riesgo permitido.</p></div><Badge>{paper?.learning?.confidence || 'LOW_SAMPLE'}</Badge></div>
         <div className="grid gap-4 sm:grid-cols-4">
           <Metric label="Muestra cerrada" value={paper?.learning?.sampleSize || 0} />
           <Metric label="Win rate paper" value={percent(paper?.learning?.winRate)} />
@@ -228,7 +252,25 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun,
           <Metric label="Confianza" value={paper?.learning?.confidence || 'LOW_SAMPLE'} />
         </div>
         <p className="mt-3 text-xs leading-5 text-slate-500">{paper?.learning?.recommendation}</p>
+        {Array.isArray(paper?.learning?.strategies) && paper.learning.strategies.length > 0 && (
+          <div className="mt-4 border-t border-slate-100 pt-3">
+            <p className="text-xs font-black uppercase text-slate-600">Rendimiento por estrategia</p>
+            <div className="mt-2 divide-y divide-slate-100">
+              {paper.learning.strategies.slice(0, 6).map((strategy) => (
+                <div className="grid grid-cols-2 gap-2 py-2 text-xs sm:grid-cols-5" key={strategy.strategy}>
+                  <span className="col-span-2 font-black text-slate-900 sm:col-span-1">{strategy.strategy}</span>
+                  <span className="text-slate-600">Trades {strategy.trades}</span>
+                  <span className="text-slate-600">Cerradas {strategy.closed}</span>
+                  <span className="text-slate-600">Win {percent(strategy.winRate)}</span>
+                  <span className={`font-black ${pnlTone(strategy.pnl)}`}>P/L {money(strategy.pnl)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
+          <p className="py-3 text-xs font-black uppercase text-slate-600">Actividad del broker paper</p>
+          {!tracked.length && <p className="pb-3 text-sm text-slate-500">Todavia no hay ordenes paper registradas.</p>}
           {tracked.slice(0, 12).map((order) => (
             <div className="grid gap-2 py-3 text-sm sm:grid-cols-[1fr_auto_auto] sm:items-center" key={order.id}>
               <div className="min-w-0"><p className="font-black text-slate-900">{order.kind} | {order.symbol} | {order.strategy}</p><p className="text-xs text-slate-500">{shortDate(order.createdAt)} | Tradier {order.brokerOrderId || 'sin id'}</p></div>
@@ -244,8 +286,7 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun,
   );
 }
 
-export function TradierAutopilotDesk({ scan }) {
-  const [mode, setMode] = useState('paper');
+export function TradierAutopilotDesk({ scan, view = 'paper' }) {
   const [overview, setOverview] = useState(null);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -315,23 +356,18 @@ export function TradierAutopilotDesk({ scan }) {
     if (result) setPreview(result);
   }
 
-  if (!overview || !form) return <section className="risk-card p-5 text-sm font-bold text-slate-600">Cargando cuentas Tradier...</section>;
+  const liveView = view === 'live';
+
+  if (!overview || !form) return <section className="risk-card p-5 text-sm font-bold text-slate-600">Cargando {liveView ? 'cuenta Tradier en vivo' : 'broker Paper'}...</section>;
 
   return (
     <div className="space-y-4">
-      <section className="risk-card p-3">
-        <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Modo Tradier">
-          <button className={`rounded-md px-3 py-2 text-sm font-black ${mode === 'paper' ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-600'}`} onClick={() => setMode('paper')} type="button">Paper agresivo</button>
-          <button className={`rounded-md px-3 py-2 text-sm font-black ${mode === 'real' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`} onClick={() => setMode('real')} type="button">Cuenta real</button>
-        </div>
-        <p className="mt-2 text-center text-[11px] font-bold text-slate-500">Real: lectura y preview. Autonomia: exclusivamente Tradier Sandbox.</p>
-      </section>
       {message && <div className="rounded-md border border-green-200 bg-green-50 p-3 text-sm font-bold text-green-900">{message}</div>}
       {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-900">{error}</div>}
-      {settingsChanged && mode === 'paper' && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">Hay cambios sin guardar en el mandato paper.</div>}
-      {mode === 'real'
+      {settingsChanged && !liveView && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">Hay cambios sin guardar en el mandato paper.</div>}
+      {liveView
         ? <RealAccount live={overview.live} scan={scan} busy={busy} onPreview={previewLive} preview={preview} />
-        : <PaperAccount paper={overview.paper} form={form} setForm={setForm} busy={busy} onSave={save} onAggressive={aggressive} onRun={run} onCancel={cancel} />}
+        : <PaperAccount paper={overview.paper} scan={scan} form={form} setForm={setForm} busy={busy} onSave={save} onAggressive={aggressive} onRun={run} onCancel={cancel} />}
     </div>
   );
 }
