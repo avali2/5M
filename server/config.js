@@ -288,7 +288,8 @@ export const config = {
 };
 
 export const buildInfo = {
-  version: process.env.VALIDO_BUILD_VERSION ||
+  version: process.env.npm_package_version ||
+    process.env.VALIDO_BUILD_VERSION ||
     process.env.VITE_VALIDO_BUILD_VERSION ||
     process.env.RENDER_GIT_COMMIT?.slice(0, 7) ||
     process.env.npm_package_version ||
