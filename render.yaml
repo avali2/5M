@@ -259,7 +259,7 @@ services:
       - key: MAX_PORTFOLIO_RISK_PCT
         value: "0.06"
       - key: AUTO_REFRESH_SECONDS
-        value: "300"
+        value: "180"
       - key: SHOW_MANUAL_REFRESH_BUTTON
         value: "true"
       - key: SHOW_AGENT_PANEL

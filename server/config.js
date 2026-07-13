@@ -266,7 +266,7 @@ export const config = {
     stockIntervalMinutes: asNumber(process.env.SCANNER_STOCK_INTERVAL_MINUTES, 10),
     afterHoursIntervalMinutes: asNumber(process.env.SCANNER_AFTER_HOURS_INTERVAL_MINUTES, 15)
   },
-  refreshSeconds: asNumber(process.env.AUTO_REFRESH_SECONDS, 300)
+  refreshSeconds: asNumber(process.env.AUTO_REFRESH_SECONDS, 180)
 };
 
 export const buildInfo = {
