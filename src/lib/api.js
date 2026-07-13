@@ -77,6 +77,9 @@ export const api = {
   async savePaperBotSettings(settings) {
     return await requestJson("/api/tradier/paper/settings", { method: "PUT", body: JSON.stringify(settings) });
   },
+  async applyAggressivePaperPreset() {
+    return await requestJson("/api/tradier/paper/preset/aggressive", { method: "POST" });
+  },
   async runPaperBot() {
     return await requestJson("/api/tradier/paper/run", { method: "POST" });
   },

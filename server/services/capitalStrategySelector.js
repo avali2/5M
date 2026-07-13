@@ -34,7 +34,7 @@ function validOptionLegs(setup = {}) {
   );
 }
 
-export function selectBestStrategyForCapital({ scan = {}, profile = scan.profile || {}, settings = {}, recentOrders = [] } = {}) {
+export function selectBestStrategyForCapital({ scan = {}, profile = scan.profile || {}, settings = {}, recentOrders = [], learning = {} } = {}) {
   const accountSize = Math.max(0, finite(profile.accountSize, 0));
   const band = capitalBand(accountSize);
   const riskBudget = Math.max(0, finite(profile.maxRiskDollars, accountSize * finite(settings.maxRiskPct, 1) / 100));
@@ -42,9 +42,13 @@ export function selectBestStrategyForCapital({ scan = {}, profile = scan.profile
   const optionBuyingPower = Math.max(0, finite(profile.optionBuyingPower, collateralBudget));
   const minScore = finite(settings.minScore, 75);
   const minPop = finite(settings.minPop, 60);
+  const minLiquidityScore = finite(settings.minLiquidityScore, 6);
+  const minDte = settings.allow1Dte ? 1 : 2;
   const maxContracts = Math.max(1, Math.floor(finite(settings.maxContracts, 1)));
   const openCount = Math.max(0, finite(profile.openPositionCount, 0));
   const maxOpenPositions = Math.max(1, Math.floor(finite(settings.maxOpenPositions, 3)));
+  const activeSymbols = new Set(Array.isArray(profile.activeSymbols) ? profile.activeSymbols : []);
+  const strategyLearning = new Map((Array.isArray(learning.strategies) ? learning.strategies : []).map((item) => [item.strategy, item]));
   const blockers = [];
   if (openCount >= maxOpenPositions) blockers.push(`Paper account already has ${openCount}/${maxOpenPositions} open positions.`);
   if (profile.accountSync?.marginCall) blockers.push('Tradier Sandbox reports a margin call.');
@@ -52,7 +56,8 @@ export function selectBestStrategyForCapital({ scan = {}, profile = scan.profile
 
   const scored = (Array.isArray(scan.opportunities) ? scan.opportunities : [])
     .filter((setup) => setup.status === 'READY_GREEN')
-    .filter((setup) => finite(setup.dte, -1) >= 2)
+    .filter((setup) => finite(setup.dte, -1) >= minDte)
+    .filter((setup) => !activeSymbols.has(setup.symbol))
     .filter((setup) => strategyAllowed(setup.strategy, band.id))
     .filter(validOptionLegs)
     .map((setup) => {
@@ -66,10 +71,14 @@ export function selectBestStrategyForCapital({ scan = {}, profile = scan.profile
       const liquidity = finite(setup.liquidityScore, 0);
       const returnOnRisk = maxRisk > 0 ? finite(setup.maxProfit, 0) / maxRisk * 100 : 0;
       const repeated = recentOrders.some((order) => order.symbol === setup.symbol && order.strategy === setup.strategy);
-      const rank = score * 0.52 + pop * 0.23 + liquidity * 2 + Math.min(25, returnOnRisk) * 0.2 - (repeated ? 8 : 0);
-      return { setup, contracts, score, pop, liquidity, returnOnRisk, rank, maxRisk, collateral, repeated };
+      const learned = strategyLearning.get(setup.strategy);
+      const learnedAdjustment = finite(learned?.closed, 0) >= 5
+        ? Math.max(-8, Math.min(4, (finite(learned.winRate, 50) - 50) * 0.16 + (finite(learned.pnl, 0) >= 0 ? 1 : -2)))
+        : 0;
+      const rank = score * 0.52 + pop * 0.23 + liquidity * 2 + Math.min(25, returnOnRisk) * 0.2 - (repeated ? 8 : 0) + learnedAdjustment;
+      return { setup, contracts, score, pop, liquidity, returnOnRisk, rank, maxRisk, collateral, repeated, learnedAdjustment };
     })
-    .filter((item) => item.contracts >= 1 && item.score >= minScore && item.pop >= minPop && item.maxRisk > 0)
+    .filter((item) => item.contracts >= 1 && item.score >= minScore && item.pop >= minPop && item.liquidity >= minLiquidityScore && item.maxRisk > 0)
     .sort((left, right) => right.rank - left.rank || left.maxRisk - right.maxRisk);
 
   const selected = blockers.length ? null : scored[0] || null;
@@ -99,10 +108,12 @@ export function selectBestStrategyForCapital({ scan = {}, profile = scan.profile
       limitPrice: finite(selected.setup.limitPrice ?? selected.setup.credit ?? selected.setup.debit),
       premiumType: selected.setup.creditDebit?.type || (finite(selected.setup.credit) ? 'credit' : 'debit'),
       repeatedSetupPenalty: selected.repeated,
+      learnedAdjustment: round(selected.learnedAdjustment, 1),
       reasons: [
         `${band.label}: ${band.focus}`,
         `Score ${round(selected.score, 1)} and modeled POP ${round(selected.pop, 1)}%.`,
         `Maximum modeled loss ${round(selected.maxRisk * selected.contracts)} fits the ${round(riskBudget)} paper risk budget.`,
+        `Aggressive paper mandate: minimum liquidity ${minLiquidityScore}/10 and ${minDte}+ DTE.`,
         'Limit order only; preview and Sandbox buying-power validation are mandatory.'
       ],
       setup: selected.setup

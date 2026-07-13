@@ -1,6 +1,6 @@
 # VALIDO 1M Production Deployment
 
-Recommended host: Render Web Service.
+Recommended host: Render Web Service plus a separate Render Background Worker.
 
 Why Render:
 - This project is a full-stack Node app.
@@ -16,6 +16,14 @@ Use the included `render.yaml` or create a Web Service manually:
 - Build command: `npm install && npm run build`
 - Start command: `npm start`
 - Health check path: `/api/health`
+
+The same Blueprint also declares `valido-1m-scanner`:
+
+- Type: Background Worker (`starter`; Render has no free worker plan)
+- Build command: `npm install --include=dev && npm run build`
+- Start command: `npm run worker`
+- Shared persistence: the same `DATABASE_URL` as the Web Service
+- Paper credential: the separate `TRADIER_PAPER_TOKEN`
 
 ## Required Environment Variables
 

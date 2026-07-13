@@ -70,10 +70,11 @@ The `Tradier` dashboard tab deliberately separates two environments:
 
 - Production Tradier is read-only. The app can retrieve balances/positions and request `preview=true` for a current `READY_GREEN` ticket, but it exposes no production order-submit endpoint.
 - Autonomous entry, cancellation and rule-based exit are restricted to `https://sandbox.tradier.com/v1`. The paper broker rejects any other host before making a request.
-- Every automatic paper entry must be `READY_GREEN`, defined-risk, at least 2 DTE, funded by Sandbox buying power, inside the server-side mandate and explicitly approved by Gemini Guardian. A 429, unavailable AI or manual-review verdict blocks submission.
-- Orders use day limit tickets and a mandatory Tradier preview. The bot deduplicates the same setup for 24 hours, enforces position/daily-loss/risk/contract caps, and checks paper take-profit, stop-loss and DTE exit rules each cycle.
-- Paper runs, tracked orders and outcomes persist in PostgreSQL when configured, with ignored JSON fallback for local development. Learning remains fixed for the first 30 closed paper trades and may only tighten thresholds after a negative sample; it never increases risk automatically.
-- The web service runs the paper cycle server-side while it is awake; the existing `npm run worker` process also runs it when a dedicated Render worker is deployed. PostgreSQL is required when more than one backend process is active so the shared lock and deduplication remain authoritative.
+- The `AGGRESSIVE_DEFINED_RISK` profile is autonomous by default in Sandbox. Every entry must still be `READY_GREEN`, use one to four valid option legs, have defined maximum loss, at least 1 DTE, sufficient liquidity and fit available Sandbox buying power.
+- Gemini is an advisory veto by default. An explicit Gemini rejection blocks an entry, while a 429 or unavailable response does not override a deterministic `READY_GREEN` decision. Operators can enable mandatory Gemini approval from the dashboard.
+- Orders use day limit tickets and a mandatory Tradier preview. The bot deduplicates the same setup for 24 hours, blocks duplicate symbols, caps six entries per day, and enforces position, daily-loss, risk and contract limits. It checks paper take-profit, stop-loss and DTE exit rules each cycle.
+- Paper runs, tracked orders and outcomes persist in PostgreSQL when configured, with ignored JSON fallback for local development. After five closed paper trades, per-strategy results can adjust ranking within a small bounded range; learning cannot increase risk or contract limits.
+- The Render web service only reads persisted scans and serves the dashboard. The `npm run worker` process owns scheduled scanning and paper cycles. PostgreSQL is required so the shared lock, deduplication and history remain authoritative.
 
 Configure a separate Tradier Sandbox token. Production and Sandbox credentials must never be reused or committed:
 
@@ -81,8 +82,9 @@ Configure a separate Tradier Sandbox token. Production and Sandbox credentials m
 TRADIER_PAPER_TOKEN=
 TRADIER_PAPER_ACCOUNT_ID=
 TRADIER_PAPER_BASE_URL=https://sandbox.tradier.com/v1
-PAPER_BOT_DEFAULT_ENABLED=false
-PAPER_BOT_DEFAULT_AUTO_EXECUTE=false
+PAPER_BOT_PROFILE=AGGRESSIVE_DEFINED_RISK
+PAPER_BOT_DEFAULT_ENABLED=true
+PAPER_BOT_DEFAULT_AUTO_EXECUTE=true
 ```
 
 ## Optional AI Tutor
@@ -140,7 +142,7 @@ Recommended zero-cost starter deployment:
 Render free web services spin down after inactivity. This is suitable for secure remote access and testing, but it is not reliable continuous background monitoring. An always-on service is required for genuinely uninterrupted scanning and alerts.
 
 Never commit `.env` or paste broker/database keys in issues or chat. Rotate any credential immediately if it is exposed.
-The Render Blueprint enables `REQUIRE_ACCESS_KEY=true`; a public deployment without `APP_ACCESS_KEY` blocks all dashboard API data until the password is configured.
+The Render Blueprint enables `REQUIRE_ACCESS_KEY=true`; a public deployment without `APP_ACCESS_KEY` blocks all dashboard API data until the password is configured. It also declares the paid `starter` Background Worker `valido-1m-scanner`, because Render does not offer free background workers.
 
 ## Mobile Notifications
 

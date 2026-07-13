@@ -28,18 +28,22 @@ TRADIER_PAPER_ENABLED=true
 TRADIER_PAPER_TOKEN=
 TRADIER_PAPER_BASE_URL=https://sandbox.tradier.com/v1
 TRADIER_PAPER_ACCOUNT_ID=
-PAPER_BOT_DEFAULT_ENABLED=false
-PAPER_BOT_DEFAULT_AUTO_EXECUTE=false
+PAPER_BOT_PROFILE=AGGRESSIVE_DEFINED_RISK
+PAPER_BOT_DEFAULT_ENABLED=true
+PAPER_BOT_DEFAULT_AUTO_EXECUTE=true
 PAPER_BOT_INTERVAL_MINUTES=3
-PAPER_BOT_MAX_RISK_PCT=1
-PAPER_BOT_MAX_DAILY_LOSS_PCT=2
-PAPER_BOT_MAX_OPEN_POSITIONS=3
-PAPER_BOT_MAX_CONTRACTS=1
-PAPER_BOT_MIN_SCORE=75
-PAPER_BOT_MIN_POP=60
-PAPER_BOT_TAKE_PROFIT_PCT=50
-PAPER_BOT_STOP_LOSS_PCT=50
-PAPER_BOT_REQUIRE_GEMINI=true
+PAPER_BOT_MAX_RISK_PCT=2
+PAPER_BOT_MAX_DAILY_LOSS_PCT=5
+PAPER_BOT_MAX_OPEN_POSITIONS=5
+PAPER_BOT_MAX_CONTRACTS=3
+PAPER_BOT_MAX_ENTRIES_PER_DAY=6
+PAPER_BOT_MIN_SCORE=68
+PAPER_BOT_MIN_POP=52
+PAPER_BOT_MIN_LIQUIDITY_SCORE=6
+PAPER_BOT_TAKE_PROFIT_PCT=35
+PAPER_BOT_STOP_LOSS_PCT=65
+PAPER_BOT_ALLOW_1DTE=true
+PAPER_BOT_REQUIRE_GEMINI=false
 
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash-lite
@@ -160,7 +164,7 @@ APP_BASE_URL=https://TU_APP_RENDER.onrender.com
 ## Pasos
 
 1. Sube el repo privado a GitHub.
-2. En Render crea un **Blueprint** desde `render.yaml` o un **Web Service** manual.
+2. En Render crea o sincroniza el **Blueprint** desde `render.yaml`. Este declara el Web Service y el Background Worker `valido-1m-scanner`.
 3. Build command: `npm install --include=dev && npm run build`.
 4. Start command: `npm start`.
 5. Health check path: `/api/health`.
@@ -168,6 +172,8 @@ APP_BASE_URL=https://TU_APP_RENDER.onrender.com
 7. Manual Deploy > **Clear build cache & deploy**.
 8. Abre `/api/health` y confirma `ok: true`, `providers.yahoo: "enabled"`, `providers.gemini`, `providers.openai: "manual_only"` y `webPush.configured`.
 9. Prueba `/api/agent/status`, `/api/agent/scan` y `/api/signals?includeRejected=true` usando `X-Valido-Key`.
+
+El Background Worker usa `npm run worker`, ejecuta el scanner y el paper bot cada tres minutos y no depende de la PWA. Render no ofrece Background Workers en el plan gratuito; `render.yaml` declara el plan minimo `starter`. Despues de agregar o cambiar `TRADIER_PAPER_TOKEN`, sincroniza el Blueprint y redespliega ambos servicios para actualizar la referencia secreta.
 
 ## Comportamiento De Feeds Opcionales
 

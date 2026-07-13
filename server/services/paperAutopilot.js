@@ -76,6 +76,34 @@ function dailyLossPct(account = {}) {
   return equity > 0 && closed < 0 ? Math.abs(closed) / equity * 100 : 0;
 }
 
+function easternDayKey(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date(value));
+  const part = (type) => parts.find((item) => item.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+function geminiEntryPolicy(setup = {}) {
+  const review = setup.geminiReview || null;
+  const status = String(setup.aiVerificationStatus || '');
+  const verdict = String(review?.verdict || review?.decision || '').toUpperCase();
+  const unavailable = !review || review.aiStatus === 'UNAVAILABLE' || /UNAVAILABLE|BUDGET|COOLDOWN/.test(status);
+  const hasStructuredApproval = Boolean(review) && Object.hasOwn(review, 'approved');
+  const approved = status === 'APPROVED_BY_GEMINI_GUARDIAN' && (
+    hasStructuredApproval ? review.approved === true : ['APPROVE', 'APPROVED'].includes(verdict)
+  );
+  const explicitVeto = Boolean(review) && !unavailable && !approved && (
+    review.approved === false ||
+    status === 'REQUIRES_MANUAL_REVIEW' ||
+    ['BLOCK', 'BLOCKED', 'REJECTED', 'WATCH_ONLY', 'CAUTION', 'DOWNGRADE', 'NEEDS_DATA'].includes(verdict)
+  );
+  return { approved, unavailable, explicitVeto, verdict: verdict || (unavailable ? 'UNAVAILABLE' : 'UNREVIEWED') };
+}
+
 function effectiveBotSettings(settings, learning) {
   const effective = { ...settings };
   const adjustments = [];
@@ -102,21 +130,22 @@ function settingsForPaperScan(base, bot) {
       maxDailyLossPct: bot.maxDailyLossPct,
       maxOpenTrades: bot.maxOpenPositions,
       allow0Dte: false,
-      allow1DteApproval: false,
+      allow1DteApproval: Boolean(bot.allow1Dte),
       allowMargin: false,
-      allowEarnings: false
+      allowEarnings: false,
+      defaultRiskMode: 'AGGRESSIVE_DEFINED_RISK'
     },
     signals: {
       ...base.signals,
       minScore: bot.minScore,
       minReadyScore: bot.minScore,
       minPop: bot.minPop,
-      maxPerDay: 1,
-      requireAiConfirmation: true,
-      failClosedOnAiError: true
+      maxPerDay: 5,
+      requireAiConfirmation: Boolean(bot.requireGeminiApproval),
+      failClosedOnAiError: Boolean(bot.requireGeminiApproval)
     },
     ai: { ...base.ai, autoSignalDecision: true },
-    agent: { ...base.agent, enabled: true, autoVerifySignals: true },
+    agent: { ...base.agent, enabled: true, autoVerifySignals: true, mode: 'aggressive_defined_risk' },
     tradier: { ...base.tradier, syncRiskLimitsFromEnv: true }
   };
 }
@@ -198,8 +227,19 @@ export class PaperAutopilot {
       next.enabled = false;
       next.autoExecute = false;
     }
-    if (next.autoExecute) next.requireGeminiApproval = true;
     return this.store.saveSettings(next, this.defaults());
+  }
+
+  async applyAggressivePreset() {
+    return this.store.saveSettings({
+      ...this.defaults(),
+      settingsVersion: 2,
+      profile: 'AGGRESSIVE_DEFINED_RISK',
+      enabled: true,
+      autoExecute: true,
+      killSwitch: false,
+      updatedAt: null
+    }, this.defaults());
   }
 
   async marketState() {
@@ -394,7 +434,7 @@ export class PaperAutopilot {
       const adaptation = effectiveBotSettings(savedSettings, learning);
       const effective = adaptation.settings;
       const trackedOrders = await this.syncTrackedOrders(brokerOrders);
-      const canExecute = Boolean(savedSettings.enabled && savedSettings.autoExecute && effective.requireGeminiApproval && market.verified && market.marketOpen);
+      const canExecute = Boolean(savedSettings.enabled && savedSettings.autoExecute && market.verified && market.marketOpen);
       const staleOrders = await this.cancelStaleOrders(trackedOrders, canExecute);
       const activeTrackedOrders = staleOrders.length ? await this.store.listOrders(100) : trackedOrders;
       const management = market.marketOpen
@@ -412,7 +452,8 @@ export class PaperAutopilot {
           environment: 'TRADIER_SANDBOX',
           liveOrderSubmissionAvailable: false,
           paperAutoExecuteEnabled: canExecute,
-          previewRequired: true
+          previewRequired: true,
+          decisionAuthority: effective.requireGeminiApproval ? 'GEMINI_REQUIRED' : 'AUTONOMOUS_DETERMINISTIC_WITH_GEMINI_VETO'
         }
       };
       if (!market.marketOpen) return { ...basePayload, status: 'MARKET_CLOSED', reason: market.description || `Tradier clock: ${market.state}` };
@@ -420,12 +461,19 @@ export class PaperAutopilot {
       if (lossPct >= effective.maxDailyLossPct) {
         return { ...basePayload, status: 'DAILY_LOSS_LOCK', reason: `Paper daily loss ${round(lossPct, 2)}% reached the ${effective.maxDailyLossPct}% limit.` };
       }
+      const today = easternDayKey();
+      const entriesToday = activeTrackedOrders.filter((order) =>
+        order.kind === 'ENTRY' && easternDayKey(order.createdAt) === today && !/rejected|canceled|error/i.test(String(order.status || ''))
+      ).length;
+      if (entriesToday >= effective.maxEntriesPerDay) {
+        return { ...basePayload, status: 'DAILY_ENTRY_LIMIT', entriesToday, reason: `Aggressive paper limit reached: ${entriesToday}/${effective.maxEntriesPerDay} entries today.` };
+      }
 
       const scanSettings = settingsForPaperScan(this.settings, effective);
       const rawScan = await this.scanRunner({ providers: this.providers, settings: scanSettings, accountSnapshot: account });
       const scan = await this.guardianGate(rawScan, { providers: this.providers, settings: scanSettings });
       const recentOrders = activeTrackedOrders.filter((order) => Date.now() - new Date(order.createdAt).getTime() < 7 * 86_400_000);
-      const selection = this.strategySelector({ scan, profile: scan.profile, settings: effective, recentOrders });
+      const selection = this.strategySelector({ scan, profile: scan.profile, settings: effective, recentOrders, learning });
       const summarized = compactRecommendation(selection);
       const scanSummary = {
         asOf: scan.asOf,
@@ -446,9 +494,12 @@ export class PaperAutopilot {
       if (await this.store.hasRecentSignal(signalKey, 24)) {
         return { ...basePayload, status: 'DUPLICATE_BLOCKED', scan: scanSummary, selection: summarized, reason: 'The same paper setup was already submitted in the last 24 hours.' };
       }
-      const geminiApproved = setup.aiVerificationStatus === 'APPROVED_BY_GEMINI_GUARDIAN';
-      if (!geminiApproved) {
+      const gemini = geminiEntryPolicy(setup);
+      if (effective.requireGeminiApproval && !gemini.approved) {
         return { ...basePayload, status: 'GEMINI_BLOCKED', scan: scanSummary, selection: summarized, reason: 'Automatic paper execution requires explicit Gemini Guardian approval.' };
+      }
+      if (!effective.requireGeminiApproval && gemini.explicitVeto) {
+        return { ...basePayload, status: 'GEMINI_VETO', scan: scanSummary, selection: summarized, reason: `Gemini vetoed this paper entry with ${gemini.verdict}.` };
       }
       const contracts = selection.recommendation.contracts;
       const order = buildTradierOptionOrder(setup, contracts, { tagPrefix: 'valido-paper-entry' });
@@ -492,7 +543,11 @@ export class PaperAutopilot {
         scan: scanSummary,
         selection: summarized,
         order: { id: tracked.id, brokerOrderId: tracked.brokerOrderId, status: tracked.status },
-        reason: 'A limit order was submitted only to Tradier Sandbox after preview and Gemini approval.'
+        reason: effective.requireGeminiApproval || gemini.approved
+          ? 'A limit order was submitted only to Tradier Sandbox after preview and Gemini approval.'
+          : gemini.unavailable
+            ? 'A limit order was submitted only to Tradier Sandbox after preview; the deterministic READY_GREEN engine remained authoritative while Gemini was unavailable.'
+            : 'A limit order was submitted only to Tradier Sandbox after preview and deterministic READY_GREEN approval.'
       };
     });
     if (locked.skipped) return { status: 'LOCKED', asOf: new Date().toISOString(), reason: 'Another paper bot cycle owns the lock.', lock: locked.lock };

@@ -23,17 +23,22 @@ function clamp(value, min, max, fallback) {
 
 export function paperBotDefaults(settings = config.tradierPaper) {
   return {
+    settingsVersion: 2,
+    profile: settings.profile || 'AGGRESSIVE_DEFINED_RISK',
     enabled: Boolean(settings.defaultBotEnabled),
     autoExecute: Boolean(settings.defaultAutoExecute),
     killSwitch: false,
     maxRiskPct: clamp(settings.maxRiskPct, 0.25, 2, 1),
     maxDailyLossPct: clamp(settings.maxDailyLossPct, 0.5, 5, 2),
-    maxOpenPositions: Math.round(clamp(settings.maxOpenPositions, 1, 8, 3)),
-    maxContracts: Math.round(clamp(settings.maxContracts, 1, 5, 1)),
-    minScore: clamp(settings.minScore, 65, 95, 75),
-    minPop: clamp(settings.minPop, 50, 85, 60),
-    takeProfitPct: clamp(settings.takeProfitPct, 20, 80, 50),
-    stopLossPct: clamp(settings.stopLossPct, 20, 100, 50),
+    maxOpenPositions: Math.round(clamp(settings.maxOpenPositions, 1, 8, 5)),
+    maxContracts: Math.round(clamp(settings.maxContracts, 1, 5, 3)),
+    maxEntriesPerDay: Math.round(clamp(settings.maxEntriesPerDay, 1, 12, 6)),
+    minScore: clamp(settings.minScore, 65, 95, 68),
+    minPop: clamp(settings.minPop, 50, 85, 52),
+    minLiquidityScore: clamp(settings.minLiquidityScore, 5, 10, 6),
+    takeProfitPct: clamp(settings.takeProfitPct, 20, 80, 35),
+    stopLossPct: clamp(settings.stopLossPct, 20, 100, 65),
+    allow1Dte: settings.allow1Dte !== false,
     requireGeminiApproval: settings.requireGeminiApproval !== false,
     updatedAt: null
   };
@@ -42,6 +47,8 @@ export function paperBotDefaults(settings = config.tradierPaper) {
 export function normalizePaperBotSettings(input = {}, defaults = paperBotDefaults()) {
   return {
     ...defaults,
+    settingsVersion: 2,
+    profile: input.profile === 'AGGRESSIVE_DEFINED_RISK' ? input.profile : defaults.profile,
     enabled: input.enabled === undefined ? defaults.enabled : Boolean(input.enabled),
     autoExecute: input.autoExecute === undefined ? defaults.autoExecute : Boolean(input.autoExecute),
     killSwitch: input.killSwitch === undefined ? defaults.killSwitch : Boolean(input.killSwitch),
@@ -49,13 +56,28 @@ export function normalizePaperBotSettings(input = {}, defaults = paperBotDefault
     maxDailyLossPct: clamp(input.maxDailyLossPct, 0.5, 5, defaults.maxDailyLossPct),
     maxOpenPositions: Math.round(clamp(input.maxOpenPositions, 1, 8, defaults.maxOpenPositions)),
     maxContracts: Math.round(clamp(input.maxContracts, 1, 5, defaults.maxContracts)),
+    maxEntriesPerDay: Math.round(clamp(input.maxEntriesPerDay, 1, 12, defaults.maxEntriesPerDay)),
     minScore: clamp(input.minScore, 65, 95, defaults.minScore),
     minPop: clamp(input.minPop, 50, 85, defaults.minPop),
+    minLiquidityScore: clamp(input.minLiquidityScore, 5, 10, defaults.minLiquidityScore),
     takeProfitPct: clamp(input.takeProfitPct, 20, 80, defaults.takeProfitPct),
     stopLossPct: clamp(input.stopLossPct, 20, 100, defaults.stopLossPct),
+    allow1Dte: input.allow1Dte === undefined ? defaults.allow1Dte : Boolean(input.allow1Dte),
     requireGeminiApproval: input.requireGeminiApproval === undefined ? defaults.requireGeminiApproval : Boolean(input.requireGeminiApproval),
     updatedAt: input.updatedAt || defaults.updatedAt || null
   };
+}
+
+export function migratePaperBotSettings(input = {}, defaults = paperBotDefaults()) {
+  if (Number(input.settingsVersion) >= 2) return normalizePaperBotSettings(input, defaults);
+  const killSwitch = Boolean(input.killSwitch);
+  return normalizePaperBotSettings({
+    ...defaults,
+    killSwitch,
+    enabled: !killSwitch,
+    autoExecute: !killSwitch,
+    updatedAt: input.updatedAt || null
+  }, defaults);
 }
 
 export class PaperBotStore {
@@ -104,10 +126,10 @@ export class PaperBotStore {
   }
 
   async getSettings(defaults = paperBotDefaults()) {
-    if (!this.pool) return normalizePaperBotSettings(await readJson('paper-bot-settings.json', {}), defaults);
+    if (!this.pool) return migratePaperBotSettings(await readJson('paper-bot-settings.json', {}), defaults);
     await this.initialize();
     const result = await this.pool.query("SELECT value FROM paper_bot_settings WHERE id='default'");
-    return normalizePaperBotSettings(result.rows[0]?.value || {}, defaults);
+    return migratePaperBotSettings(result.rows[0]?.value || {}, defaults);
   }
 
   async saveSettings(input = {}, defaults = paperBotDefaults()) {
@@ -242,11 +264,26 @@ export class PaperBotStore {
     const wins = exits.filter((order) => Number(order.realizedPnl) > 0);
     const losses = exits.filter((order) => Number(order.realizedPnl) < 0);
     const realizedPnl = exits.reduce((sum, order) => sum + (Number(order.realizedPnl) || 0), 0);
+    const entryById = new Map(entries.map((order) => [order.id, order]));
     const strategies = new Map();
     entries.forEach((order) => {
-      const current = strategies.get(order.strategy) || { strategy: order.strategy, trades: 0, pnl: 0 };
+      if (!order.strategy) return;
+      const current = strategies.get(order.strategy) || { strategy: order.strategy, trades: 0, closed: 0, wins: 0, losses: 0, pnl: 0, winRate: null };
       current.trades += 1;
       strategies.set(order.strategy, current);
+    });
+    exits.forEach((order) => {
+      const strategy = entryById.get(order.parentId)?.strategy || order.strategy;
+      if (!strategy) return;
+      const current = strategies.get(strategy) || { strategy, trades: 0, closed: 0, wins: 0, losses: 0, pnl: 0, winRate: null };
+      const pnl = Number(order.realizedPnl) || 0;
+      current.closed += 1;
+      current.pnl += pnl;
+      if (pnl > 0) current.wins += 1;
+      if (pnl < 0) current.losses += 1;
+      current.winRate = current.closed ? Math.round(current.wins / current.closed * 1000) / 10 : null;
+      current.pnl = Math.round(current.pnl * 100) / 100;
+      strategies.set(strategy, current);
     });
     return {
       sampleSize: exits.length,

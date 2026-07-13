@@ -23,11 +23,13 @@ function publicLiveAccount(snapshot = {}) {
 
 function allowedSettings(body = {}) {
   const keys = [
-    'enabled', 'autoExecute', 'killSwitch', 'maxRiskPct', 'maxDailyLossPct',
-    'maxOpenPositions', 'maxContracts', 'minScore', 'minPop',
-    'takeProfitPct', 'stopLossPct', 'requireGeminiApproval'
+    'profile', 'enabled', 'autoExecute', 'killSwitch', 'maxRiskPct', 'maxDailyLossPct',
+    'maxOpenPositions', 'maxContracts', 'maxEntriesPerDay', 'minScore', 'minPop',
+    'minLiquidityScore', 'takeProfitPct', 'stopLossPct', 'allow1Dte', 'requireGeminiApproval'
   ];
-  return Object.fromEntries(keys.filter((key) => Object.hasOwn(body, key)).map((key) => [key, body[key]]));
+  const value = Object.fromEntries(keys.filter((key) => Object.hasOwn(body, key)).map((key) => [key, body[key]]));
+  if (value.profile !== undefined && value.profile !== 'AGGRESSIVE_DEFINED_RISK') delete value.profile;
+  return value;
 }
 
 function publicPreview(value = {}) {
@@ -70,6 +72,15 @@ export function createTradierRouter({ scheduler, providers, paperAutopilot } = {
   router.put('/paper/settings', async (req, res, next) => {
     try {
       const settings = await paperAutopilot.saveSettings(allowedSettings(req.body));
+      res.json({ ok: true, settings });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/paper/preset/aggressive', async (_req, res, next) => {
+    try {
+      const settings = await paperAutopilot.applyAggressivePreset();
       res.json({ ok: true, settings });
     } catch (error) {
       next(error);

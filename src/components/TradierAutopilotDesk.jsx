@@ -127,7 +127,7 @@ function RealAccount({ live, scan, busy, onPreview, preview }) {
   );
 }
 
-function PaperAccount({ paper, form, setForm, busy, onSave, onRun, onCancel }) {
+function PaperAccount({ paper, form, setForm, busy, onSave, onAggressive, onRun, onCancel }) {
   const latest = paper?.runtime?.lastResult || paper?.runs?.[0]?.payload || null;
   const recommendation = latest?.selection?.recommendation;
   const positions = Array.isArray(paper?.account?.positions) ? paper.account.positions : [];
@@ -139,8 +139,8 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onRun, onCancel }) {
       <section className="risk-card overflow-hidden">
         <div className="border-b border-green-100 bg-green-50/70 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div><h2 className="text-lg font-black text-slate-950">Tradier Sandbox Autopilot</h2><p className="text-xs text-slate-600">Analiza, previsualiza, abre y gestiona solo operaciones de practica.</p></div>
-            <div className="flex flex-wrap gap-2"><Badge>{paper?.account?.status || 'NOT_CONFIGURED'}</Badge><Badge>{latest?.status || 'SIN_CICLOS'}</Badge></div>
+            <div><h2 className="text-lg font-black text-slate-950">Tradier Sandbox: agresivo autonomo</h2><p className="text-xs text-slate-600">Selecciona, previsualiza, abre y gestiona estrategias de opciones de practica.</p></div>
+            <div className="flex flex-wrap gap-2"><Badge>{form?.profile || 'AGGRESSIVE_DEFINED_RISK'}</Badge><Badge>{paper?.account?.status || 'NOT_CONFIGURED'}</Badge><Badge>{latest?.status || 'SIN_CICLOS'}</Badge></div>
           </div>
         </div>
         {!configured && <div className="border-b border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong>Falta conectar Sandbox.</strong> Configura los secretos <code>TRADIER_PAPER_TOKEN</code> y, si hace falta, <code>TRADIER_PAPER_ACCOUNT_ID</code>. El host se valida contra <code>sandbox.tradier.com</code>.</div>}
@@ -159,12 +159,14 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onRun, onCancel }) {
       </section>
 
       <section className="risk-card p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-base font-black text-slate-950">Mandato del bot paper</h3><p className="text-xs text-slate-500">Los limites se aplican en el servidor y no dependen del navegador.</p></div><Badge>{form?.killSwitch ? 'KILL_SWITCH' : form?.autoExecute ? 'AUTO_SANDBOX' : 'PREVIEW_ONLY'}</Badge></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-base font-black text-slate-950">Mandato del bot paper</h3><p className="text-xs text-slate-500">Los limites se aplican en el servidor y no dependen del navegador.</p></div><Badge>{form?.killSwitch ? 'KILL_SWITCH' : form?.autoExecute ? 'AGRESIVO_AUTONOMO' : 'PREVIEW_ONLY'}</Badge></div>
+        <button className="primary-button mt-4 w-full" disabled={busy} onClick={onAggressive} type="button">Activar perfil agresivo autonomo ahora</button>
         <div className="mt-3 grid gap-x-6 lg:grid-cols-2">
           <div>
             <Toggle label="Bot habilitado" detail="Permite ciclos programados en el backend." checked={form.enabled} onChange={(value) => setForm({ ...form, enabled: value })} />
-            <Toggle label="Autoejecucion Sandbox" detail="Envia ordenes solo despues de preview, Gemini y todos los limites." checked={form.autoExecute} onChange={(value) => setForm({ ...form, autoExecute: value, requireGeminiApproval: value ? true : form.requireGeminiApproval })} />
-            <Toggle label="Aprobacion Gemini obligatoria" detail="Un 429, error o revision manual bloquea la orden." checked={form.requireGeminiApproval} onChange={(value) => setForm({ ...form, requireGeminiApproval: value })} />
+            <Toggle label="Autoejecucion Sandbox" detail="Envia ordenes limitadas despues del preview y todos los controles del servidor." checked={form.autoExecute} onChange={(value) => setForm({ ...form, autoExecute: value })} />
+            <Toggle label="Exigir aprobacion Gemini" detail="Apagado: el motor decide y Gemini conserva poder de veto; un 429 no detiene el paper bot." checked={form.requireGeminiApproval} onChange={(value) => setForm({ ...form, requireGeminiApproval: value })} />
+            <Toggle label="Permitir 1 DTE" detail="Modo agresivo: admite 1 DTE con riesgo definido. Nunca permite 0 DTE." checked={form.allow1Dte} onChange={(value) => setForm({ ...form, allow1Dte: value })} />
             <Toggle danger label="Kill switch" detail="Apaga bot y autoejecucion inmediatamente al guardar." checked={form.killSwitch} onChange={(value) => setForm({ ...form, killSwitch: value })} />
           </div>
           <div className="grid grid-cols-2 gap-x-3">
@@ -172,6 +174,8 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onRun, onCancel }) {
             <NumberField label="Perdida diaria %" min={0.5} max={5} step={0.5} value={form.maxDailyLossPct} onChange={(value) => setForm({ ...form, maxDailyLossPct: value })} />
             <NumberField label="Posiciones maximas" min={1} max={8} value={form.maxOpenPositions} onChange={(value) => setForm({ ...form, maxOpenPositions: value })} />
             <NumberField label="Contratos maximos" min={1} max={5} value={form.maxContracts} onChange={(value) => setForm({ ...form, maxContracts: value })} />
+            <NumberField label="Entradas maximas al dia" min={1} max={12} value={form.maxEntriesPerDay} onChange={(value) => setForm({ ...form, maxEntriesPerDay: value })} />
+            <NumberField label="Liquidez minima / 10" min={5} max={10} step={0.5} value={form.minLiquidityScore} onChange={(value) => setForm({ ...form, minLiquidityScore: value })} />
             <NumberField label="Score minimo" min={65} max={95} value={form.minScore} onChange={(value) => setForm({ ...form, minScore: value })} />
             <NumberField label="POP minimo %" min={50} max={85} value={form.minPop} onChange={(value) => setForm({ ...form, minPop: value })} />
             <NumberField label="Take profit %" min={20} max={80} value={form.takeProfitPct} onChange={(value) => setForm({ ...form, takeProfitPct: value })} />
@@ -189,7 +193,7 @@ function PaperAccount({ paper, form, setForm, busy, onSave, onRun, onCancel }) {
             <div className="grid grid-cols-2 gap-3 sm:w-52"><Metric label="POP" value={percent(recommendation.pop)} /><Metric label="Score" value={recommendation.score ?? 'N/D'} /><Metric label="Contratos" value={recommendation.contracts} /><Metric label="Riesgo" value={money(recommendation.totalMaxRisk)} /></div>
           </div>
         ) : <p className="mt-3 text-sm text-slate-500">{latest?.selection?.blockers?.[0] || 'El siguiente ciclo elegira entre senales verdes que quepan en el capital paper.'}</p>}
-        <p className="mt-3 border-l-4 border-amber-400 bg-amber-50 p-3 text-xs leading-5 text-amber-900">POP y score son estimaciones del modelo, no garantias. El aprendizaje solo puede endurecer reglas despues de 30 cierres paper; nunca aumenta riesgo por si solo.</p>
+        <p className="mt-3 border-l-4 border-amber-400 bg-amber-50 p-3 text-xs leading-5 text-amber-900">POP y score son estimaciones, no garantias. Desde cinco cierres, el historial paper ajusta ligeramente el ranking por estrategia; los topes de riesgo y contratos nunca aumentan por aprendizaje.</p>
       </section>
 
       <section className="risk-card p-4">
@@ -283,6 +287,14 @@ export function TradierAutopilotDesk({ scan }) {
     await action(() => api.runPaperBot(), (result) => `Ciclo terminado: ${result.result?.status || 'N/D'}.`);
   }
 
+  async function aggressive() {
+    const result = await action(
+      () => api.applyAggressivePaperPreset(),
+      () => 'Perfil agresivo autonomo activado en Tradier Sandbox.'
+    );
+    if (result?.settings) setForm(result.settings);
+  }
+
   async function cancel(id) {
     await action(() => api.cancelPaperOrder(id), () => 'Orden Sandbox cancelada.');
   }
@@ -298,7 +310,7 @@ export function TradierAutopilotDesk({ scan }) {
     <div className="space-y-4">
       <section className="risk-card p-3">
         <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Modo Tradier">
-          <button className={`rounded-md px-3 py-2 text-sm font-black ${mode === 'paper' ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-600'}`} onClick={() => setMode('paper')} type="button">Paper Autopilot</button>
+          <button className={`rounded-md px-3 py-2 text-sm font-black ${mode === 'paper' ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-600'}`} onClick={() => setMode('paper')} type="button">Paper agresivo</button>
           <button className={`rounded-md px-3 py-2 text-sm font-black ${mode === 'real' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`} onClick={() => setMode('real')} type="button">Cuenta real</button>
         </div>
         <p className="mt-2 text-center text-[11px] font-bold text-slate-500">Real: lectura y preview. Autonomia: exclusivamente Tradier Sandbox.</p>
@@ -308,7 +320,7 @@ export function TradierAutopilotDesk({ scan }) {
       {settingsChanged && mode === 'paper' && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">Hay cambios sin guardar en el mandato paper.</div>}
       {mode === 'real'
         ? <RealAccount live={overview.live} scan={scan} busy={busy} onPreview={previewLive} preview={preview} />
-        : <PaperAccount paper={overview.paper} form={form} setForm={setForm} busy={busy} onSave={save} onRun={run} onCancel={cancel} />}
+        : <PaperAccount paper={overview.paper} form={form} setForm={setForm} busy={busy} onSave={save} onAggressive={aggressive} onRun={run} onCancel={cancel} />}
     </div>
   );
 }

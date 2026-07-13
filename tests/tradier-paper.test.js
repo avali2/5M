@@ -6,6 +6,7 @@ import { validateTradierSandboxUrl } from '../server/services/tradierPaperBroker
 import { buildTradierOptionOrder, encodeTradierOrder } from '../server/services/tradierOrders.js';
 import { capitalBand, selectBestStrategyForCapital } from '../server/services/capitalStrategySelector.js';
 import { PaperAutopilot } from '../server/services/paperAutopilot.js';
+import { migratePaperBotSettings, paperBotDefaults } from '../server/services/paperBotStore.js';
 import { createTradierRouter } from '../server/routes/tradierRoutes.js';
 
 const setup = {
@@ -76,6 +77,44 @@ test('capital strategy selector chooses only a funded READY_GREEN defined-risk s
     settings: { minScore: 75, minPop: 60, maxContracts: 1, maxOpenPositions: 3 }
   });
   assert.equal(tooShort.ok, false);
+
+  const aggressiveOneDte = selectBestStrategyForCapital({
+    scan: { opportunities: [{ ...setup, dte: 1 }] },
+    profile: { accountSize: 10_000, maxRiskDollars: 100, maxCollateralDollars: 1_000, optionBuyingPower: 1_000 },
+    settings: { allow1Dte: true, minScore: 68, minPop: 52, minLiquidityScore: 6, maxContracts: 3, maxOpenPositions: 5 }
+  });
+  assert.equal(aggressiveOneDte.ok, true);
+});
+
+test('legacy paper settings migrate once to the autonomous aggressive profile', () => {
+  const defaults = paperBotDefaults({
+    profile: 'AGGRESSIVE_DEFINED_RISK',
+    defaultBotEnabled: true,
+    defaultAutoExecute: true,
+    maxRiskPct: 2,
+    maxDailyLossPct: 5,
+    maxOpenPositions: 5,
+    maxContracts: 3,
+    maxEntriesPerDay: 6,
+    minScore: 68,
+    minPop: 52,
+    minLiquidityScore: 6,
+    takeProfitPct: 35,
+    stopLossPct: 65,
+    allow1Dte: true,
+    requireGeminiApproval: false
+  });
+  const migrated = migratePaperBotSettings({ enabled: false, autoExecute: false }, defaults);
+  assert.equal(migrated.settingsVersion, 2);
+  assert.equal(migrated.profile, 'AGGRESSIVE_DEFINED_RISK');
+  assert.equal(migrated.enabled, true);
+  assert.equal(migrated.autoExecute, true);
+  assert.equal(migrated.requireGeminiApproval, false);
+
+  const stopped = migratePaperBotSettings({ killSwitch: true }, defaults);
+  assert.equal(stopped.killSwitch, true);
+  assert.equal(stopped.enabled, false);
+  assert.equal(stopped.autoExecute, false);
 });
 
 function createStore(settings) {
@@ -102,7 +141,7 @@ function createStore(settings) {
   };
 }
 
-function createAutopilot({ approved = true } = {}) {
+function createAutopilot({ gemini = 'approved', requireGeminiApproval = true } = {}) {
   let placed = 0;
   const botSettings = {
     enabled: true,
@@ -112,11 +151,14 @@ function createAutopilot({ approved = true } = {}) {
     maxDailyLossPct: 2,
     maxOpenPositions: 3,
     maxContracts: 1,
+    maxEntriesPerDay: 6,
     minScore: 75,
     minPop: 60,
+    minLiquidityScore: 6,
     takeProfitPct: 50,
     stopLossPct: 50,
-    requireGeminiApproval: true
+    allow1Dte: true,
+    requireGeminiApproval
   };
   const store = createStore(botSettings);
   const account = {
@@ -140,7 +182,13 @@ function createAutopilot({ approved = true } = {}) {
     async previewOrder() { return { order: { result: true, status: 'ok' } }; },
     async placeOrder() { placed += 1; return { order: { id: 987, status: 'pending' } }; }
   };
-  const approvedSetup = { ...setup, aiVerificationStatus: approved ? 'APPROVED_BY_GEMINI_GUARDIAN' : 'REQUIRES_MANUAL_REVIEW' };
+  const guardedSetup = gemini === 'approved'
+    ? setup
+    : gemini === 'veto'
+      ? { ...setup, aiVerificationStatus: 'REQUIRES_MANUAL_REVIEW', geminiReview: { verdict: 'REJECTED', decision: 'BLOCKED', approved: false, summary: 'Guardian veto.' } }
+      : gemini === 'invalid-approve'
+        ? { ...setup, aiVerificationStatus: 'REQUIRES_MANUAL_REVIEW', geminiReview: { verdict: 'APPROVED', decision: 'APPROVE', approved: false, hallucination_check: 'FAILED', summary: 'Approval failed structured validation.' } }
+      : { ...setup, aiVerificationStatus: 'DETERMINISTIC_APPROVED_AI_UNAVAILABLE', geminiReview: { aiStatus: 'UNAVAILABLE', verdict: 'UNAVAILABLE', approved: false, summary: 'Gemini unavailable.' } };
   const autopilot = new PaperAutopilot({
     providers: { tradierPaper: paper, tradier: { configured: false }, ai: {} },
     settings: {
@@ -155,14 +203,14 @@ function createAutopilot({ approved = true } = {}) {
     },
     store,
     lock: { async withLock(_name, _ttl, callback) { return { skipped: false, value: await callback() }; } },
-    scanRunner: async () => ({ profile: { accountSize: 10_000, maxRiskDollars: 100, maxCollateralDollars: 1_000, optionBuyingPower: 1_000, openPositionCount: 0, accountSync: {} }, opportunities: [approvedSetup], rejected: [], asOf: new Date().toISOString() }),
+    scanRunner: async () => ({ profile: { accountSize: 10_000, maxRiskDollars: 100, maxCollateralDollars: 1_000, optionBuyingPower: 1_000, openPositionCount: 0, activeSymbols: [], accountSync: {} }, opportunities: [guardedSetup], rejected: [], asOf: new Date().toISOString() }),
     guardianGate: async (scan) => scan
   });
   return { autopilot, store, placed: () => placed };
 }
 
 test('autopilot submits an order only to the paper broker after preview and Gemini approval', async () => {
-  const context = createAutopilot({ approved: true });
+  const context = createAutopilot({ gemini: 'approved', requireGeminiApproval: true });
   const result = await context.autopilot.run({ mode: 'manual' });
   assert.equal(result.status, 'PAPER_ORDER_SUBMITTED');
   assert.equal(context.placed(), 1);
@@ -170,9 +218,31 @@ test('autopilot submits an order only to the paper broker after preview and Gemi
 });
 
 test('autopilot fails closed when Gemini has not explicitly approved the setup', async () => {
-  const context = createAutopilot({ approved: false });
+  const context = createAutopilot({ gemini: 'veto', requireGeminiApproval: true });
   const result = await context.autopilot.run({ mode: 'manual' });
   assert.equal(result.status, 'GEMINI_BLOCKED');
+  assert.equal(context.placed(), 0);
+});
+
+test('autonomous paper mode keeps trading a deterministic green setup when Gemini is unavailable', async () => {
+  const context = createAutopilot({ gemini: 'unavailable', requireGeminiApproval: false });
+  const result = await context.autopilot.run({ mode: 'manual' });
+  assert.equal(result.status, 'PAPER_ORDER_SUBMITTED');
+  assert.match(result.reason, /deterministic READY_GREEN engine/i);
+  assert.equal(context.placed(), 1);
+});
+
+test('autonomous paper mode honors an explicit Gemini veto', async () => {
+  const context = createAutopilot({ gemini: 'veto', requireGeminiApproval: false });
+  const result = await context.autopilot.run({ mode: 'manual' });
+  assert.equal(result.status, 'GEMINI_VETO');
+  assert.equal(context.placed(), 0);
+});
+
+test('an APPROVED label cannot bypass a failed structured Gemini validation', async () => {
+  const context = createAutopilot({ gemini: 'invalid-approve', requireGeminiApproval: false });
+  const result = await context.autopilot.run({ mode: 'manual' });
+  assert.equal(result.status, 'GEMINI_VETO');
   assert.equal(context.placed(), 0);
 });
 
@@ -189,7 +259,10 @@ test('live route exposes preview only and never submits a production order', asy
       },
       tradierPaper: {}
     },
-    paperAutopilot: { async status() { return { ok: true }; } }
+    paperAutopilot: {
+      async status() { return { ok: true }; },
+      async applyAggressivePreset() { return { profile: 'AGGRESSIVE_DEFINED_RISK', enabled: true, autoExecute: true }; }
+    }
   }));
   const response = await request(app)
     .post('/api/tradier/live/preview')
@@ -198,6 +271,23 @@ test('live route exposes preview only and never submits a production order', asy
   assert.equal(previews, 1);
   assert.equal(response.body.submitted, false);
   assert.equal(response.body.environment, 'TRADIER_PRODUCTION_PREVIEW_ONLY');
+});
+
+test('paper route activates the aggressive autonomous preset without exposing a live submit route', async () => {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/tradier', createTradierRouter({
+    scheduler: {},
+    providers: { tradier: {}, tradierPaper: {} },
+    paperAutopilot: {
+      async status() { return { ok: true }; },
+      async applyAggressivePreset() { return { profile: 'AGGRESSIVE_DEFINED_RISK', enabled: true, autoExecute: true }; }
+    }
+  }));
+  const response = await request(app).post('/api/tradier/paper/preset/aggressive').expect(200);
+  assert.equal(response.body.settings.profile, 'AGGRESSIVE_DEFINED_RISK');
+  assert.equal(response.body.settings.autoExecute, true);
+  await request(app).post('/api/tradier/live/submit').send({}).expect(404);
 });
 
 function signalKeyForTest(value) {
