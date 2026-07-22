@@ -5,11 +5,14 @@ import {
   Area,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
-  Cell
+  Cell,
+  Legend
 } from 'recharts';
 import {
   Sparkles,
@@ -303,16 +306,35 @@ export default function PaperTradingDesk({ importedSetup, profile, onSaveJournal
 
     const expectancy = winRate * avgWin - lossRate * avgLoss;
 
-    // Max Drawdown & Equity Curve
-    let currentEquity = 10000;
-    let peakEquity = 10000;
+    // Max Drawdown, Equity & Performance History
+    const initialAccount = profile?.accountSize || 10000;
+    const maxRiskPctConfig = profile?.riskPct || 2;
+    let currentEquity = initialAccount;
+    let peakEquity = initialAccount;
+    let accumPnl = 0;
+    let winsCount = 0;
     let maxDrawdownUsd = 0;
     let maxDrawdownPct = 0;
 
-    const equityCurve = [{ trade: 0, date: 'Inicio', equity: 10000, pnl: 0 }];
+    const performanceHistory = [
+      {
+        trade: 0,
+        date: 'Inicio',
+        equity: initialAccount,
+        accumulatedPnl: 0,
+        winRatePct: 0,
+        drawdownUsd: 0,
+        drawdownPct: 0,
+        pnl: 0,
+        symbol: '-'
+      }
+    ];
 
     closed.forEach((t, idx) => {
+      accumPnl += t.pnl;
       currentEquity += t.pnl;
+      if (t.pnl > 0) winsCount++;
+
       if (currentEquity > peakEquity) peakEquity = currentEquity;
       const ddUsd = peakEquity - currentEquity;
       const ddPct = peakEquity > 0 ? (ddUsd / peakEquity) * 100 : 0;
@@ -320,11 +342,19 @@ export default function PaperTradingDesk({ importedSetup, profile, onSaveJournal
       if (ddUsd > maxDrawdownUsd) maxDrawdownUsd = ddUsd;
       if (ddPct > maxDrawdownPct) maxDrawdownPct = ddPct;
 
-      equityCurve.push({
+      const currentWinRate = (winsCount / (idx + 1)) * 100;
+
+      performanceHistory.push({
         trade: idx + 1,
-        date: t.closedAt ? new Date(t.closedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : `T${idx + 1}`,
+        date: t.closedAt ? new Date(t.closedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : `T#${idx + 1}`,
         equity: currentEquity,
-        pnl: t.pnl
+        accumulatedPnl: Number(accumPnl.toFixed(2)),
+        winRatePct: Number(currentWinRate.toFixed(1)),
+        drawdownUsd: Number((-ddUsd).toFixed(2)),
+        drawdownPct: Number((-ddPct).toFixed(2)),
+        pnl: t.pnl,
+        symbol: t.symbol,
+        strategy: t.strategy
       });
     });
 
@@ -416,7 +446,10 @@ export default function PaperTradingDesk({ importedSetup, profile, onSaveJournal
       sharpeRatio,
       maxWinStreak,
       maxLossStreak,
-      equityCurve,
+      equityCurve: performanceHistory,
+      performanceHistory,
+      initialAccount,
+      maxRiskPctConfig,
       strategyData,
       symbolData,
       netGreeks: { delta: totalDelta, gamma: totalGamma, theta: totalTheta, vega: totalVega }
@@ -741,57 +774,169 @@ export default function PaperTradingDesk({ importedSetup, profile, onSaveJournal
             </div>
           </div>
 
-          {/* Visual Recharts Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Chart 1: Equity Curve */}
-            <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-800 space-y-2">
-              <h4 className="text-xs font-black uppercase text-slate-300 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-emerald-400" /> Curva de Capital (Equity Curve)
-              </h4>
-              <div className="h-56 w-full pt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={stats.equityCurve}>
-                    <defs>
-                      <linearGradient id="colorEquity" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="date" stroke="#94a3b8" fontSize={11} />
-                    <YAxis stroke="#94a3b8" fontSize={11} domain={['auto', 'auto']} tickFormatter={(v) => `$${v}`} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
-                      formatter={(val) => [money(val), 'Capital']}
-                    />
-                    <Area type="monotone" dataKey="equity" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorEquity)" />
-                  </AreaChart>
-                </ResponsiveContainer>
+          {/* Comprehensive Recharts Visual Analytics Section */}
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-4 rounded-2xl border border-indigo-500/30 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/60 pb-3">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-base font-black text-white">Historial Visual de Rendimiento (Entorno Real & Paper Trading)</h3>
+                </div>
+                <div className="flex items-center gap-3 text-[11px] font-bold text-slate-300">
+                  <span className="bg-indigo-900/60 text-indigo-200 border border-indigo-700/50 px-2.5 py-1 rounded-full">
+                    Cuenta Entorno: {money(stats.initialAccount)}
+                  </span>
+                  <span className="bg-purple-900/60 text-purple-200 border border-purple-700/50 px-2.5 py-1 rounded-full">
+                    Riesgo/Trade: {stats.maxRiskPctConfig}%
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2">
+                <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                  <span className="text-[10px] font-black uppercase text-slate-400">P&L Acumulado Total</span>
+                  <p className={`text-base font-black ${stats.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {money(stats.netPnl)}
+                  </p>
+                </div>
+                <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                  <span className="text-[10px] font-black uppercase text-slate-400">Tasa de Aciertos Global</span>
+                  <p className="text-base font-black text-indigo-300">
+                    {percent(stats.winRate)} ({stats.closedTrades} ops)
+                  </p>
+                </div>
+                <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                  <span className="text-[10px] font-black uppercase text-slate-400">Pico de Drawdown</span>
+                  <p className="text-base font-black text-rose-400">
+                    -{money(stats.maxDrawdownUsd)} ({stats.maxDrawdownPct.toFixed(1)}%)
+                  </p>
+                </div>
+                <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                  <span className="text-[10px] font-black uppercase text-slate-400">Capital Actual en Entorno</span>
+                  <p className="text-base font-black text-emerald-300">
+                    {money(stats.initialAccount + stats.netPnl)}
+                  </p>
+                </div>
               </div>
             </div>
 
-            {/* Chart 2: P&L by Strategy */}
-            <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-800 space-y-2">
-              <h4 className="text-xs font-black uppercase text-slate-300 flex items-center gap-2">
-                <PieChartIcon className="w-4 h-4 text-blue-400" /> Rendimiento por Estrategia ($ P/L)
-              </h4>
-              <div className="h-56 w-full pt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={stats.strategyData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} interval={0} />
-                    <YAxis stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `$${v}`} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
-                      formatter={(val) => [money(val), 'P/L Realizado']}
-                    />
-                    <Bar dataKey="pnl" radius={[6, 6, 0, 0]}>
-                      {stats.strategyData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? '#3b82f6' : '#f43f5e'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Chart 1: Accumulated P&L AreaChart */}
+              <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase text-slate-200 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-emerald-400" /> P&L Acumulado ($ USD)
+                  </h4>
+                  <span className="text-[10px] text-emerald-400 font-bold">{money(stats.netPnl)}</span>
+                </div>
+                <div className="h-60 w-full pt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={stats.performanceHistory}>
+                      <defs>
+                        <linearGradient id="colorPnl" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} />
+                      <YAxis stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `$${v}`} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
+                        formatter={(val, name) => [money(val), name === 'accumulatedPnl' ? 'P&L Acumulado' : name]}
+                      />
+                      <Area type="monotone" dataKey="accumulatedPnl" name="P&L Acumulado" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorPnl)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Chart 2: Evolutionary Win Rate (%) Area/LineChart */}
+              <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase text-slate-200 flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-indigo-400" /> Evolución de Tasa de Aciertos (%)
+                  </h4>
+                  <span className="text-[10px] text-indigo-300 font-bold">{percent(stats.winRate)}</span>
+                </div>
+                <div className="h-60 w-full pt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={stats.performanceHistory}>
+                      <defs>
+                        <linearGradient id="colorWinRate" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} />
+                      <YAxis stroke="#94a3b8" fontSize={11} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
+                        formatter={(val) => [`${val}%`, 'Tasa de Aciertos']}
+                      />
+                      <Area type="monotone" dataKey="winRatePct" name="Win Rate %" stroke="#6366f1" strokeWidth={2.5} fillOpacity={1} fill="url(#colorWinRate)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Chart 3: Historical Drawdown Chart */}
+              <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase text-slate-200 flex items-center gap-2">
+                    <TrendingDown className="w-4 h-4 text-rose-400" /> Curva de Drawdown Histórico ($)
+                  </h4>
+                  <span className="text-[10px] text-rose-400 font-bold">Máx: -{money(stats.maxDrawdownUsd)}</span>
+                </div>
+                <div className="h-60 w-full pt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={stats.performanceHistory}>
+                      <defs>
+                        <linearGradient id="colorDrawdown" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} />
+                      <YAxis stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `$${v}`} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
+                        formatter={(val) => [money(val), 'Drawdown USD']}
+                      />
+                      <Area type="monotone" dataKey="drawdownUsd" name="Drawdown USD" stroke="#f43f5e" strokeWidth={2} fillOpacity={1} fill="url(#colorDrawdown)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Chart 4: P&L by Strategy BarChart */}
+              <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase text-slate-200 flex items-center gap-2">
+                    <PieChartIcon className="w-4 h-4 text-blue-400" /> Rendimiento por Estrategia ($ P/L)
+                  </h4>
+                  <span className="text-[10px] text-blue-400 font-bold">{stats.strategyData.length} estrategias</span>
+                </div>
+                <div className="h-60 w-full pt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={stats.strategyData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} interval={0} />
+                      <YAxis stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `$${v}`} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
+                        formatter={(val) => [money(val), 'P/L Realizado']}
+                      />
+                      <Bar dataKey="pnl" radius={[6, 6, 0, 0]}>
+                        {stats.strategyData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? '#3b82f6' : '#f43f5e'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </div>
           </div>
