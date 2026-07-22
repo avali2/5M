@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api } from './lib/api.js';
 import { GeminiBriefCard } from './components/GeminiBriefCard.tsx';
 import GeminiAssistant from './components/GeminiAssistant.jsx';
+import BrokerAlertSystem from './components/BrokerAlertSystem.jsx';
 import { MarketPulseCard } from './components/MarketPulseCard.jsx';
 import { NewsImpactList } from './components/NewsImpactList.jsx';
 import MarketSentiment from './components/MarketSentiment.jsx';
@@ -503,32 +504,31 @@ export default function AppPro() {
     motivation: dailyLesson?.motivation || 'Solo ejecutar tickets verdes, completos y aprobados por Gemini.'
   };
   const tabs = [
-    ['inicio', '🏠', 'Inicio'], ['signals', '📡', 'Señales'], ['news', '📰', 'Noticias'],
-    ['risk', '🛡️', 'Riesgo'], ['paper', 'P', 'Paper'], ['tradier', 'T', 'En vivo'], ['config', '⚙️', 'Config']
+    ['inicio', '🏠', 'Inicio'], ['signals', '📡', 'Señales'],
+    ['paper', '📊', 'Paper'], ['tradier', '📈', 'En vivo'], ['config', '⚙️', 'Config']
   ];
 
   return (
     <div className="pro-console">
-      <header className="app-header sticky top-0 z-30 px-4 py-3">
+      <header className="app-header sticky top-0 z-30 px-4 py-3 bg-slate-900/90 backdrop-blur border-b border-slate-800">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-600 text-lg font-black text-white shadow-sm">V</div>
-            <div><h1 className="text-lg font-black text-slate-950">VALIDO 1M</h1><p className="text-xs text-slate-500">Options Guardian · Gemini Auditor</p></div>
+            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 text-lg font-black text-white shadow-md shadow-indigo-900/40">V</div>
+            <div><h1 className="text-lg font-black text-white">VALIDO 1M</h1><p className="text-xs text-indigo-300 font-medium">Personal Broker · Gemini AI Active</p></div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="hidden rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-black text-blue-700 sm:inline-flex">Moderado-agresivo · riesgo definido</span>
-            <button aria-label="Cerrar sesion" className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600 hover:bg-slate-50" onClick={logout} title="Cerrar sesion" type="button">Salir</button>
+            <BrokerAlertSystem signals={signals} scan={scan} onOpenSignal={() => setActiveTab('signals')} />
+            <span className="hidden rounded-full border border-indigo-500/30 bg-indigo-950/60 px-3 py-1 text-xs font-black text-indigo-200 sm:inline-flex">Moderado-agresivo · riesgo definido</span>
+            <button aria-label="Cerrar sesion" className="rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-black text-slate-300 hover:bg-slate-700 transition" onClick={logout} title="Cerrar sesion" type="button">Salir</button>
           </div>
         </div>
       </header>
       <main className="home-pro pb-24">
         {toast && <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl border border-green-200 bg-white px-4 py-3 text-sm font-bold text-green-800 shadow-lg">{toast}</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
-        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} workerStatus={workerStatus} accountStatus={accountStatus} /><GeminiAssistant /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /><WatchedUniversePanel scan={scan} study={symbolStudy} studyingSymbol={studyingSymbol} onStudy={studySymbol} /></>}
+        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} workerStatus={workerStatus} accountStatus={accountStatus} /><GeminiAssistant scan={scan} signals={signals} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /><WatchedUniversePanel scan={scan} study={symbolStudy} studyingSymbol={studyingSymbol} onStudy={studySymbol} /><NewsImpactList news={news} /></>}
         {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} />}
-        {activeTab === 'news' && <NewsImpactList news={news} />}
-        {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} manualPositions={manualPositions} /><BrokerPositionsDesk /></>}
-        {activeTab === 'paper' && <><PaperTradingDesk profile={scan?.profile} onSaveJournal={api.addJournal} /><TradierAutopilotDesk scan={scan} view="paper" /><TradeJournal entries={entries} onDelete={deleteJournal} manualPositions={manualPositions} /></>}
+        {activeTab === 'paper' && <><PaperTradingDesk profile={scan?.profile} onSaveJournal={api.addJournal} /><RiskLimits profile={scan?.profile} riskConfig={riskConfig} manualPositions={manualPositions} /><BrokerPositionsDesk /><TradierAutopilotDesk scan={scan} view="paper" /><TradeJournal entries={entries} onDelete={deleteJournal} manualPositions={manualPositions} /></>}
         {activeTab === 'tradier' && <TradierAutopilotDesk scan={scan} view="live" />}
         {activeTab === 'config' && <><SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} /><NotificationManager /><SystemStatus /></>}
         <footer className="text-xs text-slate-500 text-center py-4">Paper autonomo en Tradier Sandbox. Cuenta real: datos, criterio Gemini y preview bajo control humano.<span className="block mt-1">v{VALIDO_VERSION}</span></footer>
