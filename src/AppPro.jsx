@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api } from './lib/api.js';
 import { GeminiBriefCard } from './components/GeminiBriefCard.tsx';
 import GeminiAssistant from './components/GeminiAssistant.jsx';
+import GeminiAdvisorPanel from './components/GeminiAdvisorPanel.jsx';
 import BrokerAlertSystem from './components/BrokerAlertSystem.jsx';
 import { MarketPulseCard } from './components/MarketPulseCard.jsx';
 import { NewsImpactList } from './components/NewsImpactList.jsx';
@@ -526,8 +527,8 @@ export default function AppPro() {
       <main className="home-pro pb-24">
         {toast && <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl border border-green-200 bg-white px-4 py-3 text-sm font-bold text-green-800 shadow-lg">{toast}</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
-        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} workerStatus={workerStatus} accountStatus={accountStatus} /><GeminiAssistant scan={scan} signals={signals} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /><WatchedUniversePanel scan={scan} study={symbolStudy} studyingSymbol={studyingSymbol} onStudy={studySymbol} /><NewsImpactList news={news} /></>}
-        {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} />}
+        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} workerStatus={workerStatus} accountStatus={accountStatus} /><GeminiAssistant scan={scan} signals={signals} /><GeminiAdvisorPanel signals={signals} scan={scan} onSelectSignal={() => setActiveTab('signals')} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /><WatchedUniversePanel scan={scan} study={symbolStudy} studyingSymbol={studyingSymbol} onStudy={studySymbol} /><NewsImpactList news={news} /></>}
+        {activeTab === 'signals' && <><GeminiAdvisorPanel signals={signals} scan={scan} /><OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} /></>}
         {activeTab === 'paper' && <><PaperTradingDesk profile={scan?.profile} onSaveJournal={api.addJournal} /><RiskLimits profile={scan?.profile} riskConfig={riskConfig} manualPositions={manualPositions} /><BrokerPositionsDesk /><TradierAutopilotDesk scan={scan} view="paper" /><TradeJournal entries={entries} onDelete={deleteJournal} manualPositions={manualPositions} /></>}
         {activeTab === 'tradier' && <TradierAutopilotDesk scan={scan} view="live" />}
         {activeTab === 'config' && <><SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} /><NotificationManager /><SystemStatus /></>}
