@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from './lib/api.js';
 import { GeminiBriefCard } from './components/GeminiBriefCard.tsx';
+import GeminiAssistant from './components/GeminiAssistant.jsx';
 import { MarketPulseCard } from './components/MarketPulseCard.jsx';
 import { NewsImpactList } from './components/NewsImpactList.jsx';
 import MarketSentiment from './components/MarketSentiment.jsx';
@@ -11,6 +12,7 @@ import { BrokerPositionsDesk } from './components/BrokerPositionsDesk.jsx';
 import { DailyGeminiLesson } from './components/DailyGeminiLesson.jsx';
 import { DailyTradingWorkflow } from './components/DailyTradingWorkflow.jsx';
 import { TradierAutopilotDesk } from './components/TradierAutopilotDesk.jsx';
+import PaperTradingDesk from './features/options-paper-trading/PaperTradingDesk.jsx';
 import InfoTooltip from './components/InfoTooltip.jsx';
 import NoGreenTodayPanel from './features/scanner/NoGreenTodayPanel.jsx';
 import { loadRiskConfig, saveRiskConfig } from './config/riskConfig.ts';
@@ -522,11 +524,11 @@ export default function AppPro() {
       <main className="home-pro pb-24">
         {toast && <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl border border-green-200 bg-white px-4 py-3 text-sm font-bold text-green-800 shadow-lg">{toast}</div>}
         {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
-        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} workerStatus={workerStatus} accountStatus={accountStatus} /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /><WatchedUniversePanel scan={scan} study={symbolStudy} studyingSymbol={studyingSymbol} onStudy={studySymbol} /></>}
+        {activeTab === 'inicio' && <><HomeHero scan={scan} ready={ready} watch={watch} pulse={pulse} workerStatus={workerStatus} accountStatus={accountStatus} /><GeminiAssistant /><GeminiBriefCard {...brief} /><GuardianActivity scan={scan} signals={signals} /><NoGreenTodayPanel scan={scan} /><MarketSentiment /><MarketPulseCard pulse={pulse} /><TapeReadingCard tape={pulse.tapeReading} /><DailyGeminiLesson /><WatchedUniversePanel scan={scan} study={symbolStudy} studyingSymbol={studyingSymbol} onStudy={studySymbol} /></>}
         {activeTab === 'signals' && <OperationalSignals signals={signals} onAccept={acceptSignal} takenSignalIds={takenSignalIds} />}
         {activeTab === 'news' && <NewsImpactList news={news} />}
         {activeTab === 'risk' && <><RiskLimits profile={scan?.profile} riskConfig={riskConfig} manualPositions={manualPositions} /><BrokerPositionsDesk /></>}
-        {activeTab === 'paper' && <><TradierAutopilotDesk scan={scan} view="paper" /><TradeJournal entries={entries} onDelete={deleteJournal} manualPositions={manualPositions} /></>}
+        {activeTab === 'paper' && <><PaperTradingDesk profile={scan?.profile} onSaveJournal={api.addJournal} /><TradierAutopilotDesk scan={scan} view="paper" /><TradeJournal entries={entries} onDelete={deleteJournal} manualPositions={manualPositions} /></>}
         {activeTab === 'tradier' && <TradierAutopilotDesk scan={scan} view="live" />}
         {activeTab === 'config' && <><SettingsPanel riskConfig={riskConfig} onSaveRisk={setRiskConfig} /><NotificationManager /><SystemStatus /></>}
         <footer className="text-xs text-slate-500 text-center py-4">Paper autonomo en Tradier Sandbox. Cuenta real: datos, criterio Gemini y preview bajo control humano.<span className="block mt-1">v{VALIDO_VERSION}</span></footer>
