@@ -1,29 +1,10 @@
 {
-  "name": "VALIDO 1M OS",
-  "short_name": "VALIDO 1M",
-  "description": "Asistente institucional de decisiones para opciones con riesgo definido.",
-  "start_url": "/institutional-os.html",
+  "name": "5 MILLIONS Señales",
+  "short_name": "5 MILLIONS",
+  "start_url": "/",
   "display": "standalone",
-  "background_color": "#070c17",
-  "theme_color": "#070c17",
-  "icons": [
-    {
-      "src": "/icons/validov.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icons/valido-v-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icons/valido-v-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ]
+  "background_color": "#f8fafc",
+  "theme_color": "#f8fafc",
+  "description": "Señales de spreads de crédito con datos reales de Tradier.",
+  "icons": [{"src":"/favicon.svg","sizes":"any","type":"image/svg+xml"}]
 }
