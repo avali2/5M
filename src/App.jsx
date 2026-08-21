@@ -139,7 +139,10 @@ function App() {
     let alive = true;
     request('/api/health').then((health) => {
       if (!alive) return;
-      if (health?.security?.requiresKey) return;
+      if (health?.security?.requiresKey && !getKey()) {
+        setGateError('Acceso protegido. Escribe tu APP_ACCESS_KEY para continuar.');
+        return;
+      }
       return loadAll();
     }).catch((healthError) => {
       if (alive) { setGateError(formatError(healthError)); setError(formatError(healthError)); }
