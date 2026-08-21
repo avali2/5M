@@ -1,45 +1,37 @@
-export class ProviderError extends Error {
-  constructor(provider, message, status = null) {
-    super(`${provider}: ${message}`);
-    this.provider = provider;
-    this.status = status;
-  }
-}
-
-export async function requestJson(provider, url, options = {}) {
+export async function fetchJson(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs || 12000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        Accept: 'application/json',
-        ...(options.headers || {})
-      },
-      signal: controller.signal
-    });
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const text = await response.text();
+    let payload;
+    try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
     if (!response.ok) {
-      throw new ProviderError(provider, `HTTP ${response.status}`, response.status);
+      const detail = typeof payload === 'string' ? payload : JSON.stringify(payload);
+      throw new Error(`HTTP ${response.status} ${response.statusText}: ${detail.slice(0, 400)}`);
     }
-    return await response.json();
+    return payload;
   } catch (error) {
-    if (error instanceof ProviderError) throw error;
-    const reason = error.name === 'AbortError' ? 'request timed out' : error.message;
-    throw new ProviderError(provider, reason);
+    if (error.name === 'AbortError') throw new Error(`Request timeout after ${timeoutMs}ms: ${url}`);
+    throw error;
   } finally {
-    clearTimeout(timer);
+    clearTimeout(timeout);
   }
 }
 
-export const toArray = (value) => {
-  if (!value) return [];
+export function toArray(value) {
+  if (value === undefined || value === null) return [];
   return Array.isArray(value) ? value : [value];
-};
+}
 
-export const isoDate = (date) => new Date(date).toISOString().slice(0, 10);
+export function finite(value, fallback = null) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
-export function daysFromNow(days) {
-  const next = new Date();
-  next.setUTCDate(next.getUTCDate() + days);
-  return isoDate(next);
+export function round(value, digits = 4) {
+  const parsed = finite(value);
+  if (parsed === null) return null;
+  const multiplier = 10 ** digits;
+  return Math.round(parsed * multiplier) / multiplier;
 }
