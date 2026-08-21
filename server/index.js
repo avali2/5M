@@ -1,1235 +1,135 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import path from 'node:path';
-import { access } from 'node:fs/promises';
-import { buildInfo, config, providerStatus, UNIVERSE } from './config.js';
-import { cache } from './lib/cache.js';
-import { createProviders } from './providers/index.js';
-import { explainers } from './explainers.js';
-import { ScanScheduler } from './services/scheduler.js';
-import { repository } from './db/repository.js';
-import { GuardianPushStore } from './pushStore.js';
-import { GuardianPushService } from './push.js';
-import { GuardianScheduler } from './guardianScheduler.js';
-import { createGuardianRouter, createPushRouter } from './guardianRoutes.js';
-import positionsRoutes from './routes/positionsRoutes.js';
-import { getSystemStatus } from './status.js';
-import geminiAssistantRouter from './geminiAssistant.js';
-import { createScanDiagnosticsRouter } from './routes/scanDiagnosticsRoutes.js';
-import { createRiskRouter } from './routes/riskRoutes.js';
-import { createSymbolStudyRouter } from './routes/symbolStudyRoutes.js';
-import { createTradierRouter } from './routes/tradierRoutes.js';
-import { scanPersistence } from './services/scanPersistence.js';
-import { PaperAutopilot } from './services/paperAutopilot.js';
-import { getMarketSessionET } from './autonomousSignalWorker.js';
+import { config, publicConfig } from './config.js';
+import { TradierClient, isTradierConfigured } from './lib/tradier.js';
+import { GeminiReviewer, isGeminiConfigured } from './lib/gemini.js';
+import { scanMarket } from './lib/scanner.js';
+import { getStoreStatus, saveScan } from './lib/store.js';
+import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
 
-const AUTH_COOKIE = 'valido_session';
-const AUTH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const app = express();
+const tradier = new TradierClient();
+const gemini = new GeminiReviewer();
+let latestScan = null;
+let lastScanError = null;
+let scanInFlight = null;
+let lastPushResult = null;
 
-function safeTextEqual(left, right) {
-  const expected = Buffer.from(String(left || ''));
-  const supplied = Buffer.from(String(right || ''));
-  return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+app.use(cors({ origin: config.clientOrigin || true }));
+app.use(express.json({ limit: '256kb' }));
+
+function hasValidAccessKey(request) {
+  if (!config.security.requireAccessKey) return true;
+  const supplied = request.get('X-5M-Key') || request.query.key || '';
+  return Boolean(config.security.accessKey) && supplied === config.security.accessKey;
 }
 
-function sessionSecret(settings) {
-  return process.env.SESSION_SECRET || settings.security?.accessKey || '';
+function requireAccess(request, response, next) {
+  if (hasValidAccessKey(request)) return next();
+  return response.status(401).json({ error: 'Acceso protegido. Añade tu APP_ACCESS_KEY en la app.' });
 }
 
-function signedSession(timestamp, secret) {
-  const signature = createHmac('sha256', secret).update(`valido:${timestamp}`).digest('hex');
-  return `${timestamp}.${signature}`;
-}
-
-function cookieValue(req, name) {
-  const source = String(req.headers.cookie || '');
-  const pair = source.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
-  if (!pair) return '';
-  try {
-    return decodeURIComponent(pair.slice(name.length + 1));
-  } catch {
-    return '';
-  }
-}
-
-function hasValidSession(req, settings) {
-  const secret = sessionSecret(settings);
-  const value = cookieValue(req, AUTH_COOKIE);
-  const [timestampText, signature] = value.split('.');
-  const timestamp = Number(timestampText);
-  if (!secret || !timestamp || !signature) return false;
-  const age = Date.now() - timestamp;
-  if (age < -5 * 60 * 1000 || age > AUTH_MAX_AGE_MS) return false;
-  return safeTextEqual(signedSession(timestamp, secret), value);
-}
-
-function enabledLabel(value) {
-  return value ? 'enabled' : 'disabled';
-}
-
-function configuredLabel(value) {
-  return value ? 'configured' : 'missing';
-}
-
-function providerHealth(settings, providers) {
-  const openaiStatus = typeof providers.openai?.status === 'function' ? providers.openai.status() : {
-    configured: Boolean(providers.openai?.configured),
-    enabled: false,
-    automaticCalls: false,
-    manualOnly: true,
-    cooldownUntil: null
-  };
-  const geminiStatus = typeof providers.gemini?.status === 'function' ? providers.gemini.status() : {
-    configured: Boolean(providers.gemini?.configured),
-    enabled: false
-  };
-  const aiStatus = typeof providers.ai?.status === 'function' ? providers.ai.status() : null;
-  return {
-    yahoo: enabledLabel(settings.yahoo?.enabled !== false),
-    tradier: configuredLabel(Boolean(settings.tradier?.token)),
-    polygon: configuredLabel(Boolean(settings.polygon?.apiKey)),
-    finnhub: configuredLabel(Boolean(settings.finnhub?.apiKey)),
-    fmp: configuredLabel(Boolean(settings.fmp?.apiKey)),
-    benzinga: configuredLabel(Boolean(settings.benzinga?.apiKey)),
-    alphaVantage: configuredLabel(Boolean(settings.alphaVantage?.apiKey)),
-    gemini: geminiStatus.configured && geminiStatus.enabled ? 'manual_only' : configuredLabel(Boolean(geminiStatus.configured)),
-    geminiConfigured: Boolean(geminiStatus.configured),
-    geminiEnabled: Boolean(geminiStatus.enabled),
-    openai: openaiStatus.cooldownUntil ? 'manual_only_cooldown' : 'manual_only',
-    openaiConfigured: Boolean(openaiStatus.configured),
-    openaiEnabled: Boolean(openaiStatus.enabled),
-    openaiAutomaticCalls: false,
-    aiPrimaryProvider: aiStatus?.primaryProvider || settings.ai?.primaryProvider || 'gemini',
-    aiMode: aiStatus?.automaticSignalDecision ? 'gemini_guardian_gatekeeper' : 'manual_explain_only',
-    aiDecisionEnabled: Boolean(aiStatus?.automaticSignalDecision),
-    agentMode: settings.agent?.mode || 'gatekeeper',
-    aiBudget: aiStatus?.budget || null,
-    activeMarketProvider: providers.market?.name || 'none',
-    activeOptionsProvider: providers.options?.name || 'none',
-    activeNewsProvider: providers.news?.name || 'none'
-  };
-}
-
-function compactGamma(value) {
-  if (!value || typeof value !== 'object') return value;
-  const summary = { ...value };
-  delete summary.profile;
-  return summary;
-}
-
-function compactSetupForClient(value) {
-  if (!value || typeof value !== 'object') return value;
-  return {
-    ...value,
-    ...(value.gammaProxy ? { gammaProxy: compactGamma(value.gammaProxy) } : {}),
-    ...(value.sourceSetup ? { sourceSetup: compactSetupForClient(value.sourceSetup) } : {})
-  };
-}
-
-function compactTicketCollection(value) {
-  return Array.isArray(value) ? value.map(compactSetupForClient) : value;
-}
-
-function compactTicketSummary(value) {
-  const compact = compactSetupForClient(value);
-  if (!compact || typeof compact !== 'object') return compact;
-  const summary = { ...compact };
-  delete summary.sourceSetup;
-  return summary;
-}
-
-function clientRejectedSet(value) {
-  const items = Array.isArray(value) ? value : [];
-  const dataErrors = items.filter((item) => /DATA_ERROR|NO_CHAIN|NO_QUOTE|NO_GREEKS/i.test(String(item.status || item.classification || ''))).slice(0, 5);
-  const selected = [...dataErrors, ...items.slice(0, 12)];
-  const seen = new Set();
-  return selected.filter((item) => {
-    const key = `${item.symbol}|${item.strategy}|${item.expiration}|${item.status}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).map(compactSetupForClient);
-}
-
-export function compactScanForClient(scan = {}) {
-  const edge = scan.guardianEdge || {};
-  const agent = scan.agent || {};
-  return {
-    ...scan,
-    opportunities: compactTicketCollection(scan.opportunities),
-    rejected: clientRejectedSet(scan.rejected),
-    conditionalIdeas: compactTicketCollection(scan.conditionalIdeas),
-    gammaSurfaces: (Array.isArray(scan.gammaSurfaces) ? scan.gammaSurfaces : []).map(compactGamma),
-    guardianEdge: {
-      ...edge,
-      candidateTickets: compactTicketCollection(edge.candidateTickets),
-      actionableTickets: compactTicketCollection(edge.actionableTickets),
-      notifyableTickets: compactTicketCollection(edge.notifyableTickets),
-      tickets: compactTicketCollection(edge.tickets),
-      dailyBest: compactTicketSummary(edge.dailyBest),
-      bestBullish: compactTicketSummary(edge.bestBullish),
-      bestBearish: compactTicketSummary(edge.bestBearish),
-      bestNeutral: compactTicketSummary(edge.bestNeutral)
-    },
-    agent: {
-      ...agent,
-      approvedSignals: compactTicketCollection(agent.approvedSignals),
-      rejectedCandidates: []
-    },
-    macro: scan.macro ? {
-      ...scan.macro,
-      flow: (scan.macro.flow || []).slice(0, 20),
-      news: (scan.macro.news || []).slice(0, 20),
-      companyNews: (scan.macro.companyNews || []).slice(0, 30)
-    } : scan.macro
-  };
-}
-
-function feedAvailability(settings) {
-  const feeds = providerStatus().filter((provider) => !(provider.hiddenWhenMissing && !provider.configured));
-  const decorate = (provider) => ({
-    id: provider.id,
-    name: provider.name,
-    configured: Boolean(provider.configured),
-    enabled: provider.enabled ?? true,
-    group: provider.group || 'optional',
-    status: provider.configured ? 'configured' : provider.required ? 'missing_required' : provider.important ? 'missing_important' : 'optional_missing',
-    coverage: provider.coverage
-  });
-  return {
-    hidePremiumFeedsIfUnconfigured: Boolean(settings.ui?.hidePremiumFeedsIfUnconfigured),
-    required: feeds.filter((provider) => provider.group === 'required').map(decorate),
-    important: feeds.filter((provider) => provider.group === 'important').map(decorate),
-    optionalPremium: feeds.filter((provider) => provider.group === 'optional_premium').map(decorate),
-    optional: feeds.filter((provider) => !['required', 'important', 'optional_premium'].includes(provider.group)).map(decorate)
-  };
-}
-
-function normalizeSignal(setup, scan) {
-  if (!setup) return null;
-  const creditDebit = Number.isFinite(setup.credit) ? { type: 'credit', value: setup.credit } :
-    Number.isFinite(setup.debit) ? { type: 'debit', value: setup.debit } : { type: 'confirm_in_chain', value: null };
-  const legs = (setup.legs || []).map((leg) => ({
-    side: leg.side,
-    type: leg.type,
-    strike: leg.strike,
-    mid: leg.mid,
-    bid: leg.bid,
-    ask: leg.ask,
-    delta: leg.delta,
-    gamma: leg.gamma,
-    theta: leg.theta,
-    vega: leg.vega,
-    iv: leg.iv,
-    volume: leg.volume,
-    openInterest: leg.openInterest,
-    symbol: leg.symbol
-  }));
-  const id = setup.id || `${setup.symbol}-${setup.strategy}-${setup.expiration}-${(setup.strikes || legs.map((leg) => leg.strike).join('-')).replaceAll(' ', '')}`;
-  return {
-    id,
-    status: setup.status || setup.signalStatus || (setup.riskGovernor?.allowedReal ? 'CANDIDATE' : 'BLOCKED'),
-    signalStatus: setup.status || setup.signalStatus || null,
-    ticker: setup.symbol,
-    symbol: setup.symbol,
-    currentPrice: setup.underlyingPrice ?? scan?.market?.quotes?.find((quote) => quote.symbol === setup.symbol)?.price ?? null,
-    strategy: setup.strategy,
-    direction: setup.institutionalBias || setup.educationBias || 'neutral',
-    expiration: setup.expiration,
-    dte: setup.dte,
-    strikes: setup.strikes || legs.map((leg) => leg.strike).join(' / ') || 'requiere confirmar en cadena',
-    legs,
-    creditDebit,
-    entryLimit: setup.executionPlan?.entryRules?.[0] || (Number.isFinite(creditDebit.value) ? `${creditDebit.type === 'credit' ? 'Credito minimo' : 'Debito maximo'} ${creditDebit.value}` : 'Requiere confirmar bid/ask real'),
-    maxLoss: setup.maxRisk ?? null,
-    maxRisk: setup.maxRisk ?? null,
-    maxProfit: setup.maxProfit ?? null,
-    collateralRequired: setup.collateralRequired ?? setup.maxRisk ?? null,
-    popEstimated: setup.pop ?? setup.edge?.probabilityOfProfit ?? null,
-    probability: setup.pop ?? setup.edge?.probabilityOfProfit ?? null,
-    score: setup.tradeQualityScore ?? setup.confidenceScore ?? setup.score ?? null,
-    orderType: setup.orderType || 'LIMIT',
-    limitPrice: setup.limitPrice ?? creditDebit.value,
-    breakeven: setup.breakeven ?? setup.breakEven ?? null,
-    shortDelta: setup.shortDelta ?? legs.find((leg) => /sell|short/i.test(String(leg.side || '')))?.delta ?? null,
-    longDelta: setup.longDelta ?? legs.find((leg) => /buy|long/i.test(String(leg.side || '')))?.delta ?? null,
-    theta: setup.theta ?? null,
-    vega: setup.vega ?? null,
-    gamma: setup.gamma ?? null,
-    stopLoss: setup.stopLoss || null,
-    takeProfit: setup.takeProfit || null,
-    exitPlan: setup.exitPlan || null,
-    approvalReason: setup.approvalReason || setup.greenPolicy?.reasons?.join('; ') || null,
-    risk: setup.riskClass || setup.gammaRisk || 'moderado',
-    riskClass: setup.riskClass || setup.gammaRisk || 'moderado',
-    reason: setup.reasoning?.join(' + ') || 'Setup generado por reglas deterministicas.',
-    invalidation: setup.executionPlan?.entryRules?.find((rule) => /no entrar|invalid/i.test(rule)) || setup.activationRules?.[0] || 'Invalidar si rompe soporte/resistencia, VIX se expande o bid/ask empeora.',
-    closeAlert: setup.takeProfit ? `${setup.takeProfit}. Stop: ${setup.stopLoss || 'definir antes de entrar'}` : 'TP 40%-60%; stop 1.5x-2x credito o invalidacion tecnica.',
-    nearbyEvents: [
-      ...(scan?.macro?.highImpactEvents || []).slice(0, 2).map((event) => event.title),
-      ...(scan?.macro?.earnings || []).filter((event) => event.symbol === setup.symbol).slice(0, 2).map((event) => `Earnings ${event.date}`)
-    ],
-    aiStatus: setup.aiVerificationStatus || 'manual only',
-    geminiGuardian: setup.geminiReview ? {
-      decision: setup.geminiReview.decision,
-      confidence: setup.geminiReview.confidence,
-      summary: setup.geminiReview.summary,
-      risks: setup.geminiReview.risks,
-      requiresManualReview: setup.geminiReview.requires_manual_review
-    } : null,
-    dataSource: scan?.marketDataMode || 'live',
-    source: {
-      quote: scan?.providers?.find((provider) => provider.id === 'tradier' && provider.configured) ? 'Tradier' : 'Yahoo/fallback',
-      chain: 'Options chain provider server-side',
-      probability: 'probability-edge deterministic engine',
-      timestamp: scan?.asOf
-    }
-  };
-}
-
-function guardSummary(scan, settings, providers) {
-  const missingMacro = Boolean(settings.signals?.requireMacroClearance && !providers.calendar && settings.guards?.allowUnverifiedMacroWhenFeedsMissing === false);
-  const missingNews = Boolean(settings.signals?.requireNewsClearance && !(providers.news || providers.finnhub) && settings.guards?.allowUnverifiedNewsWhenFeedsMissing === false);
-  const highMacro = scan?.macro?.highImpactEvents || [];
-  const softMacro = scan?.macro?.softImpactEvents || [];
-  const newsBlocks = scan?.macro?.newsBlocks || [];
-  const newsRisk = scan?.macro?.breakingRisk || [];
-  const fedEvents = [...highMacro, ...softMacro].filter((event) => /fed|fomc|powell|rate|minutes/i.test(event.title || ''));
-  const geopolitical = newsRisk.filter((item) => item.riskType === 'geopolitical');
-  const earnings = scan?.macro?.earnings || [];
-  const liquidityBlocks = [...(scan?.rejected || []), ...(scan?.conditionalIdeas || [])]
-    .filter((item) => (item.blocks || []).some((block) => /liquidez|bid|ask|volume|open interest/i.test(block)));
-  const dataErrors = scan?.dataHealth?.endpointErrors || scan?.scanErrors || [];
-  const status = (block, caution, missing = false) => block ? 'block' : caution ? 'caution' : missing ? 'unavailable' : 'clear';
-  return {
-    macro: { status: status(highMacro.length || missingMacro, softMacro.length), count: highMacro.length + softMacro.length, detail: missingMacro ? 'Macro clearance unavailable' : highMacro[0]?.title || softMacro[0]?.title || 'clear' },
-    fed: { status: status(false, fedEvents.length), count: fedEvents.length, detail: fedEvents[0]?.title || 'clear' },
-    news: { status: status(newsBlocks.length || missingNews, newsRisk.length), count: newsRisk.length, detail: missingNews ? 'News clearance unavailable' : newsBlocks[0]?.headline || newsRisk[0]?.headline || 'clear' },
-    geopolitical: { status: status(geopolitical.some((item) => item.blocksSignal), geopolitical.length), count: geopolitical.length, detail: geopolitical[0]?.headline || 'clear' },
-    earnings: { status: status(false, earnings.length), count: earnings.length, detail: earnings[0] ? `${earnings[0].symbol} ${earnings[0].date}` : 'clear' },
-    liquidity: { status: status(false, liquidityBlocks.length), count: liquidityBlocks.length, detail: liquidityBlocks[0]?.symbol || 'clear' },
-    risk: { status: status(scan?.decision?.status === 'configuration_required', scan?.decision?.status === 'conditional_edge'), detail: scan?.decision?.label || 'clear' },
-    dataQuality: { status: status(dataErrors.length, scan?.dataHealth?.metrics?.some((metric) => !metric.available)), count: dataErrors.length, detail: dataErrors[0]?.error || dataErrors[0] || 'clear' }
-  };
-}
-
-function agentState(scan, settings, providers) {
-  if (settings.agent?.enabled === false) return 'SLEEPING';
-  const guards = guardSummary(scan, settings, providers);
-  const hardBlock = guards.dataQuality.status === 'block' || scan?.decision?.status === 'configuration_required';
-  if (hardBlock) return 'BLOCKED';
-  return 'ACTIVE';
-}
-
-function marketDecision(scan, settings, providers) {
-  const guards = guardSummary(scan, settings, providers);
-  if (guards.macro.status === 'block') return 'BLOCKED BY MACRO';
-  if (guards.news.status === 'block' || guards.geopolitical.status === 'block') return 'BLOCKED BY NEWS';
-  if (guards.earnings.status === 'block') return 'BLOCKED BY EARNINGS';
-  if (guards.dataQuality.status === 'block' || scan?.decision?.status === 'configuration_required') return 'DATA INSUFFICIENT';
-  if (Object.values(guards).some((guard) => ['caution', 'unavailable'].includes(guard.status))) return 'CAUTION';
-  return scan?.opportunities?.length ? 'MARKET CLEAR' : 'NO TRADE';
-}
-
-function buildAgentPayload({ scan, settings, providers, guardianScheduler }) {
-  const guards = guardSummary(scan, settings, providers);
-  const aiStatus = typeof providers.ai?.status === 'function' ? providers.ai.status() : null;
-  const approvedSignals = (scan?.opportunities || []).slice(0, settings.signals?.maxPerDay || 3).map((setup) => normalizeSignal(setup, scan));
-  const rejectedCandidates = [...(scan?.rejected || []), ...(scan?.conditionalIdeas || []).filter((item) => item.symbol)]
-    .slice(0, 12).map((setup) => ({
-      ...normalizeSignal(setup, scan),
-      rejectionReasons: setup.blocks || setup.missingValidation || ['No cumple score/filtros para senal real.']
-    }));
-  return {
-    enabled: settings.agent?.enabled !== false,
-    name: settings.agent?.name || 'Gemini Guardian',
-    state: agentState(scan, settings, providers),
-    lastRunAt: scan?.guardianStatus?.lastScan || guardianScheduler.status().lastScan || scan?.asOf || null,
-    nextRunAt: scan?.guardianStatus?.nextScan || guardianScheduler.status().nextScan || null,
-    marketDecision: marketDecision(scan, settings, providers),
-    tokenBudget: aiStatus?.budget || null,
-    aiAvailable: Boolean(aiStatus?.gemini?.configured || aiStatus?.openai?.configured),
-    deterministicFallback: settings.ai?.fallbackToDeterministic !== false,
-    guards,
-    approvedSignals,
-    rejectedCandidates,
-    macroWarnings: [...(scan?.macro?.highImpactEvents || []), ...(scan?.macro?.softImpactEvents || [])],
-    newsWarnings: scan?.macro?.breakingRisk || [],
-    guardStatus: guards,
-    aiVerificationStatus: {
-      mode: aiStatus?.automaticSignalDecision ? 'gemini_guardian_gatekeeper' : 'manual_only',
-      requireAiConfirmation: Boolean(settings.signals?.requireAiConfirmation),
-      autoDecision: Boolean(aiStatus?.automaticSignalDecision),
-      autoNarrative: Boolean(aiStatus?.automaticNarrative),
-      guardian: scan?.aiGuardian || null
-    },
-    aiGuardian: scan?.aiGuardian || null
-  };
-}
-
-function firstSignalCandidate(payload, idOrSymbol) {
-  const pool = [...(payload.approvedSignals || []), ...(payload.rejectedCandidates || [])];
-  if (!idOrSymbol) return pool[0] || null;
-  const key = String(idOrSymbol).toUpperCase();
-  return pool.find((item) =>
-    String(item?.id || '').toUpperCase() === key ||
-    String(item?.ticker || item?.symbol || '').toUpperCase() === key
-  ) || pool[0] || null;
-}
-
-function sigmaDecisionFor(signal, guards, settings) {
-  const blockers = [
-    ...(signal?.rejectionReasons || []),
-    ...(signal?.nearbyEvents || []),
-    ...Object.entries(guards || {})
-      .filter(([, guard]) => guard?.status === 'block')
-      .map(([name, guard]) => `${name}: ${guard.detail}`)
-  ].filter(Boolean);
-  const score = Number(signal?.score);
-  const pop = Number(signal?.popEstimated ?? signal?.probability);
-  const minPop = (settings.signals?.minPop || 0.7) <= 1 ? (settings.signals?.minPop || 0.7) * 100 : settings.signals?.minPop;
-  const scoreOk = Number.isFinite(score) && score >= (settings.signals?.minScore || 82);
-  const popOk = Number.isFinite(pop) && pop >= minPop;
-  if (!signal || blockers.length) return { decision: 'NO_TRADE', auditStatus: 'REJECTED', priority: 'LOW', blockers };
-  if (scoreOk && popOk && signal.geminiGuardian?.decision === 'APPROVE') return { decision: 'APPROVED', auditStatus: 'APPROVED', priority: 'HIGH', blockers };
-  if (scoreOk || popOk) return { decision: 'WATCHLIST', auditStatus: 'NEEDS_HUMAN_REVIEW', priority: 'MEDIUM', blockers: ['Requiere confirmacion final de cadena, guards y Gemini Guardian.'] };
-  return { decision: 'NO_TRADE', auditStatus: 'REJECTED', priority: 'LOW', blockers: ['Score o POP debajo del mandato.'] };
-}
-
-function buildSigmaAudit({ signal, scan, guards, settings }) {
-  const outcome = sigmaDecisionFor(signal, guards, settings);
-  const legs = (signal?.legs || []).map((leg) => ({
-    side: leg.side,
-    type: leg.type,
-    strike: leg.strike,
-    bid: leg.bid,
-    ask: leg.ask,
-    mid: leg.mid,
-    delta: leg.delta,
-    gamma: leg.gamma,
-    theta: leg.theta,
-    vega: leg.vega,
-    volume: leg.volume,
-    openInterest: leg.openInterest
-  }));
-  const score = Number(signal?.score);
-  return {
-    agent: 'VALIDO_GUARDIAN',
-    signal_id: signal?.id || 'dry-run-no-signal',
+app.get('/api/health', async (_request, response) => {
+  response.json({
+    ok: true,
+    app: '5 MILLIONS',
     timestamp: new Date().toISOString(),
-    market_regime: scan?.market?.regime || 'NO_TRADE',
-    decision: outcome.decision,
-    priority: outcome.priority,
-    symbol: signal?.ticker || signal?.symbol || 'NO_DATA',
-    underlying_price: Number(signal?.currentPrice) || null,
-    strategy: signal?.strategy || 'NO_TRADE',
-    direction: signal?.direction || 'NO_TRADE',
-    expiration: signal?.expiration || null,
-    dte: Number.isFinite(Number(signal?.dte)) ? Number(signal.dte) : null,
-    legs,
-    entry: {
-      limit_price: Number(signal?.creditDebit?.value) || null,
-      natural_price: null,
-      mid_price: Number(signal?.creditDebit?.value) || null,
-      max_slippage_allowed: null
-    },
-    risk: {
-      max_profit: Number(signal?.maxProfit) || null,
-      max_loss: Number(signal?.maxRisk ?? signal?.maxLoss) || null,
-      buying_power_required: Number(signal?.collateralRequired) || null,
-      risk_reward: Number.isFinite(Number(signal?.maxProfit)) && Number(signal?.maxRisk) > 0 ? Number((signal.maxProfit / signal.maxRisk).toFixed(2)) : null,
-      position_size_contracts: Number(signal?.maxRisk) > 0 && scan?.profile?.accountSize ? Math.max(0, Math.floor((scan.profile.accountSize * scan.profile.riskPct / 100) / signal.maxRisk)) : 0,
-      account_risk_percent: Number(signal?.maxRisk) > 0 && scan?.profile?.accountSize ? Number((signal.maxRisk / scan.profile.accountSize * 100).toFixed(2)) : null
-    },
-    probability: {
-      probability_of_profit: Number(signal?.popEstimated ?? signal?.probability) || null,
-      probability_source: signal?.source?.probability || 'DELTA_APPROX',
-      break_even: null
-    },
-    scores: {
-      technical_score: signal?.scoreFactors?.primaryTrend ?? null,
-      liquidity_score: signal?.scoreFactors?.optionsLiquidity ?? null,
-      volatility_score: signal?.scoreFactors?.volatilityEdge ?? null,
-      news_score: signal?.scoreFactors?.newsEarningsMacro ?? null,
-      earnings_risk_score: guards?.earnings?.status === 'clear' ? 10 : 0,
-      risk_score: signal?.scoreFactors?.riskRewardSizing ?? null,
-      final_score: Number.isFinite(score) ? score : null
-    },
-    evidence: [
-      signal?.reason,
-      `Macro Guard: ${guards?.macro?.status || 'unavailable'} - ${guards?.macro?.detail || ''}`,
-      `News Guard: ${guards?.news?.status || 'unavailable'} - ${guards?.news?.detail || ''}`,
-      `Earnings Guard: ${guards?.earnings?.status || 'unavailable'} - ${guards?.earnings?.detail || ''}`
-    ].filter(Boolean),
-    blockers: outcome.blockers,
-    trade_management: {
-      take_profit: signal?.closeAlert || 'TP 40%-60% si se valida en broker.',
-      stop_loss: signal?.closeAlert || 'Stop por precio del spread o invalidacion tecnica.',
-      adjustment_plan: 'No ajustar sin recalcular max loss, bid/ask y evento macro/news.',
-      close_before_earnings: guards?.earnings?.status !== 'clear',
-      invalidation_level: null
-    },
-    gemini_audit: {
-      status: outcome.auditStatus,
-      confidence: signal?.geminiGuardian?.confidence ?? (outcome.decision === 'NO_TRADE' ? 35 : 60),
-      data_freshness_seconds: scan?.asOf ? Math.max(0, Math.round((Date.now() - new Date(scan.asOf).getTime()) / 1000)) : null,
-      hallucination_check: signal?.geminiGuardian?.decision === 'APPROVE' ? 'PASSED' : 'FAILED',
-      reason: signal?.geminiGuardian?.summary || outcome.blockers[0] || 'Dry-run deterministic Valido Guardian audit.'
-    }
-  };
-}
-
-export function createApp(settings = config, customProviders = null, options = { startBackground: true }) {
-  const app = express();
-  app.set('trust proxy', 1);
-  const providers = customProviders || createProviders(settings);
-  const webScannerEnabled = settings.scanner?.runInWeb !== false;
-  const scheduler = new ScanScheduler({
-    providers,
-    settings,
-    useLock: options.useScanLock ?? options.startBackground !== false,
-    persistence: scanPersistence,
-    readPersisted: !webScannerEnabled,
-    stateServiceName: webScannerEnabled ? 'web-scanner' : null
+    configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), push: pushStatus().configured },
+    security: { requiresKey: config.security.requireAccessKey }
   });
-  const pushService = new GuardianPushService(settings.webPush || {}, new GuardianPushStore(repository));
-  const guardianScheduler = new GuardianScheduler({
-    scanScheduler: scheduler,
-    repository,
-    pushService,
-    enabled: settings.guardian?.enabled !== false,
-    regularMinutes: settings.agent?.refreshIntervalMinutes || 5
+});
+
+app.get('/api/config', requireAccess, (_request, response) => response.json(publicConfig()));
+
+app.get('/api/status', requireAccess, async (_request, response) => {
+  response.json({
+    app: '5 MILLIONS',
+    latestScan: latestScan ? { id: latestScan.id, generatedAt: latestScan.generatedAt, summary: latestScan.summary, source: latestScan.source } : null,
+    lastScanError,
+    integrations: publicConfig().integrations,
+    push: pushStatus(),
+    store: await getStoreStatus(),
+    scanner: { enabled: config.scanner.enabled, intervalMinutes: config.scanner.intervalMinutes, inFlight: Boolean(scanInFlight) }
   });
-  const paperAutopilot = new PaperAutopilot({ providers, settings });
-  const defaults = { ...settings.policy, holdings: {}, activeSymbols: [], dailyLossPct: 0, weeklyLossPct: 0, collateralUsedPct: 0, consecutiveDailyLosses: 0, riskMode: settings.policy?.defaultRiskMode || 'MODERATE_AGGRESSIVE', tradingPaused: false };
-  const defaultWatchlist = [...UNIVERSE.indices, ...UNIVERSE.magnificent7, ...UNIVERSE.focusEquities, ...UNIVERSE.liquidEtfs];
-  const runManualScan = async (mode) => {
-    const scan = await scheduler.run(true);
-    await scanPersistence.saveScan(scan, { mode, worker: 'web-manual' });
-    return scan;
-  };
+});
 
-  app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(cors({ origin: settings.clientOrigin, credentials: true }));
-  app.use(express.json({ limit: '64kb' }));
-  app.use('/api', (req, res, next) => {
-    res.set('Cache-Control', 'no-store');
-    const publicPaths = ['/health', '/auth/status', '/auth/login', '/auth/logout', '/push/public-key', '/ping'];
-    if (publicPaths.some((publicPath) => req.path === publicPath || req.path === `${publicPath}/`)) return next();
-    if (settings.security?.requireAccessKey && !settings.security?.accessKey) {
-      return res.status(503).json({
-        error: 'Private access is not configured',
-        detail: 'Set APP_ACCESS_KEY in the hosting environment before using Valido 1M.'
-      });
-    }
-    if (!settings.security?.accessKey) return next();
-    const headerAuthorized = safeTextEqual(settings.security.accessKey, req.get('x-valido-key'));
-    if (!headerAuthorized && !hasValidSession(req, settings)) {
-      return res.status(401).json({ error: 'Access key required' });
-    }
-    return next();
-  });
-  app.locals.scheduler = scheduler;
-  app.locals.guardianScheduler = guardianScheduler;
-  app.locals.pushService = pushService;
-  app.locals.paperAutopilot = paperAutopilot;
-  if (options.startBackground && settings.scanner?.enabled !== false && webScannerEnabled) {
-    scheduler.start();
-    guardianScheduler.start();
-  }
-  if (options.startBackground && settings.scanner?.enabled !== false && webScannerEnabled) paperAutopilot.start();
+app.get('/api/scan', requireAccess, (_request, response) => {
+  if (!latestScan) return response.status(404).json({ error: 'Todavía no hay una exploración. Pulsa Escanear ahora.' });
+  return response.json(latestScan);
+});
 
-  app.get('/api/health', (_req, res) => {
-    const accessRequired = Boolean(settings.security?.requireAccessKey);
-    const protectedAccess = Boolean(settings.security?.accessKey);
-    res.json({
-      ok: true,
-      app: 'VALIDO 1M',
-      env: process.env.NODE_ENV || 'development',
-      version: buildInfo.version,
-      buildTimestamp: buildInfo.timestamp,
-      startedAt: buildInfo.startedAt,
-      timestamp: new Date().toISOString(),
-      providers: providerHealth(settings, providers),
-      tradierPaper: typeof providers.tradierPaper?.status === 'function'
-        ? providers.tradierPaper.status()
-        : { configured: false, environment: 'paper' },
-      feeds: feedAvailability(settings),
-      mode: 'defined-risk-manual-review',
-      protected: protectedAccess,
-      accessRequired,
-      securityStatus: accessRequired && !protectedAccess ? 'configuration_required' : 'ready',
-      scannerMode: webScannerEnabled ? 'web_fallback' : 'background_worker_reader',
-      database: {
-        configured: Boolean(settings.database?.url),
-        ssl: Boolean(settings.database?.ssl),
-        connected: repository.mode === 'postgresql',
-        mode: repository.mode
-      },
-      render: {
-        detected: Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID),
-        warning: process.env.RENDER ? 'Render free/low-cost services can sleep; continuous alerts depend on plan and uptime.' : null
-      },
-      refreshSeconds: settings.refreshSeconds,
-      lastQuote: scheduler.latest?.market?.quotes?.find((quote) => Number.isFinite(quote.price))?.timestamp || scheduler.latest?.asOf || null,
-      lastOptionsChain: scheduler.latest?.collection?.latestSnapshotAt || scheduler.latest?.asOf || null,
-      lastNews: scheduler.latest?.macro?.news?.[0]?.datetime || scheduler.latest?.macro?.breakingRisk?.[0]?.datetime || null,
-      marketStatus: guardianScheduler.status(repository.mode).marketStatus || 'unknown',
-      lastChecked: new Date().toISOString(),
-      scheduler: {
-        running: Boolean(scheduler.timer),
-        scanning: Boolean(scheduler.running),
-        lastScan: scheduler.latest?.asOf || null,
-        lastError: scheduler.lastError
-      },
-      guardian: guardianScheduler.status(repository.mode),
-      agent: {
-        enabled: settings.agent?.enabled !== false,
-        name: settings.agent?.name || 'Gemini Guardian',
-        mode: settings.agent?.mode || 'gatekeeper',
-        refreshIntervalMinutes: settings.agent?.refreshIntervalMinutes || 5,
-        autoVerifySignals: Boolean(settings.agent?.autoVerifySignals),
-        aiDecisionEnabled: Boolean(typeof providers.ai?.status === 'function' ? providers.ai.status()?.automaticSignalDecision : false),
-        dailyAiBudget: settings.ai?.dailyTokenBudget,
-        aiUsedToday: typeof providers.ai?.status === 'function' ? providers.ai.status()?.budget?.tokensUsed : null,
-        requestsUsedToday: typeof providers.ai?.status === 'function' ? providers.ai.status()?.budget?.requestsUsed : null,
-        dailyAiBudgetOk: typeof providers.ai?.status === 'function' ? (providers.ai.status()?.budget?.usagePercent || 0) < settings.ai?.disableAllAtUsagePercent : true,
-        failsafeDeterministic: settings.agent?.failsafeDeterministic !== false && settings.ai?.fallbackToDeterministic !== false,
-        lastReviewAt: typeof providers.ai?.status === 'function' ? providers.ai.status()?.gatekeeper?.lastReviewAt : null,
-        nextReviewAt: guardianScheduler.status(repository.mode).nextScan
-      },
-      guards: {
-        macro: enabledLabel(settings.guards?.macroEnabled !== false),
-        news: enabledLabel(settings.guards?.newsEnabled !== false),
-        fed: enabledLabel(settings.guards?.fedEnabled !== false),
-        geopolitical: enabledLabel(settings.guards?.geopoliticalEnabled !== false),
-        earnings: enabledLabel(settings.guards?.earningsEnabled !== false)
-      },
-      signals: {
-        realSignalsOnly: Boolean(settings.signals?.realSignalsOnly),
-        requireAiConfirmation: Boolean(settings.signals?.requireAiConfirmation),
-        minScore: settings.signals?.minScore,
-        minPop: settings.signals?.minPop
-      },
-      webPush: { enabled: pushService.status().enabled, configured: pushService.status().configured }
-    });
-  });
-
-  app.get('/api/agent/status', async (_req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json(buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.use('/api', createScanDiagnosticsRouter({
-    scheduler,
-    persistence: scanPersistence,
-    providerHealth: () => providerHealth(settings, providers),
-    runNow: async () => ({ scan: await scheduler.run(true) })
-  }));
-
-  app.use('/api/risk', createRiskRouter({ scheduler, repository, providers }));
-  app.use('/api/symbol-study', createSymbolStudyRouter({ scheduler }));
-  app.use('/api/tradier', createTradierRouter({ scheduler, providers, paperAutopilot }));
-
-  app.get('/api/macro/guard', async (_req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
-      res.json({
-        ok: true,
-        guard: payload.guards.macro,
-        fed: payload.guards.fed,
-        earnings: payload.guards.earnings,
-        highImpactEvents: scan?.macro?.highImpactEvents || [],
-        softImpactEvents: scan?.macro?.softImpactEvents || [],
-        earningsCalendar: scan?.macro?.earnings || [],
-        asOf: scan.asOf
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get('/api/news/guard', async (_req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
-      res.json({
-        ok: true,
-        guard: payload.guards.news,
-        geopolitical: payload.guards.geopolitical,
-        breakingRisk: scan?.macro?.breakingRisk || [],
-        newsBlocks: scan?.macro?.newsBlocks || [],
-        companyNews: scan?.macro?.companyNews || [],
-        asOf: scan.asOf
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post('/api/agent/scan', async (_req, res, next) => {
-    try {
-      const scan = await runManualScan('agent-manual');
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json({
-        ...buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }),
-        scan: enriched
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post('/api/agent/verify-signal', async (req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
-      const candidate = req.body?.signal || firstSignalCandidate(payload, req.body?.signalId || req.body?.symbol);
-      const dryRun = req.body?.dryRun !== false;
-      const sigmaAudit = buildSigmaAudit({ signal: candidate, scan: enriched, guards: payload.guards, settings });
-      if (dryRun || !candidate) {
-        return res.json({
-          ok: true,
-          dryRun: true,
-          aiCalled: false,
-          review: sigmaAudit,
-          note: 'Dry-run deterministico: no consume Gemini ni envia notificacion.'
-        });
-      }
-      if (typeof providers.ai?.reviewSignal !== 'function') {
-        return res.json({
-          ok: true,
-          dryRun: false,
-          aiCalled: false,
-          review: { ...sigmaAudit, decision: 'NEEDS_HUMAN_REVIEW' },
-          note: 'AI router unavailable; deterministic failsafe returned.'
-        });
-      }
-      const review = await providers.ai.reviewSignal(candidate, enriched, { automatic: false, cycleKey: `manual-${Date.now()}` });
-      return res.json({
-        ok: true,
-        dryRun: false,
-        aiCalled: review.provider === 'gemini',
-        review,
-        sigmaAudit: {
-          ...sigmaAudit,
-          decision: review.decision === 'APPROVE' && review.entry_ok ? 'APPROVED' : review.decision === 'BLOCK' ? 'NO_TRADE' : 'NEEDS_HUMAN_REVIEW',
-          gemini_audit: {
-            ...sigmaAudit.gemini_audit,
-            status: review.decision === 'APPROVE' && review.entry_ok ? 'APPROVED' : review.decision === 'BLOCK' ? 'REJECTED' : 'NEEDS_HUMAN_REVIEW',
-            confidence: review.confidence,
-            hallucination_check: review.decision === 'APPROVE' && review.entry_ok ? 'PASSED' : 'FAILED',
-            reason: review.summary
-          }
-        }
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get('/api/signals', async (req, res, next) => {
-    try {
-      const includeRejected = String(req.query.includeRejected || '').toLowerCase() === 'true';
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      const payload = buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler });
-      res.json({
-        signals: payload.approvedSignals,
-        rejectedCandidates: includeRejected ? payload.rejectedCandidates : [],
-        marketDecision: payload.marketDecision,
-        guardStatus: payload.guardStatus,
-        asOf: scan.asOf
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post('/api/signals/:id/explain', async (req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      const payload = buildAgentPayload({ scan, settings, providers, guardianScheduler });
-      const signal = [...payload.approvedSignals, ...payload.rejectedCandidates].find((item) => item?.id === req.params.id);
-      if (!signal) return res.status(404).json({ error: 'Signal not found or expired' });
-      if (typeof providers.ai?.explainScan === 'function') {
-        return res.json(await providers.ai.explainScan({ ...scan, selectedSignal: signal }, { manual: true, automatic: false, purpose: 'signal_manual_explain' }));
-      }
-      return res.json({
-        provider: 'deterministic',
-        manualOnly: true,
-        summary: `${signal.ticker} ${signal.strategy}: revisa bid/ask, riesgo maximo ${signal.maxRisk ?? 'No disponible'}, POP estimada ${signal.popEstimated ?? 'No disponible'} y la invalidacion antes de copiarlo al broker.`,
-        note: 'La explicacion es deterministica porque no hay proveedor IA disponible.'
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get('/api/scan', async (_req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json(compactScanForClient({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) }));
-    } catch (error) {
-      next(error);
-    }
-  });
-  app.get('/api/auth/status', (req, res) => {
-    const required = Boolean(settings.security?.requireAccessKey || settings.security?.accessKey);
-    const configured = Boolean(settings.security?.accessKey);
-    res.json({
-      ok: true,
-      required,
-      configured,
-      authenticated: !required || (configured && hasValidSession(req, settings))
-    });
-  });
-
-  app.post('/api/auth/login', (req, res) => {
-    if (!settings.security?.accessKey) {
-      return res.status(settings.security?.requireAccessKey ? 503 : 400).json({ error: 'Private access is not configured' });
-    }
-    if (!safeTextEqual(settings.security.accessKey, req.body?.accessKey)) {
-      return res.status(401).json({ error: 'Clave privada incorrecta' });
-    }
-    const timestamp = Date.now();
-    res.cookie(AUTH_COOKIE, signedSession(timestamp, sessionSecret(settings)), {
-      httpOnly: true,
-      secure: req.secure,
-      sameSite: 'strict',
-      maxAge: AUTH_MAX_AGE_MS,
-      path: '/'
-    });
-    return res.json({ ok: true, authenticated: true });
-  });
-
-  app.post('/api/auth/logout', (req, res) => {
-    res.clearCookie(AUTH_COOKIE, {
-      httpOnly: true,
-      secure: req.secure,
-      sameSite: 'strict',
-      path: '/'
-    });
-    res.json({ ok: true, authenticated: false });
-  });
-
-  app.get('/api/worker/status', async (_req, res, next) => {
-    try {
-      const fallbackSession = getMarketSessionET();
-      let marketOpen = ['OPENING_NOISE', 'MORNING_PRIME', 'MIDDAY', 'AFTERNOON_PRIME', 'POWER_HOUR', 'FINAL_GAMMA_WINDOW'].includes(fallbackSession.phase);
-      let marketState = fallbackSession.phase;
-      if (typeof providers.tradier?.getMarketClock === 'function') {
-        const clock = await providers.tradier.getMarketClock().catch(() => null);
-        if (clock?.state) {
-          marketState = clock.state;
-          marketOpen = clock.state === 'open';
-        }
-      }
-      const serviceName = webScannerEnabled ? 'web-scanner' : 'scanner-worker';
-      const state = await scanPersistence.workerState(serviceName, { marketOpen });
-      res.json({ ok: true, ...state, marketOpen, marketState });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get('/api/account/status', async (_req, res, next) => {
-    try {
-      const account = typeof providers.tradier?.getAccountSnapshot === 'function'
-        ? await providers.tradier.getAccountSnapshot()
-        : { status: 'NOT_CONFIGURED', error: 'Tradier is not configured.' };
-      res.json({
-        ok: account.status === 'ONLINE',
-        status: account.status,
-        source: account.source,
-        readOnly: true,
-        accountIdMasked: account.accountIdMasked || null,
-        accountType: account.accountType || null,
-        positionCount: account.positions?.length || 0,
-        asOf: account.asOf || null,
-        error: account.error || null,
-        orderExecutionEnabled: false
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post('/api/scan', async (_req, res, next) => {
-    try {
-      const scan = await runManualScan('api-manual');
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json(compactScanForClient({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) }));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post('/api/scan/refresh', async (_req, res, next) => {
-    try {
-      const scan = await runManualScan('api-refresh');
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json(compactScanForClient({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) }));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get('/api/watchlist', async (_req, res, next) => {
-    try {
-      res.json(await repository.getWatchlist(defaultWatchlist));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put('/api/watchlist', async (req, res, next) => {
-    try {
-      if (!Array.isArray(req.body.symbols)) return res.status(400).json({ error: 'symbols array required' });
-      cache.clear();
-      const watchlist = await repository.saveWatchlist(req.body.symbols);
-      if (webScannerEnabled) scheduler.run(true).catch(() => {});
-      return res.json(watchlist);
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  app.get('/api/profile', async (_req, res, next) => {
-    try {
-      res.json(await repository.getRiskProfile(defaults));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put('/api/profile', async (req, res, next) => {
-    try {
-      cache.clear();
-      const profile = await repository.saveRiskProfile(req.body || {}, defaults);
-      if (webScannerEnabled) scheduler.run(true).catch(() => {});
-      res.json(profile);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get('/api/explainers', (_req, res) => res.json(explainers));
-
-  app.get('/api/ai/status', (_req, res) => {
-    res.json(typeof providers.ai?.status === 'function' ? providers.ai.status() : {
-      configured: Boolean(providers.openai?.configured),
-      enabled: false,
-      automaticCalls: false
-    });
-  });
-
-  app.post('/api/ai/explain', async (_req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      if (typeof providers.ai?.explainScan === 'function') {
-        return res.json(await providers.ai.explainScan(scan, { manual: true, automatic: false, purpose: 'manual_explain' }));
-      }
-      return res.status(503).json({ error: 'AI router unavailable' });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  app.post('/api/ai/test-gemini', async (_req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      if (typeof providers.ai?.testGemini === 'function') return res.json(await providers.ai.testGemini(scan));
-      return res.status(503).json({ error: 'AI router unavailable' });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  app.get('/api/gemini/guardian-brief', async (_req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      if (typeof providers.ai?.explainScan === 'function') {
-        return res.json(await providers.ai.explainScan(scan, { manual: true, automatic: false, purpose: 'guardian_brief' }));
-      }
-      return res.json({ provider: 'deterministic', summary: scan.summary || 'No hay brief disponible.', scanAsOf: scan.asOf });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post('/api/gemini/review-signal', async (req, res, next) => {
-    try {
-      const scan = await scheduler.snapshot();
-      const signal = req.body?.signal || (scan.opportunities || [])[0] || (scan.rejected || [])[0];
-      if (!signal) return res.status(404).json({ error: 'No signal available to review' });
-      if (typeof providers.ai?.reviewSignal !== 'function') {
-        return res.json({ provider: 'deterministic', aiStatus: 'UNAVAILABLE', aiReason: 'Gemini unavailable, deterministic engine used', signal });
-      }
-      return res.json(await providers.ai.reviewSignal(signal, scan, { automatic: false, cycleKey: `manual-${Date.now()}` }));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post('/api/gemini/review-position', async (req, res, next) => {
-    try {
-      const { analyzePositionRisk } = await import('./services/positionRiskAnalyzer.js');
-      const scan = await scheduler.snapshot();
-      const risk = analyzePositionRisk(req.body || {}, scan.market || {});
-      res.json({ provider: 'deterministic', aiStatus: 'FALLBACK', risk, note: 'Read-only position review. No order execution.' });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get('/api/collection', async (_req, res, next) => {
-    try {
-      res.json(await repository.collectionStats());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get('/api/journal', async (_req, res, next) => {
-    try {
-      res.json(await repository.listJournal());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post('/api/journal', async (req, res, next) => {
-    try {
-      if (!req.body?.symbol || !req.body?.strategy) return res.status(400).json({ error: 'symbol and strategy required' });
-      return res.status(201).json(await repository.addJournal(req.body));
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  app.use('/api/guardian', createGuardianRouter({ guardianScheduler, repository }));
-  app.use('/api/push', createPushRouter({ pushService }));
-  app.use('/api/positions', positionsRoutes);
-  app.use('/api/gemini', geminiAssistantRouter);
-
-  app.get('/api/status', async (_req, res) => {
-    try {
-      const status = await getSystemStatus();
-      res.json(status);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get('/api/doctor', async (_req, res) => {
-    try {
-      const status = await getSystemStatus();
-      res.json(status);
-    } catch (err) {
-      res.json({ ok: false, services: [], warnings: [err.message], timestamp: new Date().toISOString() });
-    }
-  });
-
-  app.get('/api/debug/env', (_req, res) => {
-    res.json({
-      nodeEnv: process.env.NODE_ENV || 'development',
-      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
-      hasTradierToken: Boolean(process.env.TRADIER_TOKEN),
-      hasPolygonKey: Boolean(process.env.POLYGON_API_KEY),
-      hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
-      hasVapidKeys: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
-      hasAccessKey: Boolean(settings.security?.accessKey),
-      port: config.port,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  app.get('/api/ping', (_req, res) => res.json({ pong: true, timestamp: new Date().toISOString() }));
-
-  async function serveMarketSentiment(_req, res) {
-    const fallback = (warnings = []) => ({
-      ok: true,
-      overall: 'SIN DATOS',
-      bias: 'NEUTRAL',
-      confidence: null,
-      details: 'Sentimiento real pendiente de datos de mercado.',
-      warnings,
-      timestamp: new Date().toISOString()
-    });
-    const warnings = [];
-    try {
-      const scan = await scheduler.snapshot();
-      const market = scan?.market || {};
-      const spyQuote = (market.quotes || []).find((quote) => quote.symbol === 'SPY');
-      const t = market.technicals?.SPY;
-      if (t) {
-        let overall = 'NEUTRAL';
-        let bias = 'NEUTRAL';
-        if (t.trend === 'bullish') { overall = 'BULLISH'; bias = 'ALCISTA'; }
-        else if (t.trend === 'bearish') { overall = 'BEARISH'; bias = 'BAJISTA'; }
-        else if (t.trend === 'range') { overall = 'RANGE'; bias = 'NEUTRAL'; }
-        return res.json({
-          ok: true,
-          overall,
-          bias,
-          confidence: 70,
-          vix: market.vix ?? null,
-          spyChange: spyQuote?.changePercent ?? null,
-          technicals: { rsi: t.rsi14 ?? null, vwapBias: t.vwapBias ?? null },
-          details: `SPY ${t.trend}, RSI ${t.rsi14}, VWAP ${t.vwapBias}, VIX ${market.vix ?? 'N/A'}`,
-          warnings,
-          timestamp: new Date().toISOString()
-        });
-      }
-      if (!(market.quotes || []).length) warnings.push('No market data from scan engine');
-      res.json(fallback(warnings));
-    } catch (err) {
-      warnings.push(`Scan engine: ${err?.message || 'unknown error'}`);
-      res.json(fallback(warnings));
-    }
-  }
-  app.get('/api/market/sentiment', serveMarketSentiment);
-  app.get('/api/market-sentiment', serveMarketSentiment);
-  app.get('/api/sentiment', serveMarketSentiment);
-
-  app.get('/api/debug/providers', (_req, res) => {
-    res.json({
-      ok: true,
-      env: {
-        tradier: Boolean(process.env.TRADIER_TOKEN),
-        gemini: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
-        polygon: Boolean(process.env.POLYGON_API_KEY),
-        alphaVantage: Boolean(process.env.ALPHA_VANTAGE_API_KEY),
-        database: Boolean(process.env.DATABASE_URL)
-      },
-      providers: [
-        { name: 'tradier', required: true, ok: Boolean(providers?.tradier?.configured), message: providers?.tradier?.configured ? 'configured' : 'missing' },
-        { name: 'gemini', required: false, ok: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY), message: (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? 'configured' : 'GEMINI_API_KEY missing' },
-        { name: 'polygon', required: false, ok: Boolean(process.env.POLYGON_API_KEY), message: process.env.POLYGON_API_KEY ? 'configured' : 'POLYGON_API_KEY missing' }
-      ],
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  app.get('/api/debug/polygon', async (_req, res) => {
-    const apiKey = process.env.POLYGON_API_KEY;
-    if (!apiKey) {
-      return res.json({
-        ok: false,
-        configured: false,
-        testedTicker: 'SPY',
-        status: null,
-        message: 'POLYGON_API_KEY missing',
-        sampleResultsCount: null,
-        timestamp: new Date().toISOString()
-      });
-    }
-    try {
-      const today = new Date();
-      const to = today.toISOString().slice(0, 10);
-      const fromDate = new Date(today.getTime() - 10 * 24 * 60 * 60 * 1000);
-      const from = fromDate.toISOString().slice(0, 10);
-      const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent('SPY')}/range/1/day/${from}/${to}?adjusted=true&sort=desc&limit=5&apiKey=${apiKey}`;
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      const json = await r.json().catch(() => ({}));
-      const results = json?.results;
-      res.json({
-        ok: r.ok,
-        configured: true,
-        testedTicker: 'SPY',
-        status: r.status,
-        message: r.ok ? 'operational' : `HTTP ${r.status}`,
-        sampleResultsCount: Array.isArray(results) ? results.length : null,
-        timestamp: new Date().toISOString()
-      });
-    } catch (err) {
-      res.json({
-        ok: false,
-        configured: true,
-        testedTicker: 'SPY',
-        status: null,
-        message: err?.message || 'Polygon request failed',
-        sampleResultsCount: null,
-        timestamp: new Date().toISOString()
-      });
-    }
-  });
-
-  app.post('/api/refresh', async (_req, res, next) => {
-    try {
-      const scan = await runManualScan('api-refresh');
-      const enriched = { ...scan, guardianStatus: guardianScheduler.status(repository.mode) };
-      res.json(compactScanForClient({ ...enriched, agent: buildAgentPayload({ scan: enriched, settings, providers, guardianScheduler }) }));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.use((error, _req, res, _next) => {
-    const status = error.status && error.status >= 400 ? error.status : 503;
-    res.status(status).json({
-      error: 'Market intelligence request failed',
-      detail: error.message,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  return app;
-}
-
-export async function startServer() {
-  const app = createApp();
-  const dist = path.resolve('dist');
+app.post('/api/scan', requireAccess, async (_request, response) => {
   try {
-    await access(path.join(dist, 'institutional-os.html'));
-    app.use(express.static(dist, {
-      setHeaders(res, filePath) {
-        if (/(institutional-os\.html|sw\.js|manifest\.webmanifest)$/.test(filePath)) {
-          res.setHeader('Cache-Control', 'no-store');
-        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        }
-      }
-    }));
-    app.get('/', (_req, res) => res.redirect('/institutional-os.html'));
-    app.get(['/archivo', '/laboratorio', '/dev', '/signals/:id'], (_req, res) => {
-      res.setHeader('Cache-Control', 'no-store');
-      res.sendFile(path.join(dist, 'institutional-os.html'));
-    });
-    // Catch-all SPA fallback — Express 5 uses /{*path} not *
-    app.get('/{*path}', (req, res, next) => {
-      if (req.path.startsWith('/api')) return next();
-      res.setHeader('Cache-Control', 'no-store');
-      res.sendFile(path.join(dist, 'institutional-os.html'));
-    });
-  } catch {
-    app.get('/', (_req, res) => res.json({
-      service: 'Valido 1M API',
-      message: 'Run npm run dev for the React client or npm run build before production start.'
-    }));
-    app.get('/{*path}', (req, res, next) => {
-      if (req.path.startsWith('/api')) return next();
-      res.json({ service: 'Valido 1M API', note: 'Frontend not built. Run npm run build.' });
-    });
+    const scan = await runScan('manual');
+    return response.json(scan);
+  } catch (error) {
+    return response.status(503).json({ error: error.message, integrations: publicConfig().integrations });
   }
-  return app.listen(config.port, config.host, () => {
-    console.log(`Valido 1M API listening on http://${config.host}:${config.port}`);
+});
+
+app.get('/api/notifications/public-key', requireAccess, (_request, response) => response.json({ configured: pushStatus().configured, publicKey: pushStatus().publicKey }));
+
+app.post('/api/notifications/subscribe', requireAccess, async (request, response) => {
+  try {
+    const count = await savePushSubscription(request.body);
+    return response.json({ ok: true, subscriptions: count });
+  } catch (error) {
+    return response.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/notifications/test', requireAccess, async (_request, response) => {
+  try { return response.json({ ok: true, ...(await sendTestPush()) }); }
+  catch (error) { return response.status(400).json({ error: error.message }); }
+});
+
+async function runScan(reason = 'timer') {
+  if (scanInFlight) return scanInFlight;
+  scanInFlight = (async () => {
+    try {
+      if (!isTradierConfigured()) throw new Error('TRADIER_TOKEN no está configurado. Añádelo en Render o en .env.');
+      const scan = await scanMarket({ tradier, gemini });
+      latestScan = scan;
+      lastScanError = null;
+      await saveScan(scan);
+      for (const signal of scan.signals.filter((item) => item.status === 'READY')) {
+        lastPushResult = await notifyReadySignal(signal, config.publicBaseUrl);
+      }
+      console.info(`[5M] Scan ${reason}: ${scan.summary.ready} READY, ${scan.summary.watch} WATCH, ${scan.durationMs}ms`);
+      return scan;
+    } catch (error) {
+      lastScanError = { message: error.message, at: new Date().toISOString() };
+      console.error(`[5M] Scan ${reason} falló: ${error.message}`);
+      throw error;
+    } finally {
+      scanInFlight = null;
+    }
+  })();
+  return scanInFlight;
+}
+
+export { runScan };
+
+const distPath = path.join(config.root, 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.use((request, response, next) => {
+    if (request.path.startsWith('/api/')) return next();
+    return response.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))) {
-  startServer();
+if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
+  app.listen(config.port, config.host, () => {
+    console.info(`[5M] http://${config.host}:${config.port} · Tradier ${isTradierConfigured() ? 'configurado' : 'no configurado'} · Gemini ${isGeminiConfigured() ? 'configurado' : 'no configurado'}`);
+  });
+  if (config.scanner.enabled && isTradierConfigured()) {
+    const intervalMs = config.scanner.intervalMinutes * 60000;
+    setTimeout(() => runScan('startup').catch(() => {}), 5000);
+    setInterval(() => runScan('timer').catch(() => {}), intervalMs);
+  }
 }
