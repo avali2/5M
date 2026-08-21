@@ -1,14 +1,10 @@
 import { config } from '../config.js';
 import { fetchJson, finite, round, toArray } from './http.js';
 
-function assertConfigured() {
-  if (!config.tradier.token) throw new Error('TRADIER_TOKEN no está configurado en el servidor.');
-}
-
-function authHeaders(extra = {}) {
-  assertConfigured();
+function authHeaders(token, extra = {}) {
+  if (!token) throw new Error('TRADIER_TOKEN no está configurado en el servidor.');
   return {
-    Authorization: `Bearer ${config.tradier.token}`,
+    Authorization: `Bearer ${token}`,
     Accept: 'application/json',
     ...extra
   };
@@ -70,7 +66,7 @@ export class TradierClient {
       if (value !== undefined && value !== null && value !== '') params.set(key, value);
     }
     const url = `${this.settings.baseUrl}${path}${params.toString() ? `?${params}` : ''}`;
-    return fetchJson(url, { headers: authHeaders() });
+    return fetchJson(url, { headers: authHeaders(this.settings.token) });
   }
 
   async getMarketClock() {
