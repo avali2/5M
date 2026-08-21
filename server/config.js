@@ -35,7 +35,9 @@ export const config = {
   },
   tradier: {
     token: process.env.TRADIER_TOKEN || process.env.TRADIER_ACCESS_TOKEN || '',
-    baseUrl: (process.env.TRADIER_BASE_URL || 'https://api.tradier.com/v1').replace(/\/$/, ''),
+    baseUrl: (process.env.TRADIER_BASE_URL || (asBool(process.env.TRADIER_SANDBOX, false)
+      ? 'https://sandbox.tradier.com/v1'
+      : 'https://api.tradier.com/v1')).replace(/\/$/, ''),
     sandbox: asBool(process.env.TRADIER_SANDBOX, false)
   },
   gemini: {
