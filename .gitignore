@@ -1,8 +1,10 @@
 node_modules/
 dist/
 .env
-.env.local
+.env.*
+!.env.example
 data/*.json
-!data/.gitkeep
-.data/
-npm-debug.log*
+data/*.db
+project_sources/
+*.log
+.DS_Store
