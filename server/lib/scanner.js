@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { buildMultiTimeframeContext } from './indicators.js';
 import { marketRiskFallback } from './gemini.js';
 import { finite, round } from './http.js';
+import { selectRotatingUniverse, universeCatalog } from './universe.js';
 
 const DAY = 86400000;
 
@@ -413,26 +414,34 @@ function candidateForReview(candidate) {
 export async function scanMarket({
   tradier,
   gemini,
-  symbols = config.watchlist.core,
+  symbols = null,
   prioritySymbols = config.watchlist.priority,
+  contextIndices = config.watchlist.contextIndices,
   policy = config.policy,
   maxSymbols = config.watchlist.maxSymbolsPerScan,
   realtimeEntitled = config.tradier.realtimeEntitled,
+  learningContext = null,
   now = new Date()
 } = {}) {
   const startedAt = Date.now();
   if (!tradier) throw new Error('Tradier client is required.');
   const activePolicy = completePolicy(policy);
   const priority = [...new Set(prioritySymbols.map((symbol) => String(symbol).toUpperCase()))];
-  const requested = [...new Set(symbols.map((symbol) => String(symbol).toUpperCase()))];
+  const selectedSymbols = symbols || selectRotatingUniverse({ maxSymbols, now });
+  const requested = [...new Set(selectedSymbols.map((symbol) => String(symbol).toUpperCase()))];
   const universe = [...requested.filter((symbol) => priority.includes(symbol)), ...requested.filter((symbol) => !priority.includes(symbol))].slice(0, maxSymbols);
+  const contextIndexSymbols = [...new Set((contextIndices || []).map((symbol) => String(symbol).toUpperCase()))];
+  const catalog = universeCatalog();
   const clock = await tradier.getMarketClock();
   const marketOpen = String(clock?.state || '').toLowerCase() === 'open';
   const marketRiskPromise = typeof gemini?.reviewMarketRisk === 'function'
-    ? gemini.reviewMarketRisk({ symbols: universe, prioritySymbols: priority, marketClock: clock, now })
+    ? gemini.reviewMarketRisk({ symbols: catalog.allSignalSymbols, prioritySymbols: priority, contextIndices: contextIndexSymbols, marketClock: clock, now })
       .catch((error) => marketRiskFallback(error, { configured: Boolean(gemini?.configured ?? true), now }))
     : Promise.resolve(marketRiskFallback(new Error('Gemini no implementa la revisión de noticias.'), { configured: false, now }));
-  const quotes = await tradier.getQuotes(universe);
+  const [quotes, contextIndexQuotes] = await Promise.all([
+    tradier.getQuotes(universe),
+    contextIndexSymbols.length ? tradier.getQuotes(contextIndexSymbols).catch(() => []) : Promise.resolve([])
+  ]);
   const quoteMap = new Map(quotes.map((quote) => [quote.symbol, quote]));
   const perSymbolPromise = mapWithConcurrency(universe, 3, async (symbol) => {
     const errors = [];
@@ -502,7 +511,9 @@ export async function scanMarket({
       realtimeEntitled: Boolean(realtimeEntitled),
       generatedAt: new Date(now).toISOString(),
       policy: activePolicy,
-      marketRisk
+      marketRisk,
+      contextIndices: contextIndexQuotes,
+      learning: learningContext?.usable ? learningContext : { usable: false, warning: 'Sin muestra validada; no inferir ventaja histórica.' }
     });
   } catch (error) {
     geminiResult = { configured: Boolean(gemini?.configured ?? true), ok: false, error: error.message, reviews: [], marketNote: '' };
@@ -517,9 +528,13 @@ export async function scanMarket({
   });
   const ready = sorted.filter((candidate) => candidate.status === 'READY').slice(0, activePolicy.maxDailySignals);
   const readyIds = new Set(ready.map((candidate) => candidate.id));
-  const signals = sorted.map((candidate) => readyIds.has(candidate.id) ? candidate : { ...candidate, status: candidate.status === 'READY' ? 'WATCH' : candidate.status });
+  const scanId = `scan-${new Date(now).getTime()}`;
+  const signals = sorted.map((candidate) => {
+    const signal = readyIds.has(candidate.id) ? candidate : { ...candidate, status: candidate.status === 'READY' ? 'WATCH' : candidate.status };
+    return { ...signal, instanceId: `${scanId}:${signal.id}` };
+  });
   return {
-    id: `scan-${new Date(now).getTime()}`,
+    id: scanId,
     generatedAt: new Date(now).toISOString(),
     durationMs: Date.now() - startedAt,
     source: 'Tradier',
@@ -530,9 +545,10 @@ export async function scanMarket({
       intradayInterval: '5min',
       historicalTimeframes: ['5m', '15m', '1h', '1D', '1W']
     },
-    market: { marketOpen, clock, state: clock?.state || 'unknown' },
+    market: { marketOpen, clock, state: clock?.state || 'unknown', contextIndices: contextIndexQuotes },
     marketRisk,
     universe,
+    universeCatalog: catalog,
     prioritySymbols: priority,
     magnificentSeven: config.watchlist.magnificentSeven,
     policy: activePolicy,
@@ -545,6 +561,11 @@ export async function scanMarket({
       error: geminiResult?.error || null,
       reviewedCandidates: reviewSet.length,
       groundedSources: marketRisk?.sources?.length || 0
+    },
+    learning: {
+      usedByGemini: Boolean(learningContext?.usable),
+      minimumSampleGuard: config.learning.minimumValidatedSamples,
+      warning: 'El aprendizaje histórico solo puede endurecer la revisión; nunca convierte por sí solo una señal en READY.'
     },
     signals,
     errors,
@@ -561,6 +582,7 @@ export async function scanMarket({
       'Ninguna señal ni POP garantiza ganancias. El sistema puede perder el riesgo máximo indicado.',
       'Las señales READY requieren mercado abierto, noticias CLEAR con fuentes, datos frescos, tiempo real confirmado, tamaño permitido y aprobación de Gemini.',
       'La app genera señales para ejecución manual; no envía órdenes a Robinhood ni a Tradier.',
+      'SPX, NDX, RUT y VIX se usan como contexto. Las señales operables se generan sobre acciones y ETF para evitar mezclar reglas de liquidación de índices.',
       'Revalida precio, crédito, noticias y poder de compra justo antes de enviar la orden.'
     ]
   };

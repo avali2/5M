@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "concurrently \"vite --host 127.0.0.1\" \"node --watch server/index.js\"",
     "dev:api": "node --watch server/index.js",

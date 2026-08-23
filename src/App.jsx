@@ -16,11 +16,13 @@ async function request(path, options = {}) {
 }
 
 function money(value, digits = 2) {
+  if (value === null || value === undefined || value === '') return '—';
   const number = Number(value);
   return Number.isFinite(number) ? `$${number.toFixed(digits)}` : '—';
 }
 
 function percent(value, digits = 0) {
+  if (value === null || value === undefined || value === '') return '—';
   const number = Number(value);
   return Number.isFinite(number) ? `${(number * 100).toFixed(digits)}%` : '—';
 }
@@ -116,7 +118,7 @@ function Timeframes({ technical }) {
   return <div className="timeframes">{Object.entries(technical?.timeframes || {}).map(([key, item]) => <div className={`timeframe tf-${item.sufficient ? item.trend : 'missing'}`} key={key}><span>{item.label}</span><strong>{item.sufficient ? item.trend === 'bullish' ? 'ALCISTA' : item.trend === 'bearish' ? 'BAJISTA' : 'NEUTRAL' : 'SIN DATA'}</strong><small>RSI {item.rsi14 ?? '—'}</small></div>)}</div>;
 }
 
-function SignalCard({ signal, marketRisk }) {
+function SignalCard({ signal, marketRisk, onFeedback, feedbackBusy }) {
   const ready = signal.status === 'READY';
   const review = signal.aiReview;
   const contracts = signal.sizing?.contractsAtWorstRisk || 0;
@@ -144,9 +146,19 @@ function SignalCard({ signal, marketRisk }) {
       <div className="plan-box exit"><span className="plan-label">SALIDA Y PROTECCIÓN</span><p className="strong-line">{signal.executionPlan?.takeProfit}</p><p>{signal.executionPlan?.stopLoss}</p><p>{signal.executionPlan?.timeStop}</p><p>{signal.executionPlan?.assignmentRule}</p></div>
     </div>
     <div className="signal-bottom"><div className="greeks"><span>Spread:</span> Δ {signal.greeks?.delta ?? '—'} · Γ {signal.greeks?.gamma ?? '—'} · Θ {signal.greeks?.theta ?? '—'} · Vega {signal.greeks?.vega ?? '—'} · IV {signal.iv ?? '—'}</div><button className="quiet-btn" onClick={() => copyOrder(signal, marketRisk)}>Copiar orden</button></div>
+    <div className="feedback-row"><div><strong>Enséñale al bot</strong><span>Registra lo que realmente ocurrió en Robinhood.</span></div><div className="feedback-actions"><button disabled={feedbackBusy} onClick={() => onFeedback(signal, 'TAKEN')}>La tomé</button><button disabled={feedbackBusy} onClick={() => onFeedback(signal, 'SKIPPED')}>La omití</button><button className="win" disabled={feedbackBusy} onClick={() => onFeedback(signal, 'WIN')}>Ganó</button><button className="loss" disabled={feedbackBusy} onClick={() => onFeedback(signal, 'LOSS')}>Perdió</button><button disabled={feedbackBusy} onClick={() => onFeedback(signal, 'BREAKEVEN')}>Break-even</button></div></div>
     {review && <div className="ai-review"><div><span className="ai-chip">GEMINI {review.confidence}% · {review.decision}</span><strong>{review.summary}</strong></div><div className="ai-plan"><span><b>Entrada IA:</b> {review.entryTrigger}</span><span><b>Salida IA:</b> {review.takeProfit}</span><span><b>Invalidación:</b> {review.stopLoss}</span><span><b>Manejo:</b> {review.management}</span></div>{review.riskFlags?.length > 0 && <div className="risk-flags">{review.riskFlags.map((risk) => <span key={risk}>⚠ {risk}</span>)}</div>}</div>}
     {!ready && signal.readiness?.reasons?.length > 0 && <div className="blocked-note"><strong>Por qué esperar:</strong> {signal.readiness.reasons.join(' · ')}</div>}
   </article>;
+}
+
+function LearningPanel({ learning }) {
+  const overall = learning?.overall || {};
+  return <section className="side-card learning-card"><div className="side-title"><h3>Aprendizaje</h3><span>{overall.sampleSize || 0}</span></div><p>{learning?.message || 'Cargando historial…'}</p><div className="learning-metrics"><Metric label="Resultados cerrados" value={overall.sampleSize ?? 0} /><Metric label="Tasa ganadora" value={overall.winRate === null || overall.winRate === undefined ? '—' : percent(overall.winRate, 1)} tone="green-text" /><Metric label="P/L registrado" value={overall.totalPnlUsd === null || overall.totalPnlUsd === undefined ? '—' : money(overall.totalPnlUsd)} tone={Number(overall.totalPnlUsd) < 0 ? 'red-text' : 'green-text'} /><Metric label="Estado" value={overall.status === 'VALIDATED' ? 'VALIDADO' : overall.status === 'EARLY' ? 'MUESTRA TEMPRANA' : 'SIN DATOS'} /></div>{learning?.bySymbol?.length > 0 && <div className="learning-list"><strong>Por símbolo</strong>{learning.bySymbol.slice(0, 6).map((item) => <div key={item.key}><span>{item.key} · {item.sampleSize}</span><b>{percent(item.winRate, 0)}</b></div>)}</div>}<p className="tiny">Gemini solo recibe segmentos con al menos {learning?.minimumValidatedSamples || 20} resultados cerrados. El historial nunca puede aprobar una señal por sí solo.</p></section>;
+}
+
+function IndexContext({ quotes = [] }) {
+  return <section className="side-card"><div className="side-title"><h3>Índices de contexto</h3><span>{quotes.length}</span></div><p>SPX, NDX, RUT y VIX orientan el régimen. No se convierten automáticamente en órdenes.</p><div className="index-grid">{quotes.length ? quotes.map((quote) => <div key={quote.symbol}><strong>{quote.symbol}</strong><span>{money(quote.price)}</span><small className={Number(quote.changePct) < 0 ? 'red-text' : 'green-text'}>{quote.changePct === null || quote.changePct === undefined || !Number.isFinite(Number(quote.changePct)) ? '—' : `${Number(quote.changePct).toFixed(2)}%`}</small></div>) : <span className="tiny">Se cargarán en la próxima revisión con Tradier.</span>}</div></section>;
 }
 
 function formatError(error) { return error?.message || String(error || 'Error desconocido'); }
@@ -160,15 +172,18 @@ function App() {
   const [error, setError] = useState('');
   const [gateError, setGateError] = useState('');
   const [pushMessage, setPushMessage] = useState('');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [learning, setLearning] = useState(null);
 
   const readySignals = useMemo(() => scan?.signals?.filter((signal) => signal.status === 'READY') || [], [scan]);
   const watchSignals = useMemo(() => scan?.signals?.filter((signal) => signal.status !== 'READY') || [], [scan]);
 
   async function loadAll() {
     setError('');
-    const [cfg, nextStatus] = await Promise.all([request('/api/config'), request('/api/status')]);
+    const [cfg, nextStatus, nextLearning, latest] = await Promise.all([request('/api/config'), request('/api/status'), request('/api/learning'), request('/api/scan').catch(() => null)]);
     setPublicCfg(cfg); setStatus(nextStatus);
-    const latest = await request('/api/scan').catch(() => null);
+    setLearning(nextLearning);
     if (latest) setScan(latest);
   }
 
@@ -232,6 +247,27 @@ function App() {
     catch (pushError) { setPushMessage(formatError(pushError)); }
   }
 
+  async function recordFeedback(signal, action) {
+    setFeedbackBusy(true); setFeedbackMessage('');
+    try {
+      let pnlUsd = null;
+      if (['WIN', 'LOSS', 'BREAKEVEN'].includes(action)) {
+        const entered = window.prompt('P/L real en dólares (opcional). Usa negativo para pérdida. Ejemplo: 18.50 o -22.00', '');
+        if (entered !== null && entered.trim() !== '') {
+          pnlUsd = Number(entered);
+          if (!Number.isFinite(pnlUsd)) throw new Error('El P/L debe ser un número válido.');
+          if (action === 'WIN' && pnlUsd < 0) throw new Error('Una ganadora no puede guardar un P/L negativo.');
+          if (action === 'LOSS' && pnlUsd > 0) throw new Error('Una perdedora no puede guardar un P/L positivo.');
+        }
+      }
+      const result = await request(`/api/signals/${encodeURIComponent(signal.id)}/feedback`, { method: 'POST', body: JSON.stringify({ instanceId: signal.instanceId, action, pnlUsd }) });
+      setLearning(result.learning);
+      setFeedbackMessage(`${signal.symbol}: resultado ${action} guardado.`);
+      setStatus(await request('/api/status'));
+    } catch (feedbackError) { setFeedbackMessage(formatError(feedbackError)); }
+    finally { setFeedbackBusy(false); }
+  }
+
   if (booting) return <div className="loading-screen"><div className="brand-mark">5M</div><p>Iniciando 5 MILLIONS…</p></div>;
   if (!publicCfg && gateError && (gateError.includes('Acceso protegido') || getKey())) return <KeyGate onSave={saveAccessKey} error={gateError} />;
 
@@ -239,13 +275,14 @@ function App() {
   return <div className="app-shell">
     <header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">5M</div><div><p className="eyebrow">OPTIONS SIGNAL ENGINE</p><h1>5 MILLIONS</h1></div></div><div className="top-actions"><Pill tone={scan?.market?.marketOpen ? 'green' : 'slate'}>{scan?.market?.marketOpen ? 'MERCADO ABIERTO' : 'MERCADO CERRADO'}</Pill><button className="primary-btn" onClick={scanNow} disabled={loading}>{loading ? 'Analizando…' : 'Revisar mercado'}</button></div></div></header>
     <main className="main-content">
-      <section className="hero"><div><p className="eyebrow blue">AMD · MSFT · SPY PRIMERO</p><h2>Una señal clara o ninguna operación.</h2><p className="hero-copy">Tradier aporta precios, cadenas y cinco temporalidades. El código define el spread y su riesgo. Gemini revisa noticias, Fed, política, guerras, earnings y la decisión final con fuentes.</p></div><div className="hero-note"><strong>Robinhood manual</strong><span>Put Credit Spreads primero · sin órdenes automáticas</span></div></section>
-      <section className="connections"><Connection label="Tradier" value={publicCfg?.integrations?.tradier} note={tradierMode === 'real-time-read-only' ? 'Tiempo real confirmado · lectura' : tradierMode === 'sandbox' ? 'Sandbox · no operar' : 'Entitlement real-time pendiente'} /><Connection label="Gemini" value={publicCfg?.integrations?.gemini} note={publicCfg?.integrations?.gemini ? 'Decisión estructurada activa' : 'Señales bloqueadas'} /><Connection label="Noticias" value={scan?.marketRisk?.coverageComplete} note={scan?.marketRisk ? `${scan.ai?.groundedSources || 0} fuentes · ${riskLabel(scan.marketRisk.status)}` : 'Sin lectura actual'} /><Connection label="Segundo plano" value={status?.scanner?.enabled} note={status?.scanner?.enabled ? `Cada ${status.scanner.intervalMinutes} min` : 'Desactivado'} /></section>
+      <section className="hero"><div><p className="eyebrow blue">AMD · MSFT · SPY PRIMERO</p><h2>Una señal clara o ninguna operación.</h2><p className="hero-copy">Tradier aporta precios, índices, cadenas y cinco temporalidades. El universo rota entre ETF de índices, las 7 Magníficas y líderes líquidos de opciones. Gemini revisa noticias y el historial validado sin alterar precios ni riesgo.</p></div><div className="hero-note"><strong>Robinhood manual</strong><span>Put Credit Spreads primero · sin órdenes automáticas</span></div></section>
+      <section className="connections"><Connection label="Tradier" value={publicCfg?.integrations?.tradier} note={tradierMode === 'real-time-read-only' ? 'Tiempo real confirmado · lectura' : tradierMode === 'sandbox' ? 'Sandbox · no operar' : 'Entitlement real-time pendiente'} /><Connection label="Gemini" value={publicCfg?.integrations?.gemini} note={publicCfg?.integrations?.gemini ? 'Decisión estructurada activa' : 'Señales bloqueadas'} /><Connection label="Noticias" value={scan?.marketRisk?.coverageComplete} note={scan?.marketRisk ? `${scan.ai?.groundedSources || 0} fuentes · ${riskLabel(scan.marketRisk.status)}` : 'Sin lectura actual'} /><Connection label="Base de datos" value={status?.store?.provider === 'sqlite'} note={status?.store?.provider === 'sqlite' ? `${status.store.signalsStored || 0} señales · ${status.store.feedbackEvents || 0} feedback` : 'No disponible'} /><Connection label="Segundo plano" value={status?.scanner?.enabled} note={status?.scanner?.enabled ? `Cada ${status.scanner.intervalMinutes} min` : 'Desactivado'} /></section>
       {error && <div className="error-banner">⚠ {error}</div>}
-      {pushMessage && <div className="info-banner">{pushMessage}</div>}
+      {pushMessage && <div className="info-banner" role="status">{pushMessage}</div>}
+      {feedbackMessage && <div className="info-banner" role="status">{feedbackMessage}</div>}
       <MarketRiskPanel risk={scan?.marketRisk} />
       <section className="summary-grid"><Metric label="Señales listas" value={readySignals.length} tone="green-text" /><Metric label="Esperar / rechazar" value={watchSignals.length} /><Metric label="Candidatos Gemini" value={scan?.ai?.reviewedCandidates ?? '—'} /><Metric label="Última lectura" value={scan ? dateTime(scan.generatedAt) : '—'} /></section>
-      <section className="workspace-grid"><div className="signal-column"><div className="section-heading"><div><p className="eyebrow blue">DECISIONES DEL MOTOR</p><h2>{readySignals.length ? `${readySignals.length} señal${readySignals.length > 1 ? 'es' : ''} para revisión final` : 'No hay una entrada verde'}</h2></div><span className="muted small">{scan?.data?.historicalTimeframes?.join(' · ') || 'Esperando Tradier'}</span></div>{!scan && <EmptyState onScan={scanNow} loading={loading} />}{scan && readySignals.length === 0 && <div className="no-signal"><strong>Hoy esperar también es una decisión.</strong><p>Una señal verde exige simultáneamente contexto CLEAR, mercado abierto, cotización fresca, tiempo real confirmado, tamaño permitido, reglas cuantitativas y aprobación de Gemini.</p><button className="quiet-btn" onClick={scanNow}>Volver a revisar</button></div>}{readySignals.map((signal) => <SignalCard key={signal.id} signal={signal} marketRisk={scan.marketRisk} />)}{scan && watchSignals.length > 0 && <><div className="subheading"><h3>En vigilancia · no ejecutar todavía</h3><span>{watchSignals.length}</span></div>{watchSignals.slice(0, 12).map((signal) => <SignalCard key={signal.id} signal={signal} marketRisk={scan.marketRisk} />)}</>}</div><aside className="side-column"><section className="side-card"><div className="side-title"><h3>Notificaciones</h3><span>●</span></div><p>Recibe una alerta únicamente cuando una señal cambie a <strong>LISTA</strong>. Abre la app y revalida antes de operar.</p><button className="primary-btn full" onClick={enablePush}>Activar alertas</button><button className="quiet-btn full" onClick={testPush}>Enviar prueba</button>{pushMessage && <p className="tiny">{pushMessage}</p>}</section><section className="side-card"><div className="side-title"><h3>Prioridad</h3><span>{publicCfg?.watchlist?.priority?.length || 0}</span></div><p>AMD, Microsoft y SPY se evalúan primero y reciben perfil Base + Agresivo.</p><div className="universe priority-universe">{(publicCfg?.watchlist?.priority || []).map((symbol) => <span key={symbol}>{symbol}</span>)}</div><p className="tiny">Universo adicional</p><div className="universe">{(publicCfg?.watchlist?.core || []).filter((symbol) => !publicCfg?.watchlist?.priority?.includes(symbol)).map((symbol) => <span key={symbol}>{symbol}</span>)}</div></section><section className="side-card"><div className="side-title"><h3>Perfiles</h3><span>2</span></div><ul className="rules"><li><b>Base:</b> {publicCfg?.policy?.profiles?.core?.minDte}–{publicCfg?.policy?.profiles?.core?.maxDte} DTE, delta {publicCfg?.policy?.profiles?.core?.shortDeltaMin}–{publicCfg?.policy?.profiles?.core?.shortDeltaMax}</li><li><b>Agresiva:</b> {publicCfg?.policy?.profiles?.aggressive?.minDte}–{publicCfg?.policy?.profiles?.aggressive?.maxDte} DTE, máximo {publicCfg?.policy?.profiles?.aggressive?.maxContracts} contrato y 50% del presupuesto base</li><li>0DTE bloqueado</li><li>Mínimo {publicCfg?.policy?.minTimeframes} temporalidades válidas</li><li>Riesgo referencia {publicCfg?.policy?.riskPerTradePct}% de {money(publicCfg?.policy?.accountSize, 0)}</li><li>Sin opciones desnudas ni ejecución automática</li></ul></section></aside></section>
+      <section className="workspace-grid"><div className="signal-column"><div className="section-heading"><div><p className="eyebrow blue">DECISIONES DEL MOTOR</p><h2>{readySignals.length ? `${readySignals.length} señal${readySignals.length > 1 ? 'es' : ''} para revisión final` : 'No hay una entrada verde'}</h2></div><span className="muted small">{scan?.data?.historicalTimeframes?.join(' · ') || 'Esperando Tradier'}</span></div>{!scan && <EmptyState onScan={scanNow} loading={loading} />}{scan && readySignals.length === 0 && <div className="no-signal"><strong>Hoy esperar también es una decisión.</strong><p>Una señal verde exige simultáneamente contexto CLEAR, mercado abierto, cotización fresca, tiempo real confirmado, tamaño permitido, reglas cuantitativas y aprobación de Gemini.</p><button className="quiet-btn" onClick={scanNow}>Volver a revisar</button></div>}{readySignals.map((signal) => <SignalCard key={signal.instanceId || signal.id} signal={signal} marketRisk={scan.marketRisk} onFeedback={recordFeedback} feedbackBusy={feedbackBusy} />)}{scan && watchSignals.length > 0 && <><div className="subheading"><h3>En vigilancia · no ejecutar todavía</h3><span>{watchSignals.length}</span></div>{watchSignals.slice(0, 12).map((signal) => <SignalCard key={signal.instanceId || signal.id} signal={signal} marketRisk={scan.marketRisk} onFeedback={recordFeedback} feedbackBusy={feedbackBusy} />)}</>}</div><aside className="side-column"><LearningPanel learning={learning} /><IndexContext quotes={scan?.market?.contextIndices} /><section className="side-card"><div className="side-title"><h3>Notificaciones</h3><span>●</span></div><p>Recibe una alerta únicamente cuando una señal cambie a <strong>LISTA</strong>. Abre la app y revalida antes de operar.</p><button className="primary-btn full" onClick={enablePush}>Activar alertas</button><button className="quiet-btn full" onClick={testPush}>Enviar prueba</button>{pushMessage && <p className="tiny">{pushMessage}</p>}</section><section className="side-card"><div className="side-title"><h3>Universo rotativo</h3><span>{publicCfg?.watchlist?.core?.length || 0}</span></div><p>Siempre: AMD, MSFT y los ETF principales. El resto rota para no saturar Tradier ni reducir la calidad.</p><div className="universe priority-universe">{(publicCfg?.watchlist?.priority || []).map((symbol) => <span key={symbol}>{symbol}</span>)}</div><p className="tiny">Escaneo actual</p><div className="universe">{(scan?.universe || publicCfg?.watchlist?.indexProxies || []).map((symbol) => <span key={symbol}>{symbol}</span>)}</div><details><summary>Ver categorías completas</summary><p className="tiny">7 Magníficas</p><div className="universe">{(publicCfg?.watchlist?.magnificentSeven || []).map((symbol) => <span key={symbol}>{symbol}</span>)}</div><p className="tiny">Líderes de opciones</p><div className="universe">{(publicCfg?.watchlist?.optionsLeaders || []).map((symbol) => <span key={symbol}>{symbol}</span>)}</div><p className="tiny">ETF sectoriales y macro</p><div className="universe">{(publicCfg?.watchlist?.sectorAndMacroEtfs || []).map((symbol) => <span key={symbol}>{symbol}</span>)}</div></details></section><section className="side-card"><div className="side-title"><h3>Perfiles</h3><span>2</span></div><ul className="rules"><li><b>Base:</b> {publicCfg?.policy?.profiles?.core?.minDte}–{publicCfg?.policy?.profiles?.core?.maxDte} DTE, delta {publicCfg?.policy?.profiles?.core?.shortDeltaMin}–{publicCfg?.policy?.profiles?.core?.shortDeltaMax}</li><li><b>Agresiva:</b> {publicCfg?.policy?.profiles?.aggressive?.minDte}–{publicCfg?.policy?.profiles?.aggressive?.maxDte} DTE, máximo {publicCfg?.policy?.profiles?.aggressive?.maxContracts} contrato y 50% del presupuesto base</li><li>0DTE bloqueado</li><li>Mínimo {publicCfg?.policy?.minTimeframes} temporalidades válidas</li><li>Riesgo referencia {publicCfg?.policy?.riskPerTradePct}% de {money(publicCfg?.policy?.accountSize, 0)}</li><li>Sin opciones desnudas ni ejecución automática</li></ul></section></aside></section>
       {scan?.ai?.marketNote && <section className="ai-market-note"><span className="ai-chip">GEMINI · DECISIÓN</span><p>{scan.ai.marketNote}</p></section>}
       {scan?.errors?.length > 0 && <section className="warning-panel"><strong>Datos parciales</strong>{scan.errors.slice(0, 18).map((item, index) => <span key={`${item.symbol}-${item.stage}-${index}`}>{item.symbol} · {item.stage}: {item.error}</span>)}</section>}
       <section className="disclaimer"><strong>No existe una app que haga viable garantizar ganancias.</strong> 5 MILLIONS intenta mejorar la disciplina y bloquear datos dudosos; aun así, cada spread puede perder el riesgo máximo, sufrir slippage o asignación. *POP y retorno/riesgo son estimaciones basadas en la cadena actual, no promesas. Confirma contratos, poder de compra y crédito en Robinhood.</section>

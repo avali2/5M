@@ -147,7 +147,7 @@ export class GeminiReviewer {
     return { 'Content-Type': 'application/json', 'x-goog-api-key': this.settings.apiKey };
   }
 
-  async reviewMarketRisk({ symbols = [], prioritySymbols = [], marketClock = null, now = new Date() } = {}) {
+  async reviewMarketRisk({ symbols = [], prioritySymbols = [], contextIndices = [], marketClock = null, now = new Date() } = {}) {
     const checkedAt = new Date(now).toISOString();
     if (!this.configured) return unknownMarketRisk({ configured: false, error: 'GEMINI_API_KEY no está configurada.', checkedAt });
     const cacheMs = this.settings.newsCacheMinutes * 60000;
@@ -163,6 +163,7 @@ export class GeminiReviewer {
       'Prioriza fuentes oficiales (Federal Reserve, BLS, BEA, Treasury, White House, SEC y relaciones con inversionistas) y contrasta noticias de última hora con medios financieros reputados.',
       `Fecha/hora de evaluación: ${checkedAt}. Estado Tradier: ${JSON.stringify(marketClock)}.`,
       `Universo: ${symbols.join(', ')}. Prioridad absoluta: ${prioritySymbols.join(', ')}.`,
+      `Índices de contexto, no candidatos automáticos: ${contextIndices.join(', ')}.`,
       'Revisa obligatoriamente: FED/FOMC/discursos/minutas/tasas; CPI/PPI/PCE/empleo/GDP y calendario macro; rendimientos y subastas del Treasury; Trump/administración, aranceles, controles de exportación y regulación; guerras y geopolítica; shocks del mercado; semiconductores/IA; noticias y earnings de AMD y MSFT; riesgo amplio de SPY; y earnings/eventos materiales de todos los demás símbolos del universo.',
       `La propiedad coverage debe contener EXACTAMENTE las categorías verificadas de esta lista: ${REQUIRED_NEWS_COVERAGE.join(', ')}.`,
       'Devuelve únicamente JSON válido, sin Markdown, con esta forma:',
@@ -200,6 +201,7 @@ export class GeminiReviewer {
       'El perfil AGGRESSIVE tiene mayor riesgo: exige contexto CLEAR, liquidez superior y confirmación técnica; nunca apruebes por ser agresivo.',
       'Si los datos son insuficientes o contradictorios, usa WATCH o REJECT. No fuerces una operación.',
       'La POP es una aproximación basada principalmente en delta, nunca una garantía.',
+      'Las estadísticas de aprendizaje, si aparecen, son observacionales. Ignóralas cuando usable=false y nunca apruebes una señal solo por una tasa histórica; únicamente pueden reforzar WATCH o REJECT ante evidencia adversa validada.',
       'Devuelve JSON válido exactamente con el esquema solicitado. Las strings deben estar en español y las instrucciones deben ser concretas.',
       '',
       `CONTEXTO DE MERCADO:\n${JSON.stringify(marketContext)}`,

@@ -8,7 +8,7 @@ import { config, publicConfig } from './config.js';
 import { TradierClient, isTradierConfigured } from './lib/tradier.js';
 import { GeminiReviewer, isGeminiConfigured } from './lib/gemini.js';
 import { scanMarket } from './lib/scanner.js';
-import { getLatestScan, getStoreStatus, saveScan } from './lib/store.js';
+import { getLatestScan, getLearningSummary, getScanHistory, getStoreStatus, saveScan, saveSignalFeedback } from './lib/store.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
 
 export const app = express();
@@ -92,6 +92,23 @@ app.get('/api/scan', requireAccess, (_request, response) => {
   return response.json(latestScan);
 });
 
+app.get('/api/history', requireAccess, async (request, response) => {
+  response.json({ items: await getScanHistory(request.query.limit) });
+});
+
+app.get('/api/learning', requireAccess, async (_request, response) => {
+  response.json(await getLearningSummary());
+});
+
+app.post('/api/signals/:signalId/feedback', requireAccess, async (request, response) => {
+  try {
+    const feedback = await saveSignalFeedback({ ...request.body, signalId: request.params.signalId });
+    return response.json({ feedback, learning: await getLearningSummary() });
+  } catch (error) {
+    return response.status(400).json({ error: error.message });
+  }
+});
+
 app.post('/api/scan', requireAccess, async (_request, response) => {
   try {
     const cooldownMs = config.scanner.manualCooldownSeconds * 1000;
@@ -134,7 +151,8 @@ async function runScan(reason = 'timer') {
           return latestScan;
         }
       }
-      const scan = await scanMarket({ tradier, gemini });
+      const learning = await getLearningSummary();
+      const scan = await scanMarket({ tradier, gemini, learningContext: learning.advisory });
       latestScan = scan;
       lastScanError = null;
       await saveScan(scan);

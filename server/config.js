@@ -21,7 +21,11 @@ const asList = (value, fallback) => [...new Set(String(value || fallback.join(',
 
 const magnificentSeven = asList(process.env.MAGNIFICENT_7, ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA']);
 const prioritySymbols = asList(process.env.PRIORITY_SYMBOLS, ['AMD', 'MSFT', 'SPY']);
-const defaultWatchlist = [...prioritySymbols, ...magnificentSeven, 'QQQ', 'IWM', 'DIA'];
+const indexProxies = asList(process.env.INDEX_PROXIES, ['SPY', 'QQQ', 'IWM', 'DIA']);
+const contextIndices = asList(process.env.CONTEXT_INDICES, ['SPX', 'NDX', 'RUT', 'VIX']);
+const optionsLeaders = asList(process.env.OPTIONS_LEADERS, ['AMD', 'AVGO', 'PLTR', 'NFLX', 'HOOD', 'MU', 'ORCL', 'TSM', 'BABA', 'BAC', 'COIN']);
+const sectorAndMacroEtfs = asList(process.env.SECTOR_MACRO_ETFS, ['SMH', 'XLK', 'XLF', 'XLE', 'TLT', 'IBIT']);
+const defaultWatchlist = [...prioritySymbols, ...indexProxies, ...magnificentSeven, ...optionsLeaders, ...sectorAndMacroEtfs];
 
 const coreProfile = {
   id: 'CORE',
@@ -95,8 +99,13 @@ export const config = {
   watchlist: {
     magnificentSeven,
     priority: prioritySymbols,
+    indexProxies,
+    contextIndices,
+    optionsLeaders,
+    sectorAndMacroEtfs,
     core: asList(process.env.WATCHLIST_CORE, defaultWatchlist),
-    maxSymbolsPerScan: asNumber(process.env.MAX_SYMBOLS_PER_SCAN, 12)
+    maxSymbolsPerScan: Math.max(6, asNumber(process.env.MAX_SYMBOLS_PER_SCAN, 12)),
+    rotationEnabled: asBool(process.env.WATCHLIST_ROTATION_ENABLED, true)
   },
   policy: {
     minDte: coreProfile.minDte,
@@ -126,6 +135,12 @@ export const config = {
     privateKey: process.env.VAPID_PRIVATE_KEY || '',
     subject: process.env.VAPID_SUBJECT || 'mailto:you@example.com'
   },
+  learning: {
+    enabled: asBool(process.env.LEARNING_ENABLED, true),
+    minimumValidatedSamples: Math.max(10, asNumber(process.env.LEARNING_MIN_VALIDATED_SAMPLES, 20)),
+    historyLimit: Math.max(50, asNumber(process.env.LEARNING_HISTORY_LIMIT, 500)),
+    signalRetention: Math.max(500, asNumber(process.env.LEARNING_SIGNAL_RETENTION, 5000))
+  },
   dataDir: path.resolve(ROOT, process.env.DATA_DIR || './data')
 };
 
@@ -135,6 +150,7 @@ export function publicConfig() {
     watchlist: config.watchlist,
     policy: config.policy,
     scanner: config.scanner,
+    learning: config.learning,
     security: { requiresKey: config.security.requireAccessKey },
     integrations: {
       tradier: Boolean(config.tradier.token),

@@ -5,6 +5,9 @@ dist/
 !.env.example
 data/*.json
 data/*.db
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
 project_sources/
 *.log
 .DS_Store

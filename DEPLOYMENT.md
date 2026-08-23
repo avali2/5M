@@ -11,17 +11,18 @@ Railway puede construir el `Dockerfile` desde un repositorio privado y mantener 
 3. Railway detectará el `Dockerfile` del root.
 4. Añade las variables de `.env.example`. No copies las claves a GitHub.
 5. Confirma con Tradier que tu token de producción tiene tiempo real y solo entonces fija `TRADIER_REALTIME_ENTITLED=true`.
-6. En **Settings → Volumes**, crea un volumen y móntalo en `/app/data`.
+6. En **Settings → Volumes**, crea un volumen y móntalo en `/app/data`. Ahí vive `five-millions.sqlite`; sin volumen se pierde el aprendizaje al reemplazar la instancia.
 7. En **Networking**, genera el dominio público.
 8. Coloca ese dominio, con `https://`, en `PUBLIC_BASE_URL` y `CLIENT_ORIGIN`, y vuelve a desplegar.
 9. Abre `https://tu-dominio/api/health`; debe responder `ok: true` sin mostrar secretos.
 10. Abre la web, escribe `APP_ACCESS_KEY`, pulsa **Revisar mercado** y activa Web Push.
+11. Marca una señal de prueba como omitida y comprueba en el panel **Aprendizaje** que aumentó el contador de feedback.
 
 Documentación: [Railway Express](https://docs.railway.com/guides/express) y [Railway Volumes](https://docs.railway.com/guides/docker-compose#5-attach-volumes).
 
 ## Render
 
-`render.yaml` permite crear un Web Service. Selecciona explícitamente la rama `five-millions`, configura los secretos y añade un disco persistente para `DATA_DIR`.
+`render.yaml` permite crear un Web Service. Selecciona explícitamente la rama `five-millions`, configura los secretos y añade un disco persistente montado en el mismo `DATA_DIR` usado por SQLite.
 
 El plan gratuito puede suspender el proceso por inactividad y su filesystem es efímero. Es válido para probar la interfaz, pero no para depender de alertas continuas. Para segundo plano usa un servicio de pago siempre activo o un Background Worker con almacenamiento compartido.
 
@@ -44,7 +45,7 @@ Documentación: [Fly deploy](https://fly.io/docs/launch/deploy/), [Fly volumes](
 
 ## Google Cloud Run
 
-Cloud Run puede construir el mismo contenedor. Para ejecutar el temporizador en segundo plano configura al menos una instancia mínima y CPU disponible fuera de solicitudes. El almacenamiento local no es durable en Cloud Run, por lo que Web Push y estado deberían migrarse a una base de datos externa antes de usarlo seriamente.
+Cloud Run puede construir el mismo contenedor. Para ejecutar el temporizador en segundo plano configura al menos una instancia mínima y CPU disponible fuera de solicitudes. El almacenamiento local no es durable en Cloud Run, por lo que esta versión SQLite no debe usarse allí sin reemplazar el almacén por una base externa.
 
 Documentación: [minimum instances](https://cloud.google.com/run/docs/configuring/min-instances) y [background processing/autoscaling](https://cloud.google.com/run/docs/about-instance-autoscaling).
 
@@ -63,5 +64,6 @@ Documentación: [minimum instances](https://cloud.google.com/run/docs/configurin
 6. En Robinhood coinciden símbolo, expiración, tipo, strike corto, strike largo y crédito LIMIT.
 7. El crédito real sigue por encima del mínimo; si cambió, cancela y vuelve a escanear.
 8. Aceptas perder como máximo el riesgo mostrado antes de enviar.
+9. Después de cerrar, marcas el resultado y P/L real para que el aprendizaje use datos verdaderos, no fills imaginarios.
 
 Repositorio privado y `APP_ACCESS_KEY` protegen partes distintas: el primero protege el código; la segunda protege la web publicada. Ninguno convierte una estrategia en rentable ni elimina el riesgo de mercado.

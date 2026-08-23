@@ -128,6 +128,8 @@ test('solo marca READY con tiempo real, noticias CLEAR, reglas y revisión Gemin
   assert.ok(scan.signals.some((signal) => signal.profile.id === 'CORE'));
   assert.ok(scan.signals.some((signal) => signal.profile.id === 'AGGRESSIVE'));
   assert.ok(scan.signals.every((signal) => signal.legs.every((leg) => leg.strike)));
+  assert.ok(scan.signals.every((signal) => signal.instanceId.startsWith(`${scan.id}:`)));
+  assert.deepEqual(scan.market.contextIndices.map((quote) => quote.symbol), ['SPX', 'NDX', 'RUT', 'VIX']);
   assert.ok(scan.signals.some((signal) => signal.status === 'READY'));
   assert.ok(scan.signals.filter((signal) => signal.status === 'READY').every((signal) => signal.sizing.contractsAtWorstRisk >= 1));
 });
