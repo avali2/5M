@@ -1,25 +1,25 @@
 # 5 MILLIONS
 
-Aplicación privada de señales de opciones para spreads de crédito con datos reales de Tradier y revisión estructurada de Gemini. Está diseñada para leer la señal y ejecutarla manualmente en Robinhood; no envía órdenes.
+Aplicación privada de señales de opciones para ejecución manual en Robinhood. Prioriza **AMD, MSFT y SPY**, especialmente Put Credit Spreads, usando datos de Tradier, análisis cuantitativo multitemporal y dos revisiones de Gemini.
 
-## Qué hace
+## Flujo de decisión
 
-- Escanea las 7 magníficas: AAPL, MSFT, NVDA, AMZN, META, GOOGL y TSLA.
-- Añade SPY, QQQ, IWM y DIA como índices/ETFs líquidos.
-- Busca bull put credit spreads y bear call credit spreads con riesgo definido.
-- Obtiene cotizaciones, histórico diario, expiraciones, cadena de opciones, volumen, open interest, IV y Greeks desde Tradier.
-- Calcula crédito conservador, crédito ideal, riesgo máximo, ganancia máxima, POP aproximada, tamaño de posición y plan de salida.
-- Envía los candidatos principales a Gemini en un JSON estructurado para aprobar, vigilar o rechazar.
-- Notifica por Web Push únicamente una señal `READY` que haya pasado los filtros cuantitativos y la revisión de Gemini.
-- Incluye protección por `APP_ACCESS_KEY` y mantiene las claves privadas solo en el servidor.
+1. Gemini usa Google Search para revisar Fed/FOMC, macro, Treasury, política y aranceles, Trump/administración, guerras, geopolítica, mercado, semiconductores, AMD, MSFT, SPY y earnings.
+2. La respuesta solo puede habilitar operaciones si queda `CLEAR`, cubre las ocho categorías exigidas y devuelve suficientes fuentes.
+3. Tradier aporta reloj de mercado, cotizaciones, histórico diario, Time & Sales de 5 minutos, vencimientos, cadenas, liquidez y Greeks.
+4. El código deriva 5m, 15m, 1h, 1D y 1W, construye spreads verticales de crédito y calcula crédito, punto de equilibrio, riesgo máximo, ganancia máxima, POP aproximada y tamaño.
+5. Gemini audita los candidatos sin poder cambiar strikes, precios ni riesgo.
+6. Solo una operación que supera todos los bloqueos puede quedar `READY` y generar Web Push.
 
-## Decisión de diseño importante
+La aplicación nunca envía órdenes. Si faltan noticias, fuentes, datos frescos, entitlement de tiempo real, capacidad de riesgo o aprobación de Gemini, la señal queda `WATCH`.
 
-Gemini no calcula ni inventa strikes, crédito, riesgo o probabilidades. El código los construye con la respuesta de Tradier y Gemini solamente audita el candidato. Si Gemini no está disponible, el candidato queda en vigilancia y no se alerta como `READY`.
+## Perfiles
 
-La POP mostrada es una aproximación de `1 - |delta|` de la pierna corta. No es una probabilidad garantizada ni sustituye el análisis de volatilidad implícita, eventos, liquidez, gaps o asignación.
+- **Base:** 21–45 DTE, objetivo 30 DTE, delta corta 0.12–0.30 y take profit de 50% del crédito.
+- **Agresivo:** solo AMD/MSFT/SPY, 7–20 DTE, objetivo 14 DTE, delta corta 0.24–0.40, liquidez superior, máximo un contrato y 50% del presupuesto de riesgo base.
+- 0DTE y opciones desnudas están bloqueados.
 
-Tradier no entrega un calendario de earnings en este flujo. La aplicación obliga a confirmar earnings y eventos macro manualmente antes de abrir la operación.
+El perfil agresivo aumenta sensibilidad y riesgo de pérdida; no aumenta la certeza. Ningún perfil garantiza rentabilidad.
 
 ## Desarrollo local
 
@@ -29,60 +29,63 @@ cp .env.example .env
 npm run dev
 ```
 
-Para generar claves VAPID de Web Push:
+Comprobaciones:
+
+```bash
+npm test
+npm run build
+npm run smoke:live
+```
+
+`smoke:live` requiere credenciales reales en el entorno y solo comprueba conectividad/estructura; no envía órdenes.
+
+Para generar Web Push:
 
 ```bash
 npx web-push generate-vapid-keys
 ```
 
-Después coloca `publicKey`, `privateKey` y un `VAPID_SUBJECT` en `.env`.
-
-## Variables esenciales
+## Variables imprescindibles
 
 ```text
 TRADIER_TOKEN=...
+TRADIER_REALTIME_ENTITLED=true
 GEMINI_API_KEY=...
-APP_ACCESS_KEY=una-clave-larga
+APP_ACCESS_KEY=una-clave-larga-y-unica
 REQUIRE_ACCESS_KEY=true
-CLIENT_ORIGIN=https://tu-servicio.onrender.com
-PUBLIC_BASE_URL=https://tu-servicio.onrender.com
+ACCOUNT_SIZE=tu-capital-real
+RISK_PER_TRADE_PCT=1
+PUBLIC_BASE_URL=https://tu-dominio
+CLIENT_ORIGIN=https://tu-dominio
 VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 VAPID_SUBJECT=mailto:tu-email@example.com
 ```
 
-Nunca uses `VITE_TRADIER_TOKEN` ni `VITE_GEMINI_API_KEY`: todo secreto debe permanecer en variables del servidor.
+Activa `TRADIER_REALTIME_ENTITLED=true` únicamente si el token de producción tiene datos de mercado en tiempo real. Tradier indica que el tiempo real depende del entitlement de una cuenta de brokerage; de lo contrario puede entregar datos retrasados. Mientras no se confirme, 5 MILLIONS bloquea `READY`.
 
-## Render
+Nunca uses variables `VITE_` para Tradier o Gemini: el navegador no debe recibir secretos.
 
-El `render.yaml` declara un Web Service que compila el frontend y sirve el backend. En Render configura los valores marcados como secretos (`sync: false`), especialmente:
+## Segundo plano y persistencia
 
-- `APP_ACCESS_KEY`
-- `TRADIER_TOKEN`
-- `GEMINI_API_KEY`
-- `CLIENT_ORIGIN`
-- `PUBLIC_BASE_URL`
-- `VAPID_PUBLIC_KEY`
-- `VAPID_PRIVATE_KEY`
-- `VAPID_SUBJECT`
+El proceso web ejecuta un escaneo no superpuesto cada `SCAN_INTERVAL_MINUTES`. Cuando `MARKET_OPEN_ONLY=true`, el ciclo automático consulta el reloj de Tradier y omite el análisis completo con el mercado cerrado. El último scan, el historial resumido y las suscripciones Push se guardan en `DATA_DIR`.
 
-El escáner corre dentro del Web Service. Un plan gratuito puede suspender un servicio sin tráfico; para alertas continuas durante la sesión de mercado se necesita mantener el servicio activo o mover el escáner a un Background Worker. El almacenamiento local de suscripciones también es efímero sin disco persistente; para uso serio hay que añadir disco persistente o una base de datos.
+Para alertas confiables, usa un servicio que permanezca activo y monta almacenamiento persistente en `/app/data` al desplegar el `Dockerfile`. Un servicio que duerme o escala a cero no puede mantener este temporizador.
 
-## Comandos
+Consulta [DEPLOYMENT.md](./DEPLOYMENT.md) para Railway, Render, Fly.io, Cloud Run y las limitaciones de Vercel/GitHub Pages.
 
-```bash
-npm run build
-npm test
-npm start
-```
+## Límites financieros
 
-## Fuentes técnicas
+- POP se aproxima como `1 - |delta|` de la pierna corta; no es una probabilidad garantizada.
+- El riesgo máximo presupone el crédito conservador de la cadena, pero el fill real, slippage y asignación pueden cambiar el resultado.
+- Gemini y Google Search pueden omitir o interpretar mal noticias. La app exige cobertura y fuentes, pero no sustituye la verificación humana.
+- Configura `ACCOUNT_SIZE` y `RISK_PER_TRADE_PCT` con valores reales. Si no cabe un contrato, la decisión correcta del sistema es cero contratos.
 
-- [Tradier: Quotes](https://docs.tradier.com/reference/brokerage-api-markets-get-quotes)
+## Documentación oficial
+
+- [Tradier: Market Data](https://docs.tradier.com/docs/market-data)
+- [Tradier: Time & Sales](https://docs.tradier.com/reference/brokerage-api-markets-get-timesales)
+- [Tradier: Historical Pricing](https://docs.tradier.com/reference/brokerage-api-markets-get-history)
 - [Tradier: Options Chains](https://docs.tradier.com/reference/brokerage-api-markets-get-options-chains)
-- [Tradier: Options Expirations](https://docs.tradier.com/reference/brokerage-api-markets-get-options-expirations)
-- [Google Gemini: Generate content](https://ai.google.dev/api/generate-content)
-- [Google Gemini: Structured outputs](https://ai.google.dev/gemini-api/docs/structured-output)
-- [Render: Blueprint specification](https://render.com/docs/blueprint-spec)
-- [Render: Environment variables and secrets](https://render.com/docs/configure-environment-variables)
-- [MDN: Push API](https://developer.mozilla.org/en-US/docs/Web/API/Push_API)
+- [Gemini: Google Search grounding](https://ai.google.dev/gemini-api/docs/google-search)
+- [Gemini: Structured outputs](https://ai.google.dev/gemini-api/docs/structured-output)

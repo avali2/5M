@@ -1,100 +1,67 @@
-# VALIDO 1M Production Deployment
+# Implementación de 5 MILLIONS
 
-Recommended host: Render Web Service plus a separate Render Background Worker.
+La rama de producción de esta app es `five-millions`. No despliegues `main`, porque pertenece a la aplicación anterior.
 
-Why Render:
-- This project is a full-stack Node app.
-- `npm run build` creates the Vite frontend in `dist/`.
-- `npm start` runs the Express backend and serves both `dist/` and `/api/*`.
-- The app needs HTTPS for PWA service workers and mobile notifications.
+## Opción recomendada: Railway
 
-## Required Render Settings
+Railway puede construir el `Dockerfile` desde un repositorio privado y mantener un volumen entre despliegues.
 
-Use the included `render.yaml` or create a Web Service manually:
+1. En Railway crea **New Project → Deploy from GitHub repo**.
+2. Selecciona el repositorio privado `avali2/2M` y la rama `five-millions`.
+3. Railway detectará el `Dockerfile` del root.
+4. Añade las variables de `.env.example`. No copies las claves a GitHub.
+5. Confirma con Tradier que tu token de producción tiene tiempo real y solo entonces fija `TRADIER_REALTIME_ENTITLED=true`.
+6. En **Settings → Volumes**, crea un volumen y móntalo en `/app/data`.
+7. En **Networking**, genera el dominio público.
+8. Coloca ese dominio, con `https://`, en `PUBLIC_BASE_URL` y `CLIENT_ORIGIN`, y vuelve a desplegar.
+9. Abre `https://tu-dominio/api/health`; debe responder `ok: true` sin mostrar secretos.
+10. Abre la web, escribe `APP_ACCESS_KEY`, pulsa **Revisar mercado** y activa Web Push.
 
-- Runtime: Node
-- Build command: `npm install && npm run build`
-- Start command: `npm start`
-- Health check path: `/api/health`
+Documentación: [Railway Express](https://docs.railway.com/guides/express) y [Railway Volumes](https://docs.railway.com/guides/docker-compose#5-attach-volumes).
 
-The same Blueprint also declares `valido-1m-scanner`:
+## Render
 
-- Type: Background Worker (`starter`; Render has no free worker plan)
-- Build command: `npm install --include=dev && npm run build`
-- Start command: `npm run worker`
-- Shared persistence: the same `DATABASE_URL` as the Web Service
-- Paper credential: the separate `TRADIER_PAPER_TOKEN`
+`render.yaml` permite crear un Web Service. Selecciona explícitamente la rama `five-millions`, configura los secretos y añade un disco persistente para `DATA_DIR`.
 
-## Required Environment Variables
+El plan gratuito puede suspender el proceso por inactividad y su filesystem es efímero. Es válido para probar la interfaz, pero no para depender de alertas continuas. Para segundo plano usa un servicio de pago siempre activo o un Background Worker con almacenamiento compartido.
 
-Set these in Render secrets, never in frontend code:
+Documentación: [Render free instances](https://render.com/docs/free) y [Render Blueprints](https://render.com/docs/blueprint-spec).
 
-```env
-NODE_ENV=production
-HOST=0.0.0.0
-APP_ACCESS_KEY=use-a-long-private-password
-REQUIRE_ACCESS_KEY=true
-PUBLIC_BASE_URL=https://your-render-url.onrender.com
-CLIENT_ORIGIN=https://your-render-url.onrender.com
-ENABLE_YAHOO_PROVIDER=true
-TRADIER_TOKEN=
-TRADIER_BASE_URL=https://api.tradier.com/v1
-FINNHUB_API_KEY=
-DATABASE_URL=
-DATABASE_SSL=true
-ENABLE_AI_ASSISTANT=false
-OPENAI_API_KEY=
-OPENAI_MODEL=
-ENABLE_WEB_PUSH=false
-VAPID_PUBLIC_KEY=
-VAPID_PRIVATE_KEY=
-VAPID_SUBJECT=mailto:tu-email@example.com
+## Fly.io
+
+El `Dockerfile` también es desplegable en Fly.io.
+
+```bash
+fly launch --no-deploy
+fly volumes create five_millions_data --size 1
+fly secrets set TRADIER_TOKEN=... GEMINI_API_KEY=... APP_ACCESS_KEY=...
+fly deploy
 ```
 
-Yahoo Finance uses `yahoo-finance2` and does not require an API key.
+En el `fly.toml` generado configura el puerto interno `8787`, monta el volumen en `/app/data`, desactiva autostop y conserva una Machine activa. El nombre de la aplicación se genera en tu cuenta y por eso no se incluye un `fly.toml` fijo en el repositorio.
 
-## After Deploy
+Documentación: [Fly deploy](https://fly.io/docs/launch/deploy/), [Fly volumes](https://fly.io/docs/volumes/overview/) y [autostop/autostart](https://fly.io/docs/launch/autostop-autostart/).
 
-Open:
+## Google Cloud Run
 
-- `/api/health`
-- `/institutional-os.html`
-- `/api/scan`
+Cloud Run puede construir el mismo contenedor. Para ejecutar el temporizador en segundo plano configura al menos una instancia mínima y CPU disponible fuera de solicitudes. El almacenamiento local no es durable en Cloud Run, por lo que Web Push y estado deberían migrarse a una base de datos externa antes de usarlo seriamente.
 
-Expected:
+Documentación: [minimum instances](https://cloud.google.com/run/docs/configuring/min-instances) y [background processing/autoscaling](https://cloud.google.com/run/docs/about-instance-autoscaling).
 
-- `ok: true`
-- `app: "VALIDO 1M"`
-- `providers.yahoo: "enabled"`
-- `providers.openai: "manual_only"`
-- `guardianStatus` available in `/api/scan`
-- No `FAIL-CLOSED`
-- No `HOY NO HAY VENTAJAS`
+## Vercel y GitHub Pages
 
-## Mobile PWA Cache Reset
+- **Vercel:** no ejecuta indefinidamente el `setTimeout` de este servidor. Requeriría convertir el escáner en Cron Jobs y mover estado/suscripciones a una base de datos externa. No es un despliegue directo de esta versión.
+- **GitHub Pages:** solo sirve archivos estáticos. No puede guardar de forma segura `TRADIER_TOKEN` ni `GEMINI_API_KEY`, ni ejecutar el escáner. No debe usarse para esta app.
 
-After a production deploy, if Android still shows old UI:
+## Lista de verificación antes de operar
 
-1. Open Chrome.
-2. Go to the deployed VALIDO 1M URL.
-3. Tap the lock icon / site settings.
-4. Clear site data.
-5. Remove the old installed PWA icon from the home screen.
-6. Reopen the HTTPS URL.
-7. Install the PWA again from Chrome menu: Add to Home screen / Install app.
-8. Open the PWA and check the footer build label `VALIDO_BUILD_VERSION`.
+1. `/api/health` muestra Tradier, Gemini y Push configurados.
+2. La interfaz dice **Tiempo real confirmado**; si no, no habrá señales verdes.
+3. `ACCOUNT_SIZE` coincide con el capital destinado a spreads, no con una meta futura.
+4. El semáforo de noticias está `CLEAR`, con las ocho coberturas y al menos tres fuentes.
+5. La señal muestra uno o más contratos permitidos.
+6. En Robinhood coinciden símbolo, expiración, tipo, strike corto, strike largo y crédito LIMIT.
+7. El crédito real sigue por encima del mínimo; si cambió, cancela y vuelve a escanear.
+8. Aceptas perder como máximo el riesgo mostrado antes de enviar.
 
-For iPhone Safari:
-
-1. Delete the old Home Screen app.
-2. Safari Settings > Advanced > Website Data > remove the site data if needed.
-3. Reopen the HTTPS URL in Safari.
-4. Share > Add to Home Screen again.
-
-## Notes
-
-- Do not deploy `.env`.
-- Do not expose API keys in Vite `VITE_*` variables.
-- OpenAI is optional and manual-only.
-- The app does not execute real orders.
-- The scanner uses deterministic calculations and fails closed when critical market data is missing.
+Repositorio privado y `APP_ACCESS_KEY` protegen partes distintas: el primero protege el código; la segunda protege la web publicada. Ninguno convierte una estrategia en rentable ni elimina el riesgo de mercado.

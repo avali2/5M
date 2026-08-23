@@ -10,6 +10,24 @@ function authHeaders(token, extra = {}) {
   };
 }
 
+function isoTimestamp(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  const date = Number.isFinite(numeric)
+    ? new Date(numeric < 1e12 ? numeric * 1000 : numeric)
+    : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function easternDateTime(value) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(value).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
 function normalizeQuote(quote) {
   const last = finite(quote.last, finite(quote.close, null));
   return {
@@ -21,7 +39,8 @@ function normalizeQuote(quote) {
     close: finite(quote.close),
     changePct: finite(quote.change_percentage, 0),
     volume: finite(quote.volume, 0),
-    tradeDate: quote.trade_date || null,
+    tradeDate: isoTimestamp(quote.trade_date),
+    rawType: quote.type || null,
     source: 'Tradier'
   };
 }
@@ -81,13 +100,13 @@ export class TradierClient {
     return toArray(payload?.quotes?.quote).map(normalizeQuote).filter((quote) => quote.symbol);
   }
 
-  async getHistory(symbol, days = 90) {
-    const end = new Date();
-    const start = new Date(Date.now() - days * 86400000);
+  async getHistory(symbol, days = 420, interval = 'daily', now = new Date()) {
+    const end = new Date(now);
+    const start = new Date(end.getTime() - days * 86400000);
     const iso = (date) => date.toISOString().slice(0, 10);
     const payload = await this.request('/markets/history', {
       symbol,
-      interval: 'daily',
+      interval,
       start: iso(start),
       end: iso(end)
     });
@@ -99,6 +118,33 @@ export class TradierClient {
       close: finite(day.close),
       volume: finite(day.volume, 0)
     })).filter((day) => day.close !== null);
+  }
+
+  async getTimeSales(symbol, { interval = '5min', lookbackDays = 8, now = new Date(), sessionFilter = 'open' } = {}) {
+    if (!['1min', '5min', '15min'].includes(interval)) throw new Error(`Intervalo Time & Sales no permitido: ${interval}`);
+    const end = new Date(now);
+    const start = new Date(end.getTime() - Math.min(18, Math.max(1, lookbackDays)) * 86400000);
+    const payload = await this.request('/markets/timesales', {
+      symbol,
+      interval,
+      start: easternDateTime(start),
+      end: easternDateTime(end),
+      session_filter: sessionFilter
+    });
+    return toArray(payload?.series?.data).map((bar) => {
+      const close = finite(bar.close, finite(bar.price));
+      const time = bar.time || bar.timestamp || null;
+      return {
+        time,
+        timestamp: isoTimestamp(bar.timestamp) || isoTimestamp(time),
+        open: finite(bar.open, close),
+        high: finite(bar.high, close),
+        low: finite(bar.low, close),
+        close,
+        price: finite(bar.price, close),
+        volume: finite(bar.volume, 0)
+      };
+    }).filter((bar) => bar.close !== null);
   }
 
   async getExpirations(symbol) {

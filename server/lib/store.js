@@ -3,7 +3,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 
 const filePath = path.join(config.dataDir, 'store.json');
-let state = { subscriptions: [], notifiedSignalIds: [], recentScans: [] };
+let state = { subscriptions: [], notifiedSignalIds: [], recentScans: [], latestScan: null };
 let loaded = false;
 let writeQueue = Promise.resolve();
 
@@ -16,7 +16,8 @@ async function ensureLoaded() {
     state = {
       subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
       notifiedSignalIds: Array.isArray(parsed.notifiedSignalIds) ? parsed.notifiedSignalIds : [],
-      recentScans: Array.isArray(parsed.recentScans) ? parsed.recentScans : []
+      recentScans: Array.isArray(parsed.recentScans) ? parsed.recentScans : [],
+      latestScan: parsed.latestScan && typeof parsed.latestScan === 'object' ? parsed.latestScan : null
     };
   } catch (error) {
     if (error.code !== 'ENOENT') console.warn(`[5M] No se pudo leer el almacén local: ${error.message}`);
@@ -66,6 +67,7 @@ export async function wasSignalNotified(signalId) {
 
 export async function saveScan(scan) {
   await ensureLoaded();
+  state.latestScan = scan;
   state.recentScans = [
     { id: scan.id, generatedAt: scan.generatedAt, summary: scan.summary, readyIds: scan.signals.filter((signal) => signal.status === 'READY').map((signal) => signal.id) },
     ...state.recentScans
@@ -73,7 +75,12 @@ export async function saveScan(scan) {
   await persist();
 }
 
+export async function getLatestScan() {
+  await ensureLoaded();
+  return state.latestScan;
+}
+
 export async function getStoreStatus() {
   await ensureLoaded();
-  return { subscriptions: state.subscriptions.length, recentScans: state.recentScans.length };
+  return { subscriptions: state.subscriptions.length, recentScans: state.recentScans.length, latestScan: state.latestScan?.id || null };
 }

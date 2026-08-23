@@ -36,12 +36,12 @@ async function sendPayload(payload) {
 export async function notifyReadySignal(signal, baseUrl = '') {
   if (await wasSignalNotified(signal.id)) return { sent: 0, duplicate: true };
   const result = await sendPayload({
-    title: `5 MILLIONS · ${signal.symbol} ${signal.strategyLabel}`,
-    body: `Entrada: crédito $${signal.credit.toFixed(2)} · POP est. ${(signal.popEstimate * 100).toFixed(0)}% · Score ${signal.score}`,
+    title: `5 MILLIONS · ${signal.symbol} ${signal.profile?.label || ''}`,
+    body: `${signal.strategyLabel} ${signal.shortStrike}/${signal.longStrike} · ${signal.expiration} · crédito $${signal.credit.toFixed(2)} · ${signal.sizing?.contractsAtWorstRisk || 0} contrato(s) máx.`,
     tag: `5m-${signal.id}`,
     url: `${baseUrl || ''}/?signal=${encodeURIComponent(signal.id)}`
   });
-  await markSignalNotified(signal.id);
+  if (result.sent > 0) await markSignalNotified(signal.id);
   return result;
 }
 

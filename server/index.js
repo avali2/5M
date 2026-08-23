@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -7,7 +8,7 @@ import { config, publicConfig } from './config.js';
 import { TradierClient, isTradierConfigured } from './lib/tradier.js';
 import { GeminiReviewer, isGeminiConfigured } from './lib/gemini.js';
 import { scanMarket } from './lib/scanner.js';
-import { getStoreStatus, saveScan } from './lib/store.js';
+import { getLatestScan, getStoreStatus, saveScan } from './lib/store.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
 
 export const app = express();
@@ -17,15 +18,42 @@ let latestScan = null;
 let lastScanError = null;
 let scanInFlight = null;
 let lastPushResult = null;
+let lastManualScanAt = 0;
+let schedulerTimer = null;
+const schedulerState = { startedAt: null, lastRunAt: null, nextRunAt: null, lastSkippedAt: null };
 
-app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
-app.use(cors({ origin: config.clientOrigin || true }));
+try { latestScan = await getLatestScan(); }
+catch (error) { console.warn(`[5M] No se pudo restaurar el último scan: ${error.message}`); }
+
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      imgSrc: ["'self'", 'data:'],
+      manifestSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"],
+      workerSrc: ["'self'"]
+    }
+  }
+}));
+if (config.clientOrigin) app.use(cors({ origin: config.clientOrigin }));
+else if (config.nodeEnv !== 'production') app.use(cors());
 app.use(express.json({ limit: '256kb' }));
 
 function hasValidAccessKey(request) {
   if (!config.security.requireAccessKey) return true;
-  const supplied = request.get('X-5M-Key') || request.query.key || '';
-  return Boolean(config.security.accessKey) && supplied === config.security.accessKey;
+  const supplied = request.get('X-5M-Key') || '';
+  const expected = config.security.accessKey;
+  if (!expected || Buffer.byteLength(supplied) !== Buffer.byteLength(expected)) return false;
+  return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
 }
 
 function requireAccess(request, response, next) {
@@ -39,6 +67,7 @@ app.get('/api/health', async (_request, response) => {
     app: '5 MILLIONS',
     timestamp: new Date().toISOString(),
     configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), push: pushStatus().configured },
+    marketData: { realtimeEntitled: config.tradier.realtimeEntitled, mode: publicConfig().integrations.tradierMode },
     security: { requiresKey: config.security.requireAccessKey }
   });
 });
@@ -53,7 +82,8 @@ app.get('/api/status', requireAccess, async (_request, response) => {
     integrations: publicConfig().integrations,
     push: pushStatus(),
     store: await getStoreStatus(),
-    scanner: { enabled: config.scanner.enabled, intervalMinutes: config.scanner.intervalMinutes, inFlight: Boolean(scanInFlight) }
+    scanner: { enabled: config.scanner.enabled, intervalMinutes: config.scanner.intervalMinutes, inFlight: Boolean(scanInFlight), ...schedulerState },
+    lastPushResult
   });
 });
 
@@ -64,6 +94,10 @@ app.get('/api/scan', requireAccess, (_request, response) => {
 
 app.post('/api/scan', requireAccess, async (_request, response) => {
   try {
+    const cooldownMs = config.scanner.manualCooldownSeconds * 1000;
+    const remainingMs = cooldownMs - (Date.now() - lastManualScanAt);
+    if (remainingMs > 0) return response.status(429).json({ error: `Espera ${Math.ceil(remainingMs / 1000)} segundos antes de iniciar otra revisión.` });
+    lastManualScanAt = Date.now();
     const scan = await runScan('manual');
     return response.json(scan);
   } catch (error) {
@@ -91,7 +125,15 @@ async function runScan(reason = 'timer') {
   if (scanInFlight) return scanInFlight;
   scanInFlight = (async () => {
     try {
-      if (!isTradierConfigured()) throw new Error('TRADIER_TOKEN no está configurado. Añádelo en Render o en .env.');
+      if (!isTradierConfigured()) throw new Error('TRADIER_TOKEN no está configurado. Añádelo en el servicio o en .env.');
+      if (reason === 'timer' && config.scanner.marketOpenOnly) {
+        const clock = await tradier.getMarketClock();
+        if (String(clock?.state || '').toLowerCase() !== 'open') {
+          schedulerState.lastSkippedAt = new Date().toISOString();
+          console.info(`[5M] Scan timer omitido: mercado ${clock?.state || 'unknown'}.`);
+          return latestScan;
+        }
+      }
       const scan = await scanMarket({ tradier, gemini });
       latestScan = scan;
       lastScanError = null;
@@ -114,6 +156,23 @@ async function runScan(reason = 'timer') {
 
 export { runScan };
 
+function scheduleNextScan(delayMs) {
+  schedulerState.nextRunAt = new Date(Date.now() + delayMs).toISOString();
+  schedulerTimer = setTimeout(async () => {
+    schedulerState.lastRunAt = new Date().toISOString();
+    try { await runScan('timer'); }
+    catch { /* runScan records and logs the error */ }
+    finally { scheduleNextScan(config.scanner.intervalMinutes * 60000); }
+  }, delayMs);
+  schedulerTimer.unref?.();
+}
+
+function startScannerScheduler() {
+  if (schedulerTimer || !config.scanner.enabled || !isTradierConfigured()) return;
+  schedulerState.startedAt = new Date().toISOString();
+  scheduleNextScan(5000);
+}
+
 const distPath = path.join(config.root, 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
@@ -127,9 +186,5 @@ if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
   app.listen(config.port, config.host, () => {
     console.info(`[5M] http://${config.host}:${config.port} · Tradier ${isTradierConfigured() ? 'configurado' : 'no configurado'} · Gemini ${isGeminiConfigured() ? 'configurado' : 'no configurado'}`);
   });
-  if (config.scanner.enabled && isTradierConfigured()) {
-    const intervalMs = config.scanner.intervalMinutes * 60000;
-    setTimeout(() => runScan('startup').catch(() => {}), 5000);
-    setInterval(() => runScan('timer').catch(() => {}), intervalMs);
-  }
+  startScannerScheduler();
 }
