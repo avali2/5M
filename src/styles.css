@@ -129,6 +129,20 @@ button:disabled { cursor: wait; opacity: .65; }
 .timeframe.tf-bearish { border-color: #fecdd3; background: #fff1f2; }
 .timeframe.tf-bearish strong { color: #be123c; }
 .timeframe.tf-missing { opacity: .58; }
+.flow-panel { margin: 0 0 13px; padding: 13px; border: 1px solid #d8e2ea; border-radius: 12px; background: #f8fbfd; }
+.flow-aligned { border-color: #9ad9ba; background: #f2fbf6; }
+.flow-opposed { border-color: #f1b5b5; background: #fff7f7; }
+.flow-mixed { border-color: #efd493; background: #fffbf0; }
+.flow-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.flow-heading > div { display: grid; gap: 3px; }
+.flow-heading strong { font-size: 12px; }
+.flow-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+.flow-metrics .metric { padding: 8px; background: rgba(255,255,255,.72); }
+.flow-metrics .metric strong { font-size: 13px; }
+.flow-panel details { margin-top: 9px; }
+.flow-panel summary { cursor: pointer; font-size: 10px; font-weight: 850; }
+.flow-list { display: grid; gap: 5px; margin-top: 7px; }
+.flow-list span { padding: 7px 9px; border-radius: 8px; background: rgba(255,255,255,.78); font-size: 9px; }
 .plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .plan-box { padding: 11px 12px; border-radius: 11px; font-size: 11px; line-height: 1.45; }
 .plan-box p { margin: 5px 0 0; }
@@ -206,4 +220,4 @@ button:disabled { cursor: wait; opacity: .65; }
 .tiny { color: #94a3b8; font-size: 10px; line-height: 1.4; }
 code { padding: 2px 4px; border-radius: 4px; color: #334155; background: #f1f5f9; font-size: .9em; }
 @media (max-width: 900px) { .workspace-grid { grid-template-columns: 1fr; } .side-column { grid-template-columns: repeat(3, 1fr); } .connections { grid-template-columns: repeat(3, 1fr); } .metrics-grid { grid-template-columns: repeat(3, 1fr); } .event-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 650px) { .topbar-inner, .main-content { width: min(100% - 20px, 1240px); } .topbar-inner { min-height: 67px; } .top-actions .pill { display: none; } .primary-btn { padding: 9px 10px; font-size: 11px; } .hero { padding: 20px; display: block; } .hero-note { margin-top: 15px; } .connections, .summary-grid { grid-template-columns: repeat(2, 1fr); } .side-column { grid-template-columns: 1fr; } .market-risk { padding: 15px; } .risk-header, .risk-title, .risk-footer { display: block; } .risk-score { margin-top: 12px; text-align: left; } .risk-score span, .sources span { text-align: left; } .event-grid { grid-template-columns: 1fr; } .sources { max-width: none; justify-content: flex-start; margin-top: 10px; } .signal-card { padding: 13px; } .signal-title-row h3 { font-size: 18px; } .signal-title-row h3 span { display: block; margin-top: 3px; } .metrics-grid { grid-template-columns: repeat(2, 1fr); } .timeframes { grid-template-columns: repeat(3, 1fr); } .plan-grid, .ai-plan { grid-template-columns: 1fr; } .leg-table { overflow-x: auto; } .leg-head, .leg-row { min-width: 440px; } .signal-source { display: block; margin: 6px 0 0; } .signal-bottom, .decision-line, .feedback-row { align-items: start; flex-direction: column; } .feedback-actions { justify-content: flex-start; } }
+@media (max-width: 650px) { .topbar-inner, .main-content { width: min(100% - 20px, 1240px); } .topbar-inner { min-height: 67px; } .top-actions .pill { display: none; } .primary-btn { padding: 9px 10px; font-size: 11px; } .hero { padding: 20px; display: block; } .hero-note { margin-top: 15px; } .connections, .summary-grid { grid-template-columns: repeat(2, 1fr); } .side-column { grid-template-columns: 1fr; } .market-risk { padding: 15px; } .risk-header, .risk-title, .risk-footer { display: block; } .risk-score { margin-top: 12px; text-align: left; } .risk-score span, .sources span { text-align: left; } .event-grid { grid-template-columns: 1fr; } .sources { max-width: none; justify-content: flex-start; margin-top: 10px; } .signal-card { padding: 13px; } .signal-title-row h3 { font-size: 18px; } .signal-title-row h3 span { display: block; margin-top: 3px; } .metrics-grid, .flow-metrics { grid-template-columns: repeat(2, 1fr); } .timeframes { grid-template-columns: repeat(3, 1fr); } .plan-grid, .ai-plan { grid-template-columns: 1fr; } .flow-heading { align-items: flex-start; flex-direction: column; } .leg-table { overflow-x: auto; } .leg-head, .leg-row { min-width: 440px; } .signal-source { display: block; margin: 6px 0 0; } .signal-bottom, .decision-line, .feedback-row { align-items: start; flex-direction: column; } .feedback-actions { justify-content: flex-start; } }

@@ -66,7 +66,7 @@ const aggressiveProfile = {
   timeStopDte: Math.max(1, asNumber(process.env.AGGRESSIVE_TIME_STOP_DTE, 7)),
   riskMultiplier: Math.min(1, Math.max(0.1, asNumber(process.env.AGGRESSIVE_RISK_MULTIPLIER, 0.5))),
   maxContracts: Math.max(1, asNumber(process.env.AGGRESSIVE_MAX_CONTRACTS, 1)),
-  priorityOnly: true
+  priorityOnly: asBool(process.env.AGGRESSIVE_PRIORITY_ONLY, false)
 };
 
 export const config = {
@@ -110,7 +110,7 @@ export const config = {
   policy: {
     minDte: coreProfile.minDte,
     maxDte: coreProfile.maxDte,
-    accountSize: Math.max(0, asNumber(process.env.ACCOUNT_SIZE, 2000)),
+    accountSize: Math.max(0, asNumber(process.env.ACCOUNT_SIZE, 0)),
     riskPerTradePct: Math.max(0.1, asNumber(process.env.RISK_PER_TRADE_PCT, 1)),
     maxContracts: coreProfile.maxContracts,
     minPop: coreProfile.minPop,
@@ -118,7 +118,15 @@ export const config = {
     minCredit: Math.max(0.01, asNumber(process.env.MIN_CREDIT, 0.1)),
     maxDailySignals: Math.max(1, asNumber(process.env.MAX_DAILY_SIGNALS, 3)),
     block0Dte: asBool(process.env.BLOCK_0DTE, true),
-    requireAffordableSignal: asBool(process.env.REQUIRE_AFFORDABLE_SIGNAL, true),
+    requireAffordableSignal: false,
+    maximumSpreadWidth: Math.max(5, asNumber(process.env.MAXIMUM_SPREAD_WIDTH, 25)),
+    institutionalFlow: {
+      enabled: asBool(process.env.INSTITUTIONAL_FLOW_ENABLED, true),
+      requiredForAggressive: asBool(process.env.INSTITUTIONAL_FLOW_REQUIRED_FOR_AGGRESSIVE, true),
+      minimumConfidence: Math.min(95, Math.max(30, asNumber(process.env.INSTITUTIONAL_FLOW_MIN_CONFIDENCE, 55))),
+      minimumUnusualVolume: Math.max(1, asNumber(process.env.INSTITUTIONAL_FLOW_MIN_VOLUME, 100)),
+      minimumVolumeOiRatio: Math.max(0.05, asNumber(process.env.INSTITUTIONAL_FLOW_MIN_VOLUME_OI, 0.5))
+    },
     minTimeframes: Math.min(5, Math.max(2, asNumber(process.env.MIN_TIMEFRAMES, 3))),
     maxDataAgeMinutes: Math.max(1, asNumber(process.env.MAX_DATA_AGE_MINUTES, 20)),
     profiles: { core: coreProfile, aggressive: aggressiveProfile }

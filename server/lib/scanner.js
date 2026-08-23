@@ -4,6 +4,7 @@ import { buildMultiTimeframeContext } from './indicators.js';
 import { marketRiskFallback } from './gemini.js';
 import { finite, round } from './http.js';
 import { selectRotatingUniverse, universeCatalog } from './universe.js';
+import { analyzeInstitutionalFlow, flowForStrategy } from './institutionalFlow.js';
 
 const DAY = 86400000;
 
@@ -65,7 +66,7 @@ function completePolicy(input = {}) {
 function profilesForSymbol(symbol, policy, prioritySymbols) {
   const core = normalizeProfile(policy.profiles?.core || {}, policy);
   const aggressive = normalizeProfile(policy.profiles?.aggressive || { enabled: false, id: 'AGGRESSIVE' }, policy);
-  return [core, ...(aggressive.enabled && prioritySymbols.includes(symbol) ? [aggressive] : [])];
+  return [core, ...(aggressive.enabled && (!aggressive.priorityOnly || prioritySymbols.includes(symbol)) ? [aggressive] : [])];
 }
 
 function validLeg(option) {
@@ -161,13 +162,14 @@ function triggerFor(strategy, technical) {
   return `Entrar solo si el precio se mantiene${anchor ? ` bajo $${anchor.toFixed(2)}` : ' débil'} y 15m/1h no cambian a tendencia alcista.`;
 }
 
-function makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, longLeg, strategy, profile, policy, dataQuality, isPriority, now }) {
+function makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, longLeg, strategy, profile, policy, dataQuality, institutionalFlow, isPriority, now }) {
   const math = creditMath(shortLeg, longLeg);
   const shortAbsDelta = Math.abs(shortLeg.delta);
   const popEstimate = round(Math.max(0, Math.min(0.99, 1 - shortAbsDelta)), 4);
   const liquidity = liquidityScore(shortLeg, longLeg);
   const fit = trendFit(strategy, technical);
   const direction = directionalCounts(strategy, technical);
+  const institutional = flowForStrategy(institutionalFlow, strategy, policy.institutionalFlow?.minimumConfidence);
   const deltaCenter = (profile.shortDeltaMin + profile.shortDeltaMax) / 2;
   const deltaQuality = Math.max(0.25, 1 - Math.abs(shortAbsDelta - deltaCenter) / Math.max(0.01, profile.shortDeltaMax - profile.shortDeltaMin));
   const creditEfficiency = Math.min(1, math.entryCredit / Math.max(math.width * 0.35, 0.01));
@@ -175,7 +177,8 @@ function makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, lo
   const profilePenalty = profile.id === 'AGGRESSIVE' ? 3 : 0;
   const score = Math.round(Math.max(0, Math.min(100,
     26 + (popEstimate * 24) + (liquidity.score * 0.20) + (fit * 14) + (deltaQuality * 7) +
-    (creditEfficiency * 7) + Math.min(5, direction.aligned * 1.5) + priorityPutBonus - profilePenalty
+    (creditEfficiency * 7) + Math.min(5, direction.aligned * 1.5) +
+    (institutional.aligned ? 6 : institutional.alignment === 'OPPOSED' ? -8 : 0) + priorityPutBonus - profilePenalty
   )));
   const id = idFor([symbol, profile.id, expiration, strategy, shortLeg.strike, longLeg.strike]);
   const takeProfitDebit = round(math.entryCredit * (1 - profile.takeProfitPct), 2);
@@ -183,10 +186,6 @@ function makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, lo
   const breakEven = strategy === 'BULL_PUT_CREDIT_SPREAD'
     ? round(shortLeg.strike - math.entryCredit, 2)
     : round(shortLeg.strike + math.entryCredit, 2);
-  const baseRiskBudget = policy.accountSize * policy.riskPerTradePct / 100;
-  const riskBudget = round(baseRiskBudget * profile.riskMultiplier, 2);
-  const maxContracts = Math.min(policy.maxContracts, profile.maxContracts);
-  const contractsAtWorstRisk = math.worstCaseRisk > 0 ? Math.min(maxContracts, Math.max(0, Math.floor(riskBudget / math.worstCaseRisk))) : 0;
   const enoughTimeframes = (technical?.timeframeSummary?.available || 0) >= policy.minTimeframes;
   const aggressiveAligned = profile.id !== 'AGGRESSIVE' || (direction.aligned >= 2 && direction.opposing <= 1 && (technical?.timeframeSummary?.alignmentPct || 0) >= 50);
   const rules = {
@@ -198,7 +197,7 @@ function makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, lo
     delta: shortAbsDelta >= profile.shortDeltaMin && shortAbsDelta <= profile.shortDeltaMax,
     timeframes: enoughTimeframes,
     aggressiveAlignment: aggressiveAligned,
-    affordable: !policy.requireAffordableSignal || contractsAtWorstRisk >= 1,
+    institutionalFlow: profile.id !== 'AGGRESSIVE' || !policy.institutionalFlow?.requiredForAggressive || institutional.qualified,
     fresh: Boolean(dataQuality.fresh)
   };
   const deterministicPass = Object.values(rules).every(Boolean);
@@ -237,15 +236,15 @@ function makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, lo
     longDelta: round(longLeg.delta, 4),
     iv: round(shortLeg.iv, 4),
     liquidity,
+    institutionalFlow: institutional,
     technical,
     dataQuality,
     legs,
     sizing: {
-      accountSize: policy.accountSize,
-      riskPerTradePct: policy.riskPerTradePct,
-      profileRiskMultiplier: profile.riskMultiplier,
-      riskBudgetUsd: riskBudget,
-      contractsAtWorstRisk
+      mode: 'USER_DECIDES',
+      contractsAtWorstRisk: null,
+      maxRiskPerContractUsd: math.worstCaseRisk,
+      note: 'La señal no se filtra por balance ni limita contratos. El usuario decide cantidad y acepta el riesgo total.'
     },
     executionPlan: {
       order: 'Vertical credit spread · riesgo definido · orden LIMIT',
@@ -277,7 +276,8 @@ function makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, lo
         `${technical.trend} · ${direction.aligned} temporalidad(es) alineada(s) y ${direction.opposing} opuesta(s)`,
         `POP estimada ${(popEstimate * 100).toFixed(1)}% basada en delta`,
         `Liquidez ${liquidity.score}/100 · crédito conservador $${math.conservativeCredit.toFixed(2)}`,
-        `${contractsAtWorstRisk} contrato(s) dentro del presupuesto de $${riskBudget.toFixed(2)}`
+        `Flujo inferido ${institutional.direction} · confianza ${institutional.confidence}% · ${institutional.alignment}`,
+        `Sin filtro por balance: riesgo máximo ${math.worstCaseRisk.toFixed(2)} USD por contrato`
       ]
     },
     aiReview: null,
@@ -285,7 +285,7 @@ function makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, lo
   };
 }
 
-export function buildCreditCandidates({ symbol, quote, technical, chain, expiration, dte, policy = config.policy, profile, dataQuality = { fresh: true }, isPriority = false, now = new Date() }) {
+export function buildCreditCandidates({ symbol, quote, technical, chain, expiration, dte, policy = config.policy, profile, dataQuality = { fresh: true }, institutionalFlow = null, isPriority = false, now = new Date() }) {
   const activePolicy = completePolicy(policy);
   const activeProfile = normalizeProfile(profile || activePolicy.profiles?.core || {}, activePolicy);
   const validPuts = chain.filter((option) => validLeg(option) && option.type === 'put' && option.strike < quote.price).sort((left, right) => right.strike - left.strike);
@@ -293,22 +293,24 @@ export function buildCreditCandidates({ symbol, quote, technical, chain, expirat
   const shortPuts = validPuts.filter((option) => Math.abs(option.delta) >= activeProfile.shortDeltaMin && Math.abs(option.delta) <= activeProfile.shortDeltaMax);
   const shortCalls = validCalls.filter((option) => Math.abs(option.delta) >= activeProfile.shortDeltaMin && Math.abs(option.delta) <= activeProfile.shortDeltaMax);
   const candidates = new Map();
-  const widths = [...new Set([1, 2, 3, 5, 10, Math.round(quote.price * 0.02)])].filter((width) => width > 0 && width <= 10);
+  const maximumWidth = Math.max(5, finite(activePolicy.maximumSpreadWidth, 25));
+  const widths = [...new Set([1, 2, 3, 5, 10, 15, 20, 25, Math.round(quote.price * 0.02), Math.round(quote.price * 0.05)])]
+    .filter((width) => width > 0 && width <= maximumWidth);
 
   for (const shortLeg of shortPuts) {
     for (const width of widths) {
       const longLeg = nearestStrike(validPuts, shortLeg.strike - width, 'lower');
       if (!longLeg || longLeg.strike >= shortLeg.strike) continue;
-      const candidate = makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, longLeg, strategy: 'BULL_PUT_CREDIT_SPREAD', profile: activeProfile, policy: activePolicy, dataQuality, isPriority, now });
-      if (candidate.credit >= activePolicy.minCredit && candidate.maxRiskUsd > 0) candidates.set(candidate.id, candidate);
+      const candidate = makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, longLeg, strategy: 'BULL_PUT_CREDIT_SPREAD', profile: activeProfile, policy: activePolicy, dataQuality, institutionalFlow, isPriority, now });
+      if (candidate.credit >= activePolicy.minCredit && candidate.maxRiskUsd > 0 && candidate.width <= maximumWidth) candidates.set(candidate.id, candidate);
     }
   }
   for (const shortLeg of shortCalls) {
     for (const width of widths) {
       const longLeg = nearestStrike(validCalls, shortLeg.strike + width, 'higher');
       if (!longLeg || longLeg.strike <= shortLeg.strike) continue;
-      const candidate = makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, longLeg, strategy: 'BEAR_CALL_CREDIT_SPREAD', profile: activeProfile, policy: activePolicy, dataQuality, isPriority, now });
-      if (candidate.credit >= activePolicy.minCredit && candidate.maxRiskUsd > 0) candidates.set(candidate.id, candidate);
+      const candidate = makeCandidate({ symbol, quote, technical, expiration, dte, shortLeg, longLeg, strategy: 'BEAR_CALL_CREDIT_SPREAD', profile: activeProfile, policy: activePolicy, dataQuality, institutionalFlow, isPriority, now });
+      if (candidate.credit >= activePolicy.minCredit && candidate.maxRiskUsd > 0 && candidate.width <= maximumWidth) candidates.set(candidate.id, candidate);
     }
   }
   return [...candidates.values()].sort((left, right) => right.score - left.score || right.popEstimate - left.popEstimate).slice(0, 10);
@@ -356,7 +358,7 @@ export function applyReviews(candidates, geminiResult, { marketOpen, marketRisk,
           !newsClear ? `Filtro de noticias ${marketRisk?.status || 'UNKNOWN'}: no abrir.` : null,
           !realtimeEntitled ? 'Tiempo real de Tradier no confirmado en la configuración.' : null,
           !candidate.dataQuality?.fresh ? 'Cotización intradía ausente o vencida.' : null,
-          !deterministicReady ? 'No supera todos los filtros cuantitativos, multitemporales y de tamaño.' : null,
+          !deterministicReady ? 'No supera todos los filtros cuantitativos, multitemporales y de flujo.' : null,
           !geminiResult?.configured ? 'Gemini no está configurado; señal bloqueada.' : null,
           geminiResult?.configured && !review ? 'Gemini no revisó este candidato.' : null,
           review && !aiApproved ? `Gemini no aprobó con la confianza mínima de ${minimumConfidence}%.` : null,
@@ -401,11 +403,11 @@ function candidateForReview(candidate) {
     maxRiskUsd: candidate.maxRiskUsd,
     maxProfitUsd: candidate.maxProfitUsd,
     returnOnRisk: candidate.returnOnRisk,
-    contracts: candidate.sizing.contractsAtWorstRisk,
     popEstimate: candidate.popEstimate,
     score: candidate.score,
     shortDelta: candidate.shortDelta,
     liquidity: candidate.liquidity,
+    institutionalFlow: candidate.institutionalFlow,
     technical: candidate.technical,
     deterministic: candidate.deterministic
   };
@@ -478,6 +480,14 @@ export async function scanMarket({
         errors.push({ symbol, stage: `chain-${item.profile.id.toLowerCase()}`, error: result.reason.message });
         return;
       }
+      const institutionalFlow = analyzeInstitutionalFlow({
+        chain: result.value,
+        quote,
+        history,
+        technical,
+        now,
+        settings: activePolicy.institutionalFlow
+      });
       candidates.push(...buildCreditCandidates({
         symbol,
         quote,
@@ -488,6 +498,7 @@ export async function scanMarket({
         policy: activePolicy,
         profile: item.profile,
         dataQuality,
+        institutionalFlow,
         isPriority: priority.includes(symbol),
         now
       }));
@@ -580,7 +591,7 @@ export async function scanMarket({
     },
     warnings: [
       'Ninguna señal ni POP garantiza ganancias. El sistema puede perder el riesgo máximo indicado.',
-      'Las señales READY requieren mercado abierto, noticias CLEAR con fuentes, datos frescos, tiempo real confirmado, tamaño permitido y aprobación de Gemini.',
+      'Las señales READY requieren mercado abierto, noticias CLEAR con fuentes, datos frescos, tiempo real confirmado, reglas cuantitativas, flujo exigido y aprobación de Gemini. El balance no filtra señales.',
       'La app genera señales para ejecución manual; no envía órdenes a Robinhood ni a Tradier.',
       'SPX, NDX, RUT y VIX se usan como contexto. Las señales operables se generan sobre acciones y ETF para evitar mezclar reglas de liquidación de índices.',
       'Revalida precio, crédito, noticias y poder de compra justo antes de enviar la orden.'

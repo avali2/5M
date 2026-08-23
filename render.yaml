@@ -76,6 +76,8 @@ services:
         value: "40"
       - key: AGGRESSIVE_ENABLED
         value: "true"
+      - key: AGGRESSIVE_PRIORITY_ONLY
+        value: "false"
       - key: AGGRESSIVE_MIN_DTE
         value: "7"
       - key: AGGRESSIVE_MAX_DTE
@@ -89,13 +91,15 @@ services:
       - key: AGGRESSIVE_MIN_LIQUIDITY
         value: "50"
       - key: AGGRESSIVE_MAX_CONTRACTS
-        value: "1"
+        value: "999"
       - key: ACCOUNT_SIZE
-        value: "2000"
+        value: "0"
       - key: RISK_PER_TRADE_PCT
         value: "1"
       - key: MAX_CONTRACTS
-        value: "3"
+        value: "999"
+      - key: MAXIMUM_SPREAD_WIDTH
+        value: "25"
       - key: MIN_POP
         value: "0.60"
       - key: MIN_SCORE
@@ -105,7 +109,17 @@ services:
       - key: MAX_DAILY_SIGNALS
         value: "3"
       - key: REQUIRE_AFFORDABLE_SIGNAL
+        value: "false"
+      - key: INSTITUTIONAL_FLOW_ENABLED
         value: "true"
+      - key: INSTITUTIONAL_FLOW_REQUIRED_FOR_AGGRESSIVE
+        value: "true"
+      - key: INSTITUTIONAL_FLOW_MIN_CONFIDENCE
+        value: "55"
+      - key: INSTITUTIONAL_FLOW_MIN_VOLUME
+        value: "100"
+      - key: INSTITUTIONAL_FLOW_MIN_VOLUME_OI
+        value: "0.5"
       - key: MIN_TIMEFRAMES
         value: "3"
       - key: MAX_DATA_AGE_MINUTES

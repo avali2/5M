@@ -37,7 +37,7 @@ export async function notifyReadySignal(signal, baseUrl = '') {
   if (await wasSignalNotified(signal.id)) return { sent: 0, duplicate: true };
   const result = await sendPayload({
     title: `5 MILLIONS · ${signal.symbol} ${signal.profile?.label || ''}`,
-    body: `${signal.strategyLabel} ${signal.shortStrike}/${signal.longStrike} · ${signal.expiration} · crédito $${signal.credit.toFixed(2)} · ${signal.sizing?.contractsAtWorstRisk || 0} contrato(s) máx.`,
+    body: `${signal.strategyLabel} ${signal.shortStrike}/${signal.longStrike} · ${signal.expiration} · crédito $${signal.credit.toFixed(2)} · riesgo $${signal.maxRiskUsd.toFixed(2)} por contrato · tú decides cantidad.`,
     tag: `5m-${signal.id}`,
     url: `${baseUrl || ''}/?signal=${encodeURIComponent(signal.id)}`
   });

@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { REQUIRED_NEWS_COVERAGE } from '../server/lib/gemini.js';
 import { buildCreditCandidates, chooseExpiration, daysToExpiration, scanMarket } from '../server/lib/scanner.js';
+import { analyzeInstitutionalFlow, flowForStrategy } from '../server/lib/institutionalFlow.js';
 
 function option(type, strike, delta, bid, ask, symbol = `${type}-${strike}`) {
-  return { type, strike, delta, bid, ask, mid: (bid + ask) / 2, volume: 500, openInterest: 2000, iv: 0.25, symbol, gamma: 0.01, theta: -0.02, vega: 0.05, rho: 0.01 };
+  return { type, strike, delta, bid, ask, last: ask, mid: (bid + ask) / 2, volume: 500, openInterest: 2000, iv: 0.25, symbol, gamma: 0.01, theta: -0.02, vega: 0.05, rho: 0.01 };
 }
 
 function dailyBars(count = 320) {
@@ -53,6 +54,7 @@ function policy() {
     maxDailySignals: 3,
     block0Dte: true,
     requireAffordableSignal: true,
+    institutionalFlow: { requiredForAggressive: false, minimumConfidence: 55, minimumUnusualVolume: 100, minimumVolumeOiRatio: 0.5 },
     minTimeframes: 3,
     maxDataAgeMinutes: 20,
     profiles: {
@@ -131,7 +133,16 @@ test('solo marca READY con tiempo real, noticias CLEAR, reglas y revisión Gemin
   assert.ok(scan.signals.every((signal) => signal.instanceId.startsWith(`${scan.id}:`)));
   assert.deepEqual(scan.market.contextIndices.map((quote) => quote.symbol), ['SPX', 'NDX', 'RUT', 'VIX']);
   assert.ok(scan.signals.some((signal) => signal.status === 'READY'));
-  assert.ok(scan.signals.filter((signal) => signal.status === 'READY').every((signal) => signal.sizing.contractsAtWorstRisk >= 1));
+  assert.ok(scan.signals.filter((signal) => signal.status === 'READY').every((signal) => signal.sizing.mode === 'USER_DECIDES'));
+});
+
+test('el perfil agresivo analiza símbolos fuera de la prioridad cuando no está restringido', async () => {
+  const now = new Date('2026-08-21T15:00:00Z');
+  const { tradier, gemini } = fakeServices({ now });
+  const unrestricted = policy();
+  unrestricted.profiles.aggressive.priorityOnly = false;
+  const scan = await scanMarket({ tradier, gemini, symbols: ['AAPL'], prioritySymbols: ['AMD', 'MSFT', 'SPY'], policy: unrestricted, realtimeEntitled: true, now });
+  assert.ok(scan.signals.some((signal) => signal.symbol === 'AAPL' && signal.profile.id === 'AGGRESSIVE'));
 });
 
 test('bloquea todas las señales cuando el contexto de noticias no está limpio', async () => {
@@ -152,12 +163,31 @@ test('bloquea READY si el entitlement de tiempo real no está confirmado', async
   assert.ok(scan.signals.every((signal) => signal.readiness.data === false));
 });
 
-test('no permite una señal que excede el presupuesto de riesgo', async () => {
+test('el balance no bloquea señales ni limita contratos', async () => {
   const now = new Date('2026-08-21T15:00:00Z');
   const { tradier, gemini } = fakeServices({ now });
   const smallAccountPolicy = { ...policy(), accountSize: 2000, riskPerTradePct: 1 };
   const scan = await scanMarket({ tradier, gemini, symbols: ['AMD'], prioritySymbols: ['AMD'], policy: smallAccountPolicy, realtimeEntitled: true, now });
-  assert.equal(scan.summary.ready, 0);
-  assert.ok(scan.signals.every((signal) => signal.sizing.contractsAtWorstRisk === 0));
-  assert.ok(scan.signals.every((signal) => signal.deterministic.rules.affordable === false));
+  assert.ok(scan.summary.ready > 0);
+  assert.ok(scan.signals.every((signal) => signal.sizing.contractsAtWorstRisk === null));
+  assert.ok(scan.signals.every((signal) => !Object.hasOwn(signal.deterministic.rules, 'affordable')));
+});
+
+test('infiere flujo direccional sin afirmar identidad institucional', () => {
+  const chain = [
+    { ...option('call', 105, 0.25, 1, 1.1), last: 1.1, volume: 1500, openInterest: 400 },
+    { ...option('call', 110, 0.15, 0.5, 0.6), last: 0.6, volume: 900, openInterest: 300 },
+    { ...option('put', 95, -0.2, 0.6, 0.7), last: 0.6, volume: 500, openInterest: 900 }
+  ];
+  const flow = analyzeInstitutionalFlow({
+    chain,
+    quote: { volume: 180000, changePct: 1.2 },
+    history: dailyBars(),
+    technical: { trend: 'bullish' },
+    now: new Date('2026-08-21T16:00:00Z')
+  });
+  assert.equal(flow.direction, 'BULLISH');
+  assert.ok(flow.unusualContracts.length >= 2);
+  assert.match(flow.limitations, /no revela la identidad/i);
+  assert.equal(flowForStrategy(flow, 'BULL_PUT_CREDIT_SPREAD', 30).aligned, true);
 });

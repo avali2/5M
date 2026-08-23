@@ -58,9 +58,9 @@ Documentación: [minimum instances](https://cloud.google.com/run/docs/configurin
 
 1. `/api/health` muestra Tradier, Gemini y Push configurados.
 2. La interfaz dice **Tiempo real confirmado**; si no, no habrá señales verdes.
-3. `ACCOUNT_SIZE` coincide con el capital destinado a spreads, no con una meta futura.
+3. `REQUIRE_AFFORDABLE_SIGNAL=false`; la app muestra riesgo por contrato y no filtra por balance.
 4. El semáforo de noticias está `CLEAR`, con las ocho coberturas y al menos tres fuentes.
-5. La señal muestra uno o más contratos permitidos.
+5. Tú eliges la cantidad; calcula el riesgo total multiplicando el riesgo máximo por contrato.
 6. En Robinhood coinciden símbolo, expiración, tipo, strike corto, strike largo y crédito LIMIT.
 7. El crédito real sigue por encima del mínimo; si cambió, cancela y vuelve a escanear.
 8. Aceptas perder como máximo el riesgo mostrado antes de enviar.
