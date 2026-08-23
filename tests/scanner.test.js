@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { REQUIRED_NEWS_COVERAGE } from '../server/lib/gemini.js';
-import { buildCreditCandidates, chooseExpiration, daysToExpiration, scanMarket } from '../server/lib/scanner.js';
+import { buildCreditCandidates, buildWheelCandidates, chooseExpiration, daysToExpiration, scanMarket } from '../server/lib/scanner.js';
 import { analyzeInstitutionalFlow, flowForStrategy } from '../server/lib/institutionalFlow.js';
 
 function option(type, strike, delta, bid, ask, symbol = `${type}-${strike}`) {
@@ -120,6 +120,31 @@ test('construye put/call credit spreads con riesgo definido y Greeks netos corre
   assert.equal(bull.greeks.delta, 0.13);
 });
 
+test('construye las dos fases de la rueda con requisitos explícitos', () => {
+  const chain = [
+    option('put', 18, -0.25, 0.75, 0.8, 'SOFI-P18'),
+    option('put', 17, -0.15, 0.45, 0.5, 'SOFI-P17'),
+    option('call', 22, 0.25, 0.7, 0.75, 'SOFI-C22'),
+    option('call', 23, 0.15, 0.4, 0.45, 'SOFI-C23')
+  ];
+  const candidates = buildWheelCandidates({
+    symbol: 'SOFI', quote: { symbol: 'SOFI', price: 20 },
+    technical: { trend: 'bullish', timeframeSummary: { available: 4 }, timeframes: {} },
+    chain, expiration: '2026-09-18', dte: 28,
+    policy: { minCredit: 0.1, minTimeframes: 3, institutionalFlow: { minimumConfidence: 55 } },
+    profile: { id: 'WHEEL', label: 'Rueda', minDte: 14, maxDte: 45, shortDeltaMin: 0.15, shortDeltaMax: 0.35, minLiquidity: 0, minScore: 0, minPop: 0.5, takeProfitPct: 0.5, stopMultiple: 2, timeStopDte: 7 },
+    dataQuality: { fresh: true },
+    institutionalFlow: { direction: 'BULLISH', confidence: 80 }
+  });
+  const put = candidates.find((candidate) => candidate.strategy === 'CASH_SECURED_PUT');
+  const call = candidates.find((candidate) => candidate.strategy === 'COVERED_CALL');
+  assert.equal(put.requirements.collateralUsd, put.shortStrike * 100);
+  assert.equal(call.requirements.sharesRequired, 100);
+  assert.match(call.requirements.conditional, /100 acciones/i);
+  assert.equal(put.legs.length, 1);
+  assert.equal(call.legs.length, 1);
+});
+
 test('solo marca READY con tiempo real, noticias CLEAR, reglas y revisión Gemini', async () => {
   const now = new Date('2026-08-21T15:00:00Z');
   const { tradier, gemini } = fakeServices({ now });
@@ -143,6 +168,15 @@ test('el perfil agresivo analiza símbolos fuera de la prioridad cuando no está
   unrestricted.profiles.aggressive.priorityOnly = false;
   const scan = await scanMarket({ tradier, gemini, symbols: ['AAPL'], prioritySymbols: ['AMD', 'MSFT', 'SPY'], policy: unrestricted, realtimeEntitled: true, now });
   assert.ok(scan.signals.some((signal) => signal.symbol === 'AAPL' && signal.profile.id === 'AGGRESSIVE'));
+});
+
+test('SOFI genera candidatos de rueda para put garantizada y covered call', async () => {
+  const now = new Date('2026-08-21T15:00:00Z');
+  const { tradier, gemini } = fakeServices({ now });
+  const scan = await scanMarket({ tradier, gemini, symbols: ['SOFI'], prioritySymbols: ['AMD', 'MSFT', 'SPY'], policy: policy(), realtimeEntitled: true, now });
+  const wheel = scan.signals.filter((signal) => signal.profile.id === 'WHEEL');
+  assert.ok(wheel.some((signal) => signal.strategy === 'CASH_SECURED_PUT'));
+  assert.ok(wheel.some((signal) => signal.strategy === 'COVERED_CALL'));
 });
 
 test('bloquea todas las señales cuando el contexto de noticias no está limpio', async () => {

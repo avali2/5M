@@ -94,6 +94,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .signal-card { margin: 12px 0; padding: 17px; border: 1px solid #e0e7ef; border-radius: 17px; background: white; box-shadow: 0 8px 22px rgba(33,53,82,.04); content-visibility: auto; contain-intrinsic-size: 760px; }
 .signal-card.ready { border-color: #8fe2c4; box-shadow: 0 12px 28px rgba(15,118,110,.09); }
 .signal-card.aggressive { border-left: 4px solid #f59e0b; }
+.signal-card.wheel { border-left: 4px solid #8b5cf6; }
+.wheel-requirement { padding: 8px; border-radius: 8px; background: #ede9fe; color: #5b21b6; }
 .signal-topline, .signal-topline > div, .signal-title-row, .signal-bottom, .side-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .signal-tags { flex-wrap: wrap; justify-content: flex-start !important; }
 .signal-source { margin-left: 7px; color: #8b97a8; font-size: 10px; }

@@ -58,7 +58,8 @@ function completePolicy(input = {}) {
     ...input,
     profiles: {
       core: { ...config.policy.profiles.core, ...(input.profiles?.core || {}) },
-      aggressive: { ...config.policy.profiles.aggressive, ...(input.profiles?.aggressive || {}) }
+      aggressive: { ...config.policy.profiles.aggressive, ...(input.profiles?.aggressive || {}) },
+      wheel: { ...config.policy.profiles.wheel, ...(input.profiles?.wheel || {}) }
     }
   };
 }
@@ -66,7 +67,9 @@ function completePolicy(input = {}) {
 function profilesForSymbol(symbol, policy, prioritySymbols) {
   const core = normalizeProfile(policy.profiles?.core || {}, policy);
   const aggressive = normalizeProfile(policy.profiles?.aggressive || { enabled: false, id: 'AGGRESSIVE' }, policy);
-  return [core, ...(aggressive.enabled && (!aggressive.priorityOnly || prioritySymbols.includes(symbol)) ? [aggressive] : [])];
+  const wheel = normalizeProfile(policy.profiles?.wheel || { enabled: false, id: 'WHEEL' }, policy);
+  const wheelEnabled = wheel.enabled && config.watchlist.wheelSymbols.includes(symbol);
+  return [core, ...(aggressive.enabled && (!aggressive.priorityOnly || prioritySymbols.includes(symbol)) ? [aggressive] : []), ...(wheelEnabled ? [wheel] : [])];
 }
 
 function validLeg(option) {
@@ -316,15 +319,145 @@ export function buildCreditCandidates({ symbol, quote, technical, chain, expirat
   return [...candidates.values()].sort((left, right) => right.score - left.score || right.popEstimate - left.popEstimate).slice(0, 10);
 }
 
+function makeWheelCandidate({ symbol, quote, technical, expiration, dte, shortLeg, strategy, profile, policy, dataQuality, institutionalFlow, now }) {
+  const midCredit = round(Math.max(0, finite(shortLeg.mid, (shortLeg.bid + shortLeg.ask) / 2)), 2);
+  const minimumCredit = round(Math.max(0, shortLeg.bid), 2);
+  const credit = Math.max(midCredit, minimumCredit);
+  const absDelta = Math.abs(shortLeg.delta);
+  const popEstimate = round(Math.max(0, Math.min(0.99, 1 - absDelta)), 4);
+  const liquidity = liquidityScore(shortLeg, shortLeg);
+  const institutional = flowForStrategy(institutionalFlow, strategy, Math.max(40, policy.institutionalFlow?.minimumConfidence - 10));
+  const enoughTimeframes = (technical?.timeframeSummary?.available || 0) >= policy.minTimeframes;
+  const trendAcceptable = technical?.trend !== 'bearish';
+  const flowAcceptable = institutional.direction !== 'BEARISH' && institutional.confidence >= Math.max(40, policy.institutionalFlow?.minimumConfidence - 10);
+  const score = Math.round(Math.max(0, Math.min(100,
+    34 + (popEstimate * 24) + (liquidity.score * 0.22) + (trendAcceptable ? 10 : 0) +
+    (institutional.direction === 'BULLISH' ? 8 : institutional.direction === 'BEARISH' ? -12 : 2)
+  )));
+  const isPut = strategy === 'CASH_SECURED_PUT';
+  const collateralUsd = isPut ? round(shortLeg.strike * 100, 2) : null;
+  const sharesRequired = isPut ? 0 : 100;
+  const referenceStockValueUsd = isPut ? null : round(quote.price * 100, 2);
+  const maxProfitUsd = isPut
+    ? round(credit * 100, 2)
+    : round(((shortLeg.strike - quote.price) + credit) * 100, 2);
+  const maxRiskUsd = isPut
+    ? round(Math.max(0, (shortLeg.strike - credit) * 100), 2)
+    : round(Math.max(0, (quote.price - credit) * 100), 2);
+  const breakEven = isPut ? round(shortLeg.strike - credit, 2) : round(quote.price - credit, 2);
+  const takeProfitDebit = round(credit * (1 - profile.takeProfitPct), 2);
+  const stopLossDebit = round(Math.max(0.01, credit * profile.stopMultiple), 2);
+  const id = idFor([symbol, profile.id, expiration, strategy, shortLeg.strike]);
+  const rules = {
+    score: score >= profile.minScore,
+    pop: popEstimate >= profile.minPop,
+    credit: minimumCredit >= policy.minCredit,
+    liquidity: liquidity.score >= profile.minLiquidity,
+    dte: dte >= profile.minDte && dte <= profile.maxDte && (!policy.block0Dte || dte > 0),
+    delta: absDelta >= profile.shortDeltaMin && absDelta <= profile.shortDeltaMax,
+    timeframes: enoughTimeframes,
+    trend: trendAcceptable,
+    institutionalFlow: flowAcceptable,
+    fresh: Boolean(dataQuality.fresh)
+  };
+  return {
+    id,
+    candidateId: id,
+    symbol,
+    isPriority: false,
+    isWheelSymbol: true,
+    profile: { id: 'WHEEL', label: 'Rueda', riskLevel: 'ALTO' },
+    strategy,
+    strategyLabel: isPut ? 'Cash-Secured Put · Rueda' : 'Covered Call · Rueda',
+    direction: isPut ? 'ALCISTA / DISPUESTO A COMPRAR' : 'NEUTRAL / ALCISTA CON 100 ACCIONES',
+    source: 'Tradier',
+    generatedAt: new Date(now).toISOString(),
+    expiration,
+    dte,
+    underlyingPrice: quote.price,
+    shortStrike: shortLeg.strike,
+    longStrike: null,
+    width: null,
+    credit,
+    midCredit,
+    minimumCredit,
+    maxProfitUsd,
+    maxRiskUsd,
+    riskAtMidUsd: maxRiskUsd,
+    returnOnRisk: maxRiskUsd > 0 ? round((credit * 100) / maxRiskUsd, 4) : null,
+    breakEven,
+    popEstimate,
+    score,
+    shortDelta: round(shortLeg.delta, 4),
+    longDelta: null,
+    iv: round(shortLeg.iv, 4),
+    liquidity,
+    institutionalFlow: institutional,
+    technical,
+    dataQuality,
+    legs: [{ action: 'SELL_TO_OPEN', type: isPut ? 'PUT' : 'CALL', strike: shortLeg.strike, contractSymbol: shortLeg.symbol, bid: shortLeg.bid, ask: shortLeg.ask, delta: shortLeg.delta }],
+    requirements: {
+      wheelStage: isPut ? 'SELL_CASH_SECURED_PUT' : 'SELL_COVERED_CALL',
+      collateralUsd,
+      sharesRequired,
+      referenceStockValueUsd,
+      conditional: isPut ? 'Usar solo si aceptarías comprar 100 acciones al strike.' : 'Usar solo si ya posees al menos 100 acciones libres por contrato.'
+    },
+    sizing: { mode: 'USER_DECIDES', contractsAtWorstRisk: null, maxRiskPerContractUsd: maxRiskUsd, note: 'La cantidad la decide el usuario.' },
+    executionPlan: {
+      order: isPut ? 'Sell to open PUT · cash-secured · orden LIMIT' : 'Sell to open CALL · cubierta por 100 acciones · orden LIMIT',
+      entry: `Vender 1 ${isPut ? 'PUT garantizada con efectivo' : 'CALL cubierta'} por crédito LIMIT cercano a $${credit.toFixed(2)}; cancelar debajo de $${minimumCredit.toFixed(2)}.`,
+      entryTrigger: isPut ? 'Entrar solo si aceptarías asignación y comprar 100 acciones al strike indicado.' : 'Entrar solo si ya posees 100 acciones por contrato y aceptarías venderlas al strike.',
+      entryCredit: credit,
+      minimumCredit,
+      breakEven,
+      takeProfit: `Buy to close a $${takeProfitDebit.toFixed(2)} o menos (capturar aproximadamente ${(profile.takeProfitPct * 100).toFixed(0)}% de la prima).`,
+      takeProfitDebit,
+      stopLoss: isPut ? `Cerrar cerca de $${stopLossDebit.toFixed(2)} si ya no deseas poseer las acciones; la asignación es una fase posible, no un error.` : 'Cerrar o rolar si la call amenaza asignación y ya no deseas vender las acciones al strike.',
+      stopLossDebit,
+      timeStop: `Reevaluar al llegar a ${profile.timeStopDte} DTE y antes de earnings o eventos binarios.`,
+      eventRule: 'No abrir con filtro de noticias distinto de CLEAR.',
+      assignmentRule: isPut ? 'Si asignan, recibirás normalmente 100 acciones por contrato y la siguiente fase es evaluar una Covered Call.' : 'Si asignan, normalmente venderás 100 acciones por contrato al strike y la rueda puede reiniciar con una Cash-Secured Put.'
+    },
+    greeks: { delta: round(-(shortLeg.delta || 0), 4), gamma: round(-(shortLeg.gamma || 0), 6), theta: round(-(shortLeg.theta || 0), 6), vega: round(-(shortLeg.vega || 0), 6), rho: round(-(shortLeg.rho || 0), 6) },
+    deterministic: {
+      pass: Object.values(rules).every(Boolean),
+      rules,
+      reasons: [
+        `Rueda ${profile.minDte}-${profile.maxDte} DTE · delta ${profile.shortDeltaMin.toFixed(2)}-${profile.shortDeltaMax.toFixed(2)}`,
+        `${isPut ? `Efectivo de asignación $${collateralUsd.toFixed(2)}` : 'Requiere 100 acciones libres'} por contrato`,
+        `Flujo ${institutional.direction} · confianza ${institutional.confidence}%`,
+        'La pérdida por caída del subyacente puede ser sustancial pese a cobrar prima.'
+      ]
+    },
+    aiReview: null,
+    status: 'CANDIDATE'
+  };
+}
+
+export function buildWheelCandidates({ symbol, quote, technical, chain, expiration, dte, policy = config.policy, profile, dataQuality = { fresh: true }, institutionalFlow = null, now = new Date() }) {
+  const activePolicy = completePolicy(policy);
+  const activeProfile = normalizeProfile(profile || activePolicy.profiles?.wheel || {}, activePolicy);
+  const center = (activeProfile.shortDeltaMin + activeProfile.shortDeltaMax) / 2;
+  const puts = chain.filter((option) => validLeg(option) && option.type === 'put' && option.strike < quote.price && Math.abs(option.delta) >= activeProfile.shortDeltaMin && Math.abs(option.delta) <= activeProfile.shortDeltaMax);
+  const calls = chain.filter((option) => validLeg(option) && option.type === 'call' && option.strike > quote.price && Math.abs(option.delta) >= activeProfile.shortDeltaMin && Math.abs(option.delta) <= activeProfile.shortDeltaMax);
+  const closest = (options) => [...options].sort((left, right) => Math.abs(Math.abs(left.delta) - center) - Math.abs(Math.abs(right.delta) - center)).slice(0, 3);
+  return [
+    ...closest(puts).map((shortLeg) => makeWheelCandidate({ symbol, quote, technical, expiration, dte, shortLeg, strategy: 'CASH_SECURED_PUT', profile: activeProfile, policy: activePolicy, dataQuality, institutionalFlow, now })),
+    ...closest(calls).map((shortLeg) => makeWheelCandidate({ symbol, quote, technical, expiration, dte, shortLeg, strategy: 'COVERED_CALL', profile: activeProfile, policy: activePolicy, dataQuality, institutionalFlow, now }))
+  ].filter((candidate) => candidate.minimumCredit >= activePolicy.minCredit).sort((left, right) => right.score - left.score);
+}
+
 function topPerSymbolProfile(candidates) {
   const result = [];
   const seen = new Set();
   const ordered = [...candidates].sort((left, right) =>
     Number(right.isPriority) - Number(left.isPriority) ||
+    Number(right.isWheelSymbol) - Number(left.isWheelSymbol) ||
     Number(right.strategy === 'BULL_PUT_CREDIT_SPREAD') - Number(left.strategy === 'BULL_PUT_CREDIT_SPREAD') ||
     right.score - left.score);
   for (const candidate of ordered) {
-    const key = `${candidate.symbol}:${candidate.profile.id}`;
+    const key = `${candidate.symbol}:${candidate.profile.id}:${candidate.profile.id === 'WHEEL' ? candidate.strategy : ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(candidate);
@@ -408,6 +541,7 @@ function candidateForReview(candidate) {
     shortDelta: candidate.shortDelta,
     liquidity: candidate.liquidity,
     institutionalFlow: candidate.institutionalFlow,
+    requirements: candidate.requirements || null,
     technical: candidate.technical,
     deterministic: candidate.deterministic
   };
@@ -488,7 +622,8 @@ export async function scanMarket({
         now,
         settings: activePolicy.institutionalFlow
       });
-      candidates.push(...buildCreditCandidates({
+      const builder = item.profile.id === 'WHEEL' ? buildWheelCandidates : buildCreditCandidates;
+      candidates.push(...builder({
         symbol,
         quote,
         technical,
@@ -534,6 +669,7 @@ export async function scanMarket({
     const rank = { READY: 3, WATCH: 2, CANDIDATE: 1, REJECTED: 0 };
     return (rank[right.status] - rank[left.status]) ||
       Number(right.isPriority) - Number(left.isPriority) ||
+      Number(right.isWheelSymbol) - Number(left.isWheelSymbol) ||
       Number(right.strategy === 'BULL_PUT_CREDIT_SPREAD') - Number(left.strategy === 'BULL_PUT_CREDIT_SPREAD') ||
       right.score - left.score;
   });
@@ -586,6 +722,7 @@ export async function scanMarket({
       rejected: signals.filter((signal) => signal.status === 'REJECTED').length,
       candidates: allCandidates.length,
       aggressive: signals.filter((signal) => signal.profile?.id === 'AGGRESSIVE').length,
+      wheel: signals.filter((signal) => signal.profile?.id === 'WHEEL').length,
       priority: signals.filter((signal) => signal.isPriority).length,
       symbolsWithData: perSymbol.filter((item) => item.quote && item.technical).length
     },

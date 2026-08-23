@@ -12,6 +12,7 @@ export function universeCatalog(watchlist = config.watchlist) {
     magnificentSeven: uniqueSymbols(watchlist.magnificentSeven),
     optionsLeaders: uniqueSymbols(watchlist.optionsLeaders),
     sectorAndMacroEtfs: uniqueSymbols(watchlist.sectorAndMacroEtfs),
+    wheelSymbols: uniqueSymbols(watchlist.wheelSymbols),
     allSignalSymbols: uniqueSymbols(watchlist.core)
   };
 }
@@ -24,7 +25,7 @@ export function selectRotatingUniverse({
 } = {}) {
   const catalog = universeCatalog(watchlist);
   const limit = Math.max(1, Number(maxSymbols) || 12);
-  const pinned = uniqueSymbols([...catalog.priority, ...catalog.indexProxies]).slice(0, limit);
+  const pinned = uniqueSymbols([...catalog.priority, ...catalog.indexProxies, ...catalog.wheelSymbols]).slice(0, limit);
   const rotation = catalog.allSignalSymbols.filter((symbol) => !pinned.includes(symbol));
   const slots = Math.max(0, limit - pinned.length);
   if (!slots || !rotation.length) return pinned;
@@ -34,4 +35,3 @@ export function selectRotatingUniverse({
   const rotated = [...rotation.slice(offset), ...rotation.slice(0, offset)];
   return [...pinned, ...rotated.slice(0, slots)];
 }
-

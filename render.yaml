@@ -51,13 +51,15 @@ services:
       - key: CONTEXT_INDICES
         value: SPX,NDX,RUT,VIX
       - key: WATCHLIST_CORE
-        value: AMD,MSFT,SPY,QQQ,IWM,DIA,AAPL,NVDA,AMZN,META,GOOGL,TSLA,AVGO,PLTR,NFLX,HOOD,MU,ORCL,TSM,BABA,BAC,COIN,SMH,XLK,XLF,XLE,TLT,IBIT
+        value: AMD,MSFT,SPY,QQQ,IWM,DIA,SOFI,MARA,AAPL,NVDA,AMZN,META,GOOGL,TSLA,AVGO,PLTR,NFLX,HOOD,MU,ORCL,TSM,BABA,BAC,COIN,SMH,XLK,XLF,XLE,TLT,IBIT
       - key: MAGNIFICENT_7
         value: AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA
       - key: OPTIONS_LEADERS
         value: AMD,AVGO,PLTR,NFLX,HOOD,MU,ORCL,TSM,BABA,BAC,COIN
       - key: SECTOR_MACRO_ETFS
         value: SMH,XLK,XLF,XLE,TLT,IBIT
+      - key: WHEEL_SYMBOLS
+        value: SOFI,MARA
       - key: MAX_SYMBOLS_PER_SCAN
         value: "12"
       - key: WATCHLIST_ROTATION_ENABLED
@@ -120,6 +122,22 @@ services:
         value: "100"
       - key: INSTITUTIONAL_FLOW_MIN_VOLUME_OI
         value: "0.5"
+      - key: WHEEL_ENABLED
+        value: "true"
+      - key: WHEEL_MIN_DTE
+        value: "14"
+      - key: WHEEL_MAX_DTE
+        value: "45"
+      - key: WHEEL_TARGET_DTE
+        value: "30"
+      - key: WHEEL_SHORT_DELTA_MIN
+        value: "0.15"
+      - key: WHEEL_SHORT_DELTA_MAX
+        value: "0.35"
+      - key: WHEEL_MIN_LIQUIDITY
+        value: "45"
+      - key: WHEEL_MIN_SCORE
+        value: "70"
       - key: MIN_TIMEFRAMES
         value: "3"
       - key: MAX_DATA_AGE_MINUTES

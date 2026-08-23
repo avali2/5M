@@ -200,6 +200,7 @@ export class GeminiReviewer {
       'Aprueba solamente spreads verticales de crédito con riesgo definido, liquidez razonable y tesis coherente en al menos tres temporalidades. El usuario decide contratos; no rechaces por tamaño de cuenta.',
       'INSTITUTIONAL FLOW es una inferencia cuantitativa con volumen/OI, bid/ask, prima nocional, volumen relativo y tendencia. No identifica bancos ni demuestra intención. No inventes identidad institucional.',
       'El perfil AGGRESSIVE tiene mayor riesgo: exige contexto CLEAR, liquidez superior, confirmación técnica y flujo inferido calificado/alineado; nunca apruebes por ser agresivo.',
+      'Para WHEEL: CASH_SECURED_PUT solo es válida si el usuario aceptaría comprar 100 acciones al strike y reservar el efectivo; COVERED_CALL solo es válida si ya posee 100 acciones libres por contrato. Nunca la describas como riesgo definido ni confundas una covered call con una call desnuda.',
       'Si los datos son insuficientes o contradictorios, usa WATCH o REJECT. No fuerces una operación.',
       'La POP es una aproximación basada principalmente en delta, nunca una garantía.',
       'Las estadísticas de aprendizaje, si aparecen, son observacionales. Ignóralas cuando usable=false y nunca apruebes una señal solo por una tasa histórica; únicamente pueden reforzar WATCH o REJECT ante evidencia adversa validada.',

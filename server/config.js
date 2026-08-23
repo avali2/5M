@@ -25,7 +25,8 @@ const indexProxies = asList(process.env.INDEX_PROXIES, ['SPY', 'QQQ', 'IWM', 'DI
 const contextIndices = asList(process.env.CONTEXT_INDICES, ['SPX', 'NDX', 'RUT', 'VIX']);
 const optionsLeaders = asList(process.env.OPTIONS_LEADERS, ['AMD', 'AVGO', 'PLTR', 'NFLX', 'HOOD', 'MU', 'ORCL', 'TSM', 'BABA', 'BAC', 'COIN']);
 const sectorAndMacroEtfs = asList(process.env.SECTOR_MACRO_ETFS, ['SMH', 'XLK', 'XLF', 'XLE', 'TLT', 'IBIT']);
-const defaultWatchlist = [...prioritySymbols, ...indexProxies, ...magnificentSeven, ...optionsLeaders, ...sectorAndMacroEtfs];
+const wheelSymbols = asList(process.env.WHEEL_SYMBOLS, ['SOFI', 'MARA']);
+const defaultWatchlist = [...prioritySymbols, ...indexProxies, ...wheelSymbols, ...magnificentSeven, ...optionsLeaders, ...sectorAndMacroEtfs];
 
 const coreProfile = {
   id: 'CORE',
@@ -69,6 +70,25 @@ const aggressiveProfile = {
   priorityOnly: asBool(process.env.AGGRESSIVE_PRIORITY_ONLY, false)
 };
 
+const wheelProfile = {
+  id: 'WHEEL',
+  label: 'Rueda',
+  riskLevel: 'ALTO',
+  enabled: asBool(process.env.WHEEL_ENABLED, true),
+  minDte: Math.max(7, asNumber(process.env.WHEEL_MIN_DTE, 14)),
+  maxDte: Math.max(14, asNumber(process.env.WHEEL_MAX_DTE, 45)),
+  targetDte: Math.max(7, asNumber(process.env.WHEEL_TARGET_DTE, 30)),
+  shortDeltaMin: Math.max(0.05, asNumber(process.env.WHEEL_SHORT_DELTA_MIN, 0.15)),
+  shortDeltaMax: Math.min(0.49, asNumber(process.env.WHEEL_SHORT_DELTA_MAX, 0.35)),
+  minLiquidity: Math.min(100, Math.max(0, asNumber(process.env.WHEEL_MIN_LIQUIDITY, 45))),
+  minScore: Math.min(100, Math.max(0, asNumber(process.env.WHEEL_MIN_SCORE, 70))),
+  minPop: Math.min(0.95, Math.max(0.5, asNumber(process.env.WHEEL_MIN_POP, 0.60))),
+  takeProfitPct: Math.min(0.9, Math.max(0.1, asNumber(process.env.WHEEL_TAKE_PROFIT_PCT, 0.50))),
+  stopMultiple: Math.max(1.1, asNumber(process.env.WHEEL_STOP_MULTIPLE, 2)),
+  timeStopDte: Math.max(1, asNumber(process.env.WHEEL_TIME_STOP_DTE, 7)),
+  priorityOnly: false
+};
+
 export const config = {
   root: ROOT,
   port: asNumber(process.env.PORT, 8787),
@@ -103,6 +123,7 @@ export const config = {
     contextIndices,
     optionsLeaders,
     sectorAndMacroEtfs,
+    wheelSymbols,
     core: asList(process.env.WATCHLIST_CORE, defaultWatchlist),
     maxSymbolsPerScan: Math.max(6, asNumber(process.env.MAX_SYMBOLS_PER_SCAN, 12)),
     rotationEnabled: asBool(process.env.WATCHLIST_ROTATION_ENABLED, true)
@@ -129,7 +150,7 @@ export const config = {
     },
     minTimeframes: Math.min(5, Math.max(2, asNumber(process.env.MIN_TIMEFRAMES, 3))),
     maxDataAgeMinutes: Math.max(1, asNumber(process.env.MAX_DATA_AGE_MINUTES, 20)),
-    profiles: { core: coreProfile, aggressive: aggressiveProfile }
+    profiles: { core: coreProfile, aggressive: aggressiveProfile, wheel: wheelProfile }
   },
   scanner: {
     intervalMinutes: Math.max(1, asNumber(process.env.SCAN_INTERVAL_MINUTES, 5)),

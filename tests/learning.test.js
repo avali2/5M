@@ -10,9 +10,10 @@ test('el universo conserva prioridad e índices ETF y rota los demás símbolos'
   assert.deepEqual(catalog.indexProxies, ['SPY', 'QQQ', 'IWM', 'DIA']);
   assert.deepEqual(catalog.contextIndices, ['SPX', 'NDX', 'RUT', 'VIX']);
   assert.deepEqual(catalog.magnificentSeven, ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA']);
+  assert.deepEqual(catalog.wheelSymbols, ['SOFI', 'MARA']);
   const first = selectRotatingUniverse({ maxSymbols: 12, now: new Date('2026-08-24T14:00:00Z') });
   const second = selectRotatingUniverse({ maxSymbols: 12, now: new Date('2026-08-24T14:05:00Z') });
-  for (const symbol of ['AMD', 'MSFT', 'SPY', 'QQQ', 'IWM', 'DIA']) {
+  for (const symbol of ['AMD', 'MSFT', 'SPY', 'QQQ', 'IWM', 'DIA', 'SOFI', 'MARA']) {
     assert.ok(first.includes(symbol));
     assert.ok(second.includes(symbol));
   }
@@ -79,4 +80,3 @@ test('SQLite guarda señales y feedback y produce un resumen de aprendizaje', as
   assert.ok(status.signalsStored >= 1);
   assert.ok(status.feedbackEvents >= 2);
 });
-

@@ -1,6 +1,6 @@
 # 5 MILLIONS
 
-Aplicación privada de señales de opciones para ejecución manual en Robinhood. Prioriza **AMD, MSFT y SPY**, especialmente Put Credit Spreads, usando datos de Tradier, análisis cuantitativo multitemporal y dos revisiones de Gemini.
+Aplicación privada de señales de opciones para ejecución manual en Robinhood. Prioriza **AMD, MSFT y SPY** para spreads, y **SOFI/MARA** para Covered Calls y la rueda, usando datos de Tradier, análisis cuantitativo multitemporal y dos revisiones de Gemini.
 
 ## Flujo de decisión
 
@@ -19,6 +19,9 @@ La aplicación nunca envía órdenes. Si faltan noticias, fuentes, datos frescos
 
 - **Base:** 21–45 DTE, objetivo 30 DTE, delta corta 0.12–0.30 y take profit de 50% del crédito.
 - **Agresivo:** todo el universo, 7–20 DTE, objetivo 14 DTE, delta corta 0.24–0.40, liquidez superior y flujo inferido alineado con confianza mínima.
+- **Rueda SOFI/MARA:** 14–45 DTE, objetivo 30 DTE y delta 0.15–0.35. Genera por separado Cash-Secured Put y Covered Call.
+- La Cash-Secured Put muestra el efectivo necesario para una posible asignación de 100 acciones.
+- La Covered Call exige que ya poseas 100 acciones libres por contrato; nunca se presenta como una call desnuda.
 - Sin filtro por precio del subyacente, balance o cantidad de contratos. Se muestra riesgo por contrato y el usuario decide el tamaño.
 - Anchos de spread de hasta $25 por defecto, configurables con `MAXIMUM_SPREAD_WIDTH`.
 - 0DTE y opciones desnudas están bloqueados.
@@ -33,6 +36,7 @@ El perfil agresivo aumenta sensibilidad y riesgo de pérdida; no aumenta la cert
 - **7 Magníficas:** AAPL, MSFT, NVDA, AMZN, META, GOOGL y TSLA.
 - **Líderes líquidos adicionales:** AMD, AVGO, PLTR, NFLX, HOOD, MU, ORCL, TSM, BABA, BAC y COIN.
 - **ETF sectoriales/macro:** SMH, XLK, XLF, XLE, TLT e IBIT.
+- **Rueda fijada en cada rotación:** SOFI y MARA.
 
 El escáner mantiene prioridad e índices ETF y rota el resto dentro de `MAX_SYMBOLS_PER_SCAN`. Esto evita pedir decenas de históricos y cadenas simultáneamente y reduce riesgo de rate limit. Cboe identifica una fuerte concentración del volumen en SPX, SPY, NVDA, TSLA y AAPL, y su lista ampliada de clases líquidas incluye AMD, MSFT, AVGO y PLTR.
 
@@ -102,6 +106,7 @@ Consulta [DEPLOYMENT.md](./DEPLOYMENT.md) para Railway, Render, Fly.io, Cloud Ru
 - El riesgo máximo presupone el crédito conservador de la cadena, pero el fill real, slippage y asignación pueden cambiar el resultado.
 - Gemini y Google Search pueden omitir o interpretar mal noticias. La app exige cobertura y fuentes, pero no sustituye la verificación humana.
 - La app no decide cuántos contratos comprar. Multiplica siempre `riesgo máximo por contrato × contratos` antes de enviar una orden.
+- En la rueda, la prima no elimina la exposición bajista del subyacente. Una Covered Call puede perder mucho si las acciones caen y limita parte de la subida si son asignadas.
 - “Flujo profesional” es una inferencia, no una prueba de que un banco o fondo haya comprado o vendido. Tradier no entrega esa identidad ni confirma apertura/cierre.
 
 ## Documentación oficial

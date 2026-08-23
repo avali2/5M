@@ -28,6 +28,8 @@ test('config pública prioriza AMD, MSFT y SPY sin exponer claves', async () => 
   assert.equal(response.status, 200);
   assert.deepEqual(payload.watchlist.priority, ['AMD', 'MSFT', 'SPY']);
   assert.equal(payload.watchlist.core[0], 'AMD');
+  assert.deepEqual(payload.watchlist.wheelSymbols, ['SOFI', 'MARA']);
+  assert.equal(payload.policy.profiles.wheel.id, 'WHEEL');
   assert.equal(Object.hasOwn(payload.integrations, 'tradierMode'), true);
   assert.equal(JSON.stringify(payload).includes('TRADIER_TOKEN'), false);
   assert.equal(JSON.stringify(payload).includes('GEMINI_API_KEY'), false);
