@@ -1,73 +1,71 @@
 # Implementación de 5 MILLIONS
 
-La rama de producción de esta app es `main` en el repositorio privado `avali2/5M`.
+La rama de producción es `main` en el repositorio privado `avali2/5M`.
 
-## Opción recomendada: Render
+Requisito clave de esta app: el escaneo es un temporizador que debe correr **24/7** y la base SQLite debe ser **persistente**. El plan gratuito de Render se duerme por inactividad, por eso **no** sirve para alertas continuas. Estas son las opciones recomendadas.
 
-`render.yaml` (Blueprint) crea un Web Service con Node 24, un disco persistente de 1 GB y todas las variables de entorno listas. Sigue este orden:
+## Opción gratuita recomendada: Oracle Cloud Always Free
 
-1. En Render ve a **New → Blueprint** y conecta el repositorio privado `avali2/5M` (rama `main`).
-2. Render detecta `render.yaml` y crea el servicio `five-millions` con el disco `five-millions-data` montado en `/var/data`. Ahí vive `five-millions.sqlite`; sin ese disco se pierde el aprendizaje al reemplazar la instancia.
-3. Configura los **secretos** (marcados `sync: false` en el blueprint) en la pestaña **Environment** del servicio:
-   - `APP_ACCESS_KEY`: una clave larga y única que usarás en la interfaz.
-   - `TRADIER_TOKEN`: token de solo lectura de Tradier.
-   - `GEMINI_API_KEY` (o `GOOGLE_API_KEY`): clave de Gemini con Google Search.
-   - `CLIENT_ORIGIN` y `PUBLIC_BASE_URL`: el dominio HTTPS final (`https://tu-servicio.onrender.com`).
-   - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT`: para Web Push (genera con `npx web-push generate-vapid-keys`).
-4. Confirma con Tradier que tu token de producción tiene **tiempo real** y solo entonces fija `TRADIER_REALTIME_ENTITLED=true`. Mientras esté en `false`, la app bloquea las señales `READY`.
-5. Despliega. Abre `https://tu-dominio/api/health`; debe responder `ok: true` sin mostrar secretos.
-6. Abre la web, escribe `APP_ACCESS_KEY`, pulsa **Revisar mercado** y activa Web Push.
-7. Marca una señal de prueba como omitida y comprueba en el panel **Aprendizaje** que aumentó el contador de feedback.
+Da una VM para siempre (0 USD, sin tarjeta que se vaya a cobrar) con disco persistente. Es la única opción puramente gratis y 24/7.
 
-### Opción manual (sin Blueprint)
+1. En Oracle Cloud crea una instancia **Ampere A1** (ARM) con Ubuntu 22.04/24.04, 2–4 OCPU y 8–24 GB de RAM (todo dentro del allowance Always Free).
+2. Asígnale una IP pública y abre los puertos **80 y 443** en la Security List.
+3. (Recomendado) Apunta un dominio A/AAAA a la IP pública, para HTTPS y Web Push.
+4. Entra por SSH y ejecuta el instalador incluido:
+   ```bash
+   bash deploy/oracle-vm/setup.sh
+   ```
+   El script instala Node 24, clona el repo, compila, crea el usuario `5m`, monta el directorio de datos `/opt/5m/data`, configura `systemd` (arranque automático + reinicio) y el firewall.
+5. Edita `/etc/5m.env` y completa `APP_ACCESS_KEY`, `TRADIER_TOKEN`, `GEMINI_API_KEY` y las claves `VAPID_*`.
+   - Genera VAPID con: `npx web-push generate-vapid-keys`
+   - Confirma el tiempo real con Tradier antes de poner `TRADIER_REALTIME_ENTITLED=true`.
+6. HTTPS con Caddy (necesario para Web Push):
+   ```bash
+   sudo apt-get install -y caddy
+   echo 'tu-dominio.com { reverse_proxy 127.0.0.1:8787 }' | sudo tee /etc/caddy/Caddyfile
+   sudo systemctl enable --now caddy
+   ```
+   Pon `CLIENT_ORIGIN` y `PUBLIC_BASE_URL` con `https://tu-dominio.com`.
+7. Inicia el servicio:
+   ```bash
+   sudo systemctl start 5m && sudo systemctl status 5m
+   curl http://127.0.0.1:8787/api/health
+   ```
 
-1. **New → Web Service** y conecta `avali2/5M`, rama `main`.
-2. Runtime **Node**, `buildCommand: npm install && npm run build`, `startCommand: npm start`.
-3. En **Disks**, crea un disco de 1 GB y móntalo en `/var/data`; mantén `DATA_DIR=/var/data`.
-4. Añade las variables de la sección anterior y despliega.
+## Alternativa casi gratuita y muy simple: Fly.io
 
-## Railway
-
-Railway puede construir el `Dockerfile` desde un repositorio privado y mantener un volumen entre despliegues.
-
-1. En Railway crea **New Project → Deploy from GitHub repo**.
-2. Selecciona el repositorio privado `avali2/5M` y la rama `main`.
-3. Railway detectará el `Dockerfile` del root.
-4. Añade las variables de `.env.example`. No copies las claves a GitHub.
-5. Confirma con Tradier que tu token de producción tiene tiempo real y solo entonces fija `TRADIER_REALTIME_ENTITLED=true`.
-6. En **Settings → Volumes**, crea un volumen y móntalo en `/app/data`. Ahí vive `five-millions.sqlite`; sin volumen se pierde el aprendizaje al reemplazar la instancia.
-7. En **Networking**, genera el dominio público.
-8. Coloca ese dominio, con `https://`, en `PUBLIC_BASE_URL` y `CLIENT_ORIGIN`, y vuelve a desplegar.
-9. Abre `https://tu-dominio/api/health`; debe responder `ok: true` sin mostrar secretos.
-10. Abre la web, escribe `APP_ACCESS_KEY`, pulsa **Revisar mercado** y activa Web Push.
-
-Documentación: [Railway Express](https://docs.railway.com/guides/express) y [Railway Volumes](https://docs.railway.com/guides/docker-compose#5-attach-volumes).
-
-## Fly.io
-
-El `Dockerfile` también es desplegable en Fly.io.
+Fly.io pide tarjeta una sola vez, pero tiene un plan de **$0** con allowance. Ideal si no quieres administrar una VM. Archivo `fly.toml` ya incluido.
 
 ```bash
-fly launch --no-deploy
-fly volumes create five_millions_data --size 1
-fly secrets set TRADIER_TOKEN=... GEMINI_API_KEY=... APP_ACCESS_KEY=...
+# Instala flyctl y haz login: https://fly.io/docs/flyctl/install/
+fly launch
+fly volumes create five_millions_data --size 1 --region iad
+fly secrets set TRADIER_TOKEN=... GEMINI_API_KEY=... APP_ACCESS_KEY=... \
+  VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:tu-email@example.com
 fly deploy
 ```
 
-En el `fly.toml` generado configura el puerto interno `8787`, monta el volumen en `/app/data`, desactiva autostop y conserva una Machine activa. El nombre de la aplicación se genera en tu cuenta y por eso no se incluye un `fly.toml` fijo en el repositorio.
+Nota: el `fly.toml` del repo fija `auto_stop_machines = "off"` y `min_machines_running = 1` para que el temporizador nunca se detenga. El dominio HTTPS lo genera Fly automáticamente; colócalo en `CLIENT_ORIGIN` y `PUBLIC_BASE_URL`.
 
-Documentación: [Fly deploy](https://fly.io/docs/launch/deploy/), [Fly volumes](https://fly.io/docs/volumes/overview/) y [autostop/autostart](https://fly.io/docs/launch/autostop-autostart/).
+## Render (de pago)
 
-## Google Cloud Run
+`render.yaml` (Blueprint) crea el Web Service con un disco persistente de 1 GB. Usa plan **starter** (no `free`), porque `free` se suspende y pierde el temporizador.
 
-Cloud Run puede construir el mismo contenedor. Para ejecutar el temporizador en segundo plano configura al menos una instancia mínima y CPU disponible fuera de solicitudes. El almacenamiento local no es durable en Cloud Run, por lo que esta versión SQLite no debe usarse allí sin reemplazar el almacén por una base externa.
+1. **New → Blueprint** y conecta `avali2/5M` (rama `main`).
+2. Render crea el servicio `five-millions` + disco `five-millions-data` montado en `/var/data` (`DATA_DIR=/var/data`).
+3. En **Environment**, configura `APP_ACCESS_KEY`, `TRADIER_TOKEN`, `GEMINI_API_KEY`, `CLIENT_ORIGIN`, `PUBLIC_BASE_URL` y `VAPID_*`.
+4. Confirma el tiempo real de Tradier antes de `TRADIER_REALTIME_ENTITLED=true`.
+5. Despliega y verifica `https://tu-dominio/api/health`.
 
-Documentación: [minimum instances](https://cloud.google.com/run/docs/configuring/min-instances) y [background processing/autoscaling](https://cloud.google.com/run/docs/about-instance-autoscaling).
+## Railway
 
-## Vercel y GitHub Pages
+Railway construye el `Dockerfile` y permite volúmenes, pero ya no tiene plan gratuito persistente fiable. Usa el volumen en `/app/data` y el dominio generado en `PUBLIC_BASE_URL` y `CLIENT_ORIGIN`.
 
-- **Vercel:** no ejecuta indefinidamente el `setTimeout` de este servidor. Requeriría convertir el escáner en Cron Jobs y mover estado/suscripciones a una base de datos externa. No es un despliegue directo de esta versión.
-- **GitHub Pages:** solo sirve archivos estáticos. No puede guardar de forma segura `TRADIER_TOKEN` ni `GEMINI_API_KEY`, ni ejecutar el escáner. No debe usarse para esta app.
+## Otras opciones
+
+- **Google Cloud Run**: el almacenamiento local no es durable y el temporizador necesita CPU fuera de peticiones. No es un despliegue directo de esta versión SQLite.
+- **Fly.io con auto_stop** u otros servicios "serverless" que se duermen: **no sirven** para el temporizador.
+- **Vercel / GitHub Pages**: no pueden ejecutar el escáner ni guardar secretos de forma segura. No usar.
 
 ## Lista de verificación antes de operar
 
@@ -79,6 +77,6 @@ Documentación: [minimum instances](https://cloud.google.com/run/docs/configurin
 6. En Robinhood coinciden símbolo, expiración, tipo, strike corto, strike largo y crédito LIMIT.
 7. El crédito real sigue por encima del mínimo; si cambió, cancela y vuelve a escanear.
 8. Aceptas perder como máximo el riesgo mostrado antes de enviar.
-9. Después de cerrar, marcas el resultado y P/L real para que el aprendizaje use datos verdaderos, no fills imaginarios.
+9. Después de cerrar, marcas el resultado y P/L real para que el aprendizaje use datos verdaderos.
 
-Repositorio privado y `APP_ACCESS_KEY` protegen partes distintas: el primero protege el código; la segunda protege la web publicada. Ninguno convierte una estrategia en rentable ni elimina el riesgo de mercado.
+Repositorio privado y `APP_ACCESS_KEY` protegen partes distintas. Ninguno convierte una estrategia en rentable ni elimina el riesgo de mercado.

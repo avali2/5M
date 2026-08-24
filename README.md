@@ -113,7 +113,13 @@ Consulta [DEPLOYMENT.md](./DEPLOYMENT.md) para Railway, Render, Fly.io, Cloud Ru
 
 El repositorio privado es `avali2/5M` y la rama de producción es `main`. Cada cambio a `main` dispara GitHub Actions (`npm test` y `npm run build`) para validar el código antes de desplegar.
 
-`render.yaml` (Blueprint de Render) deja el servicio listo con un disco persistente de 1 GB para la base SQLite. El paso a paso completo está en [DEPLOYMENT.md](./DEPLOYMENT.md).
+El escaneo es un temporizador 24/7 y la base es SQLite persistente, por lo que el plan gratuito de Render **no** es apto. Opciones listas en el repo:
+
+- **Oracle Cloud Always Free** (0 USD reales): instalador incluido en [`deploy/oracle-vm/setup.sh`](./deploy/oracle-vm/setup.sh).
+- **Fly.io** (plan $0 con allowance): [`fly.toml`](./fly.toml) listo con volumen y máquina siempre activa.
+- **Render/Railway** (de pago): `render.yaml` y el `Dockerfile` quedan preparados.
+
+El paso a paso completo está en [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ## Documentación oficial
 
