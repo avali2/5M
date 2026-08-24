@@ -1,13 +1,37 @@
 # Implementación de 5 MILLIONS
 
-La rama de producción de esta app es `five-millions`. No despliegues `main`, porque pertenece a la aplicación anterior.
+La rama de producción de esta app es `main` en el repositorio privado `avali2/5M`.
 
-## Opción recomendada: Railway
+## Opción recomendada: Render
+
+`render.yaml` (Blueprint) crea un Web Service con Node 24, un disco persistente de 1 GB y todas las variables de entorno listas. Sigue este orden:
+
+1. En Render ve a **New → Blueprint** y conecta el repositorio privado `avali2/5M` (rama `main`).
+2. Render detecta `render.yaml` y crea el servicio `five-millions` con el disco `five-millions-data` montado en `/var/data`. Ahí vive `five-millions.sqlite`; sin ese disco se pierde el aprendizaje al reemplazar la instancia.
+3. Configura los **secretos** (marcados `sync: false` en el blueprint) en la pestaña **Environment** del servicio:
+   - `APP_ACCESS_KEY`: una clave larga y única que usarás en la interfaz.
+   - `TRADIER_TOKEN`: token de solo lectura de Tradier.
+   - `GEMINI_API_KEY` (o `GOOGLE_API_KEY`): clave de Gemini con Google Search.
+   - `CLIENT_ORIGIN` y `PUBLIC_BASE_URL`: el dominio HTTPS final (`https://tu-servicio.onrender.com`).
+   - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT`: para Web Push (genera con `npx web-push generate-vapid-keys`).
+4. Confirma con Tradier que tu token de producción tiene **tiempo real** y solo entonces fija `TRADIER_REALTIME_ENTITLED=true`. Mientras esté en `false`, la app bloquea las señales `READY`.
+5. Despliega. Abre `https://tu-dominio/api/health`; debe responder `ok: true` sin mostrar secretos.
+6. Abre la web, escribe `APP_ACCESS_KEY`, pulsa **Revisar mercado** y activa Web Push.
+7. Marca una señal de prueba como omitida y comprueba en el panel **Aprendizaje** que aumentó el contador de feedback.
+
+### Opción manual (sin Blueprint)
+
+1. **New → Web Service** y conecta `avali2/5M`, rama `main`.
+2. Runtime **Node**, `buildCommand: npm install && npm run build`, `startCommand: npm start`.
+3. En **Disks**, crea un disco de 1 GB y móntalo en `/var/data`; mantén `DATA_DIR=/var/data`.
+4. Añade las variables de la sección anterior y despliega.
+
+## Railway
 
 Railway puede construir el `Dockerfile` desde un repositorio privado y mantener un volumen entre despliegues.
 
 1. En Railway crea **New Project → Deploy from GitHub repo**.
-2. Selecciona el repositorio privado `avali2/2M` y la rama `five-millions`.
+2. Selecciona el repositorio privado `avali2/5M` y la rama `main`.
 3. Railway detectará el `Dockerfile` del root.
 4. Añade las variables de `.env.example`. No copies las claves a GitHub.
 5. Confirma con Tradier que tu token de producción tiene tiempo real y solo entonces fija `TRADIER_REALTIME_ENTITLED=true`.
@@ -16,17 +40,8 @@ Railway puede construir el `Dockerfile` desde un repositorio privado y mantener 
 8. Coloca ese dominio, con `https://`, en `PUBLIC_BASE_URL` y `CLIENT_ORIGIN`, y vuelve a desplegar.
 9. Abre `https://tu-dominio/api/health`; debe responder `ok: true` sin mostrar secretos.
 10. Abre la web, escribe `APP_ACCESS_KEY`, pulsa **Revisar mercado** y activa Web Push.
-11. Marca una señal de prueba como omitida y comprueba en el panel **Aprendizaje** que aumentó el contador de feedback.
 
 Documentación: [Railway Express](https://docs.railway.com/guides/express) y [Railway Volumes](https://docs.railway.com/guides/docker-compose#5-attach-volumes).
-
-## Render
-
-`render.yaml` permite crear un Web Service. Selecciona explícitamente la rama `five-millions`, configura los secretos y añade un disco persistente montado en el mismo `DATA_DIR` usado por SQLite.
-
-El plan gratuito puede suspender el proceso por inactividad y su filesystem es efímero. Es válido para probar la interfaz, pero no para depender de alertas continuas. Para segundo plano usa un servicio de pago siempre activo o un Background Worker con almacenamiento compartido.
-
-Documentación: [Render free instances](https://render.com/docs/free) y [Render Blueprints](https://render.com/docs/blueprint-spec).
 
 ## Fly.io
 

@@ -109,6 +109,12 @@ Consulta [DEPLOYMENT.md](./DEPLOYMENT.md) para Railway, Render, Fly.io, Cloud Ru
 - En la rueda, la prima no elimina la exposición bajista del subyacente. Una Covered Call puede perder mucho si las acciones caen y limita parte de la subida si son asignadas.
 - “Flujo profesional” es una inferencia, no una prueba de que un banco o fondo haya comprado o vendido. Tradier no entrega esa identidad ni confirma apertura/cierre.
 
+## Integración continua y despliegue
+
+El repositorio privado es `avali2/5M` y la rama de producción es `main`. Cada cambio a `main` dispara GitHub Actions (`npm test` y `npm run build`) para validar el código antes de desplegar.
+
+`render.yaml` (Blueprint de Render) deja el servicio listo con un disco persistente de 1 GB para la base SQLite. El paso a paso completo está en [DEPLOYMENT.md](./DEPLOYMENT.md).
+
 ## Documentación oficial
 
 - [Tradier: Market Data](https://docs.tradier.com/docs/market-data)
