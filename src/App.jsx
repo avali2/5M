@@ -119,6 +119,31 @@ function Timeframes({ technical }) {
   return <div className="timeframes">{Object.entries(technical?.timeframes || {}).map(([key, item]) => <div className={`timeframe tf-${item.sufficient ? item.trend : 'missing'}`} key={key}><span>{item.label}</span><strong>{item.sufficient ? item.trend === 'bullish' ? 'ALCISTA' : item.trend === 'bearish' ? 'BAJISTA' : 'NEUTRAL' : 'SIN DATA'}</strong><small>RSI {item.rsi14 ?? '—'}</small></div>)}</div>;
 }
 
+const PREFLIGHT_ITEMS = [
+  'Revisé noticias, earnings, calendario macro y eventos del ticker.',
+  'Confirmé en Robinhood el subyacente, contrato, vencimiento, bid/ask y liquidez actuales.',
+  'Verifiqué el efectivo o las acciones libres, descontando órdenes y reservas existentes.',
+  'Aceptaría comprar las acciones al strike (put) o venderlas al strike (call).',
+  'Definí objetivo, invalidación y cuándo reevaluar; no dependo de un stop garantizado.',
+  'El tamaño cabe en mi plan y no estoy operando para recuperar una pérdida.'
+];
+
+function PreflightChecklist({ signal }) {
+  const key = `five-millions-preflight:${signal.instanceId || signal.id}`;
+  const [checked, setChecked] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(checked)); } catch { /* checklist stays usable for this session */ }
+  }, [key, checked]);
+  const complete = checked.length === PREFLIGHT_ITEMS.length;
+  return <details className="preflight-checklist">
+    <summary>Lista manual antes de enviar · {complete ? 'completa' : `${checked.length}/${PREFLIGHT_ITEMS.length}`}</summary>
+    <p>Estas confirmaciones son tuyas; el estado de la señal no se cambia al marcarlas.</p>
+    <div>{PREFLIGHT_ITEMS.map((item, index) => <label key={item}><input type="checkbox" checked={checked.includes(index)} onChange={(event) => setChecked((current) => event.target.checked ? [...new Set([...current, index])] : current.filter((value) => value !== index))} /><span>{item}</span></label>)}</div>
+  </details>;
+}
+
 function SignalCard({ signal, marketRisk, onFeedback, feedbackBusy }) {
   const ready = signal.status === 'READY';
   const review = signal.aiReview;
@@ -156,6 +181,7 @@ function SignalCard({ signal, marketRisk, onFeedback, feedbackBusy }) {
       <div className="plan-box exit"><span className="plan-label">SALIDA Y PROTECCIÓN</span><p className="strong-line">{signal.executionPlan?.takeProfit}</p><p>{signal.executionPlan?.stopLoss}</p><p>{signal.executionPlan?.timeStop}</p><p>{signal.executionPlan?.assignmentRule}</p></div>
     </div>
     <div className="signal-bottom"><div className="greeks"><span>Spread:</span> Δ {signal.greeks?.delta ?? '—'} · Γ {signal.greeks?.gamma ?? '—'} · Θ {signal.greeks?.theta ?? '—'} · Vega {signal.greeks?.vega ?? '—'} · IV {signal.iv ?? '—'}</div><button className="quiet-btn" onClick={() => copyOrder(signal, marketRisk)}>Copiar orden</button></div>
+    <PreflightChecklist signal={signal} />
     <div className="feedback-row"><div><strong>Registrar resultado</strong><span>Guarda lo que ocurrió en Robinhood.</span></div><div className="feedback-actions"><button disabled={feedbackBusy} onClick={() => onFeedback(signal, 'TAKEN')}>La tomé</button><button disabled={feedbackBusy} onClick={() => onFeedback(signal, 'SKIPPED')}>La omití</button><button className="win" disabled={feedbackBusy} onClick={() => onFeedback(signal, 'WIN')}>Ganó</button><button className="loss" disabled={feedbackBusy} onClick={() => onFeedback(signal, 'LOSS')}>Perdió</button><button disabled={feedbackBusy} onClick={() => onFeedback(signal, 'BREAKEVEN')}>Break-even</button></div></div>
     {review && <div className="ai-review"><div><span className="ai-chip">GEMINI {review.confidence}% · {review.decision}</span><strong>{review.summary}</strong></div><div className="ai-plan"><span><b>Entrada IA:</b> {review.entryTrigger}</span><span><b>Salida IA:</b> {review.takeProfit}</span><span><b>Invalidación:</b> {review.stopLoss}</span><span><b>Manejo:</b> {review.management}</span></div>{review.riskFlags?.length > 0 && <div className="risk-flags">{review.riskFlags.map((risk) => <span key={risk}>⚠ {risk}</span>)}</div>}</div>}
     {!ready && signal.readiness?.reasons?.length > 0 && <div className="blocked-note"><strong>Por qué esperar:</strong> {signal.readiness.reasons.join(' · ')}</div>}
