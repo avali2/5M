@@ -146,6 +146,12 @@ function timeframeContext(bars = [], label) {
   if (sufficient && last > ema9 && ema9 > ema21 && (rsi14 ?? 50) >= 50 && (slopePct ?? 0) >= 0) trend = 'bullish';
   if (sufficient && last < ema9 && ema9 < ema21 && (rsi14 ?? 50) <= 50 && (slopePct ?? 0) <= 0) trend = 'bearish';
   const recent = clean.slice(-20);
+  const recentWindow = clean.slice(-21);
+  const windowStartTimestamp = recentWindow[0]?._timestamp ?? null;
+  const windowEndTimestamp = clean.at(-1)?._timestamp ?? null;
+  const windowSpanMinutes = windowStartTimestamp !== null && windowEndTimestamp !== null
+    ? round((windowEndTimestamp - windowStartTimestamp) / 60000, 1)
+    : null;
   return {
     label,
     trend,
@@ -161,6 +167,7 @@ function timeframeContext(bars = [], label) {
     rsi14: round(rsi14, 1),
     atr14: round(atr(clean, 14), 2),
     slopePct: round(slopePct, 2),
+    windowSpanMinutes,
     support20: recent.length ? round(Math.min(...recent.map((bar) => bar.low ?? bar.close)), 2) : null,
     resistance20: recent.length ? round(Math.max(...recent.map((bar) => bar.high ?? bar.close)), 2) : null,
     asOf: clean.at(-1)?.timestamp ?? clean.at(-1)?.time ?? clean.at(-1)?.date ?? null
