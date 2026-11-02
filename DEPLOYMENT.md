@@ -1,6 +1,6 @@
 # Despliegue en Render
 
-`render.yaml` define el servicio web `five-millions`, Node 24, plan Starter, escaneo periódico y disco persistente de 1 GB en `/var/data`. El plan debe permanecer activo para que el temporizador se ejecute.
+`render.yaml` define el servicio web `five-millions-5m-free`, Node 24 y plan Free. El plan no tiene costo mensual, pero puede dormir tras 15 minutos sin tráfico y borra su sistema de archivos al dormir, reiniciar o desplegar. Por eso la base SQLite, el historial y el colateral guardado pueden desaparecer.
 
 ## Configuración inicial
 
@@ -16,7 +16,7 @@
 - La interfaz muestra la edad de cotización y bloquea datos vencidos, futuros o sin contexto intradía suficiente.
 - El endpoint privado `/api/portfolio` guarda efectivo libre y acciones libres declaradas manualmente. La actualización vence después de `PORTFOLIO_FRESH_HOURS`.
 - La API permite el origen del dashboard mediante `SITE_ORIGIN`; todas las rutas privadas siguen requiriendo `X-5M-Key`.
-- El disco persistente conserva SQLite entre despliegues. No borres ni recrees el disco de Render si deseas conservar feedback e historial.
+- En el plan Free SQLite es temporal y puede reiniciarse vacía. Al volver a entrar, confirma el estado y vuelve a declarar efectivo y acciones libres antes de considerar señales.
 - El servicio nunca transmite órdenes a Robinhood. Confirma colateral, contrato, crédito, noticias y Greeks actuales antes de operar.
 
 ## Variables importantes

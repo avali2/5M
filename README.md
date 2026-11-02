@@ -36,7 +36,7 @@ El panel independiente `five-millions-signals` es privado y de solo lectura. Per
 - Prioridad: AMD, MSFT y SPY; índices de contexto: SPX, NDX, RUT y VIX.
 - Universo rotativo configurable para repartir solicitudes a Tradier.
 - Rueda fijada en SOFI y MARA como símbolos destacados; también se pueden analizar otras acciones del universo.
-- SQLite persiste exploraciones, feedback y colateral declarado en `DATA_DIR`. En Render el disco está montado en `/var/data`.
+- SQLite guarda exploraciones, feedback y colateral declarado en `DATA_DIR`. En Render Free la carpeta es temporal: Render puede borrar esos datos al dormir, reiniciar o desplegar el servicio. Revisa el colateral en Robinhood antes de cada escaneo; al reiniciar tendrás que volver a registrarlo.
 - El aprendizaje necesita una muestra mínima antes de dar contexto a Gemini. No modifica strikes, contratos ni decisiones automáticas.
 
 ## Ejecutar localmente
@@ -58,7 +58,7 @@ Configura `TRADIER_TOKEN`, `GEMINI_API_KEY` y, para uso protegido, `APP_ACCESS_K
 
 ## Despliegue
 
-La rama `main` despliega en Render mediante `render.yaml` con auto-deploy y disco persistente. En Render hay que configurar los secretos indicados como `sync: false`, confirmar el origen del Site y comprobar `/api/health` después del despliegue. La configuración del plan y las variables privadas no se escriben en el repositorio.
+La rama `main` despliega en Render Free mediante `render.yaml` con auto-deploy. El servicio puede dormir tras inactividad y su sistema de archivos es temporal; para conservar historial y colateral se necesita almacenamiento externo o un plan con disco. En Render hay que configurar los secretos indicados como `sync: false`, confirmar el origen del Site y comprobar `/api/health` después del despliegue.
 
 El workflow de GitHub Actions ejecuta `npm test` y `npm run build` en cada pull request y en `main`.
 

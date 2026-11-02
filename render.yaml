@@ -1,16 +1,12 @@
 services:
   - type: web
-    name: five-millions
+    name: five-millions-5m-free
     runtime: node
-    plan: starter
-    buildCommand: npm install && npm run build
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
-    disk:
-      name: five-millions-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: "24"
@@ -119,7 +115,7 @@ services:
       - key: VAPID_SUBJECT
         sync: false
       - key: DATA_DIR
-        value: /var/data
+        value: ./data
       - key: LEARNING_ENABLED
         value: "true"
       - key: LEARNING_MIN_VALIDATED_SAMPLES
