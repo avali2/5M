@@ -161,7 +161,7 @@ function SignalCard({ signal, marketRisk, onFeedback, feedbackBusy }) {
       <div className="signal-score"><strong>{signal.score}</strong><small>score</small></div>
     </div>
     <div className="signal-title-row"><div><h3>{signal.symbol} <span>· {signal.strategyLabel}</span></h3><p>{signal.direction} · <strong>{signal.expiration}</strong> · {signal.dte} DTE · subyacente {money(signal.underlyingPrice)}</p></div><div className="symbol-badge">{signal.symbol}</div></div>
-    <div className="decision-line"><strong>{coverageLabel}</strong><span>{signal.dataQuality?.fresh ? `Subyacente ${signal.dataQuality.ageMinutes ?? '—'} min · Greeks por hora` : 'Dato vencido o incompleto'}</span></div>
+    <div className="decision-line"><strong>{coverageLabel}</strong><span>{'Precio ' + (signal.dataQuality?.ageMinutes ?? '—') + 'm · velas 5m ' + (signal.dataQuality?.intradayAgeMinutes ?? '—') + 'm · 21 velas ' + (signal.dataQuality?.intradayWindowMinutes ?? '—') + 'm'}{!signal.dataQuality?.fresh && ' · DATOS NO LISTOS'}</span></div>
     <div className="metrics-grid">
       <Metric label="Crédito LIMIT objetivo" value={money(signal.credit)} tone="green-text" />
       <Metric label="Cancelar debajo de" value={money(signal.minimumCredit)} />
