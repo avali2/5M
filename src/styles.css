@@ -170,6 +170,10 @@ button:disabled { cursor: wait; opacity: .65; }
 .blocked-note { margin-top: 10px; padding: 9px 10px; color: #8a5a09; border-radius: 9px; background: #fffbeb; font-size: 10px; line-height: 1.45; }
 .side-column { display: grid; gap: 12px; }
 .side-card { padding: 15px; border: 1px solid #e1e8f1; border-radius: 15px; background: white; }
+.portfolio-form { display: grid; gap: 4px; margin-top: 12px; }
+.portfolio-form label { color: #526176; font-size: 10px; font-weight: 800; }
+.portfolio-form .text-input { margin: 5px 0 9px; padding: 9px 10px; font-size: 12px; }
+.portfolio-card .side-title > span { color: #047857; font-size: 9px; font-weight: 900; }
 .side-title h3 { margin: 0; font-size: 15px; letter-spacing: -.03em; }
 .side-title > span { color: #2563eb; font-size: 10px; font-weight: 900; }
 .side-card p { color: #68778b; font-size: 12px; line-height: 1.55; }

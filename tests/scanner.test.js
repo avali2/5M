@@ -1,11 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { REQUIRED_NEWS_COVERAGE } from '../server/lib/gemini.js';
-import { buildCreditCandidates, buildWheelCandidates, chooseExpiration, daysToExpiration, scanMarket } from '../server/lib/scanner.js';
-import { analyzeInstitutionalFlow, flowForStrategy } from '../server/lib/institutionalFlow.js';
+import { buildWheelCandidates, chooseExpiration, daysToExpiration, scanMarket } from '../server/lib/scanner.js';
 
 function option(type, strike, delta, bid, ask, symbol = `${type}-${strike}`) {
-  return { type, strike, delta, bid, ask, last: ask, mid: (bid + ask) / 2, volume: 500, openInterest: 2000, iv: 0.25, symbol, gamma: 0.01, theta: -0.02, vega: 0.05, rho: 0.01 };
+  return { type, strike, delta, bid, ask, mid: (bid + ask) / 2, volume: 500, openInterest: 2000, iv: 0.25, symbol, gamma: 0.01, theta: -0.02, vega: 0.05, rho: 0.01 };
 }
 
 function dailyBars(count = 320) {
@@ -26,45 +25,28 @@ function intradayBars(now, count = 360) {
 }
 
 function clearMarketRisk(now) {
+  const domains = ['federalreserve.gov', 'bls.gov', 'reuters.com'];
   return {
-    configured: true,
-    ok: true,
-    model: 'test',
-    status: 'CLEAR',
-    riskScore: 12,
-    summary: 'Sin evento bloqueante en la prueba.',
-    tradeInstruction: 'Esperar confirmación del precio.',
-    blockers: [], catalysts: [], events: [],
-    coverage: [...REQUIRED_NEWS_COVERAGE],
-    coverageComplete: true,
-    missingCoverage: [],
-    sources: [1, 2, 3].map((number) => ({ title: `Fuente ${number}`, uri: `https://example.com/${number}` })),
+    configured: true, ok: true, status: 'CLEAR', riskScore: 12,
+    summary: 'Sin evento bloqueante en la prueba.', tradeInstruction: 'Revisar el precio actual.',
+    blockers: [], catalysts: [], events: [], coverage: [...REQUIRED_NEWS_COVERAGE], coverageComplete: true,
+    missingCoverage: [], uniqueSourceDomains: domains,
+    sources: domains.map((domain) => ({ title: domain, uri: `https://${domain}/markets` })),
     searchQueries: [], checkedAt: now.toISOString(), cached: false
   };
 }
 
 function policy() {
   return {
-    accountSize: 100000,
-    riskPerTradePct: 1,
-    maxContracts: 3,
-    minCredit: 0.1,
-    minScore: 0,
-    minPop: 0.5,
-    maxDailySignals: 3,
-    block0Dte: true,
-    requireAffordableSignal: true,
-    institutionalFlow: { requiredForAggressive: false, minimumConfidence: 55, minimumUnusualVolume: 100, minimumVolumeOiRatio: 0.5 },
-    minTimeframes: 3,
-    maxDataAgeMinutes: 20,
-    profiles: {
-      core: { minScore: 0, minPop: 0.5, minLiquidity: 0 },
-      aggressive: { minScore: 0, minPop: 0.5, minLiquidity: 0 }
-    }
+    minDte: 14, maxDte: 45, minCredit: 0.1, maxDailySignals: 3, minTimeframes: 3,
+    minOptionVolume: 10, minOpenInterest: 100, maxOptionSpreadPct: 0.25,
+    maxDataAgeMinutes: 5, portfolioFreshHours: 24,
+    profiles: { wheel: { enabled: true, minDte: 14, maxDte: 45, targetDte: 30, shortDeltaMin: 0.15, shortDeltaMax: 0.30, minLiquidity: 0, minScore: 0, takeProfitPct: 0.5, stopMultiple: 2, timeStopDte: 7 } },
+    institutionalFlow: { enabled: true, minimumConfidence: 55, minimumUnusualVolume: 100, minimumVolumeOiRatio: 0.5 }
   };
 }
 
-function fakeServices({ now, marketRisk = clearMarketRisk(now) } = {}) {
+function fakeServices({ now, marketRisk = clearMarketRisk(now), quoteAgeMinutes = 0 } = {}) {
   const chain = [
     option('put', 98, -0.25, 0.80, 0.85),
     option('put', 95, -0.12, 0.35, 0.40),
@@ -72,8 +54,8 @@ function fakeServices({ now, marketRisk = clearMarketRisk(now) } = {}) {
     option('call', 105, 0.12, 0.35, 0.40)
   ];
   const tradier = {
-    async getMarketClock() { return { state: 'open', description: 'Market is open' }; },
-    async getQuotes(symbols) { return symbols.map((symbol) => ({ symbol, price: 100, last: 100, bid: 99.99, ask: 100.01, volume: 100000, tradeDate: now.toISOString() })); },
+    async getMarketClock() { return { state: 'open' }; },
+    async getQuotes(symbols) { return symbols.map((symbol) => ({ symbol, price: 100, last: 100, bid: 99.99, ask: 100.01, volume: 100000, tradeDate: new Date(now.getTime() - quoteAgeMinutes * 60000).toISOString() })); },
     async getHistory() { return dailyBars(); },
     async getTimeSales() { return intradayBars(now); },
     async getExpirations() { return ['2026-09-04', '2026-09-18']; },
@@ -83,145 +65,93 @@ function fakeServices({ now, marketRisk = clearMarketRisk(now) } = {}) {
     configured: true,
     async reviewMarketRisk() { return marketRisk; },
     async review(candidates) {
-      return { configured: true, ok: true, model: 'test', marketNote: 'Contexto de prueba', reviews: candidates.map((candidate) => ({ candidateId: candidate.candidateId, decision: 'APPROVE', confidence: 88, summary: 'Datos coherentes para revisión manual.', riskFlags: [], entryTrigger: 'Entrar solo con crédito real.', takeProfit: 'Cerrar en objetivo.', stopLoss: 'Cerrar al invalidar.', management: 'No perseguir el precio.' })) };
+      return { configured: true, ok: true, model: 'test', marketNote: 'Contexto de prueba', reviews: candidates.map((candidate) => ({ candidateId: candidate.candidateId, decision: 'APPROVE', confidence: 88, summary: 'Candidato coherente para revisión manual.', riskFlags: [], entryTrigger: 'Confirma precio real.', takeProfit: 'Evalúa cierre en objetivo.', stopLoss: 'Revisa si cambia la tesis.', management: 'No rolar para aplazar pérdidas.' })) };
     }
   };
   return { tradier, gemini };
 }
 
-test('elige vencimientos dentro del rango DTE y respeta el objetivo del perfil', () => {
+test('elige vencimientos dentro del rango y bloquea 0DTE', () => {
   const now = new Date('2026-08-21T12:00:00Z');
   assert.equal(daysToExpiration('2026-09-18', now), 28);
-  assert.deepEqual(chooseExpiration(['2026-08-28', '2026-09-18', '2026-10-16'], { minDte: 21, maxDte: 45, targetDte: 30 }, now), { expiration: '2026-09-18', dte: 28 });
-  assert.deepEqual(chooseExpiration(['2026-09-04', '2026-09-18'], { minDte: 7, maxDte: 20, targetDte: 14 }, now), { expiration: '2026-09-04', dte: 14 });
+  assert.deepEqual(chooseExpiration(['2026-08-21', '2026-09-04', '2026-09-18'], { minDte: 14, maxDte: 45, targetDte: 30 }, now), { expiration: '2026-09-18', dte: 28 });
 });
 
-test('construye put/call credit spreads con riesgo definido y Greeks netos correctos', () => {
-  const chain = [
-    option('put', 98, -0.25, 0.80, 0.85),
-    option('put', 95, -0.12, 0.35, 0.40),
-    option('call', 102, 0.25, 0.80, 0.85),
-    option('call', 105, 0.12, 0.35, 0.40)
-  ];
-  const candidates = buildCreditCandidates({
-    symbol: 'TEST', quote: { symbol: 'TEST', price: 100 },
-    technical: { trend: 'neutral', timeframeSummary: { available: 4, bullish: 1, bearish: 1, neutral: 2, alignmentPct: 50 }, timeframes: {} },
-    chain, expiration: '2026-09-18', dte: 28,
-    policy: { minCredit: 0.1, minScore: 0, minPop: 0.5 }, dataQuality: { fresh: true }
-  });
-  assert.ok(candidates.some((candidate) => candidate.strategy === 'BULL_PUT_CREDIT_SPREAD'));
-  assert.ok(candidates.some((candidate) => candidate.strategy === 'BEAR_CALL_CREDIT_SPREAD'));
-  const bull = candidates.find((candidate) => candidate.strategy === 'BULL_PUT_CREDIT_SPREAD');
-  assert.equal(bull.legs[0].action, 'SELL_TO_OPEN');
-  assert.equal(bull.legs[1].action, 'BUY_TO_OPEN');
-  assert.ok(bull.maxRiskUsd > 0);
-  assert.ok(bull.maxProfitUsd > 0);
-  assert.ok(bull.minimumCredit <= bull.credit);
-  assert.equal(bull.greeks.delta, 0.13);
-});
-
-test('construye las dos fases de la rueda con requisitos explícitos', () => {
-  const chain = [
-    option('put', 18, -0.25, 0.75, 0.8, 'SOFI-P18'),
-    option('put', 17, -0.15, 0.45, 0.5, 'SOFI-P17'),
-    option('call', 22, 0.25, 0.7, 0.75, 'SOFI-C22'),
-    option('call', 23, 0.15, 0.4, 0.45, 'SOFI-C23')
-  ];
+test('construye solo Cash-Secured Put y Covered Call con colateral manual vigente', () => {
+  const now = new Date('2026-08-21T15:00:00Z');
+  const chain = [option('put', 18, -0.25, 0.75, 0.8, 'SOFI-P18'), option('call', 22, 0.25, 0.7, 0.75, 'SOFI-C22')];
   const candidates = buildWheelCandidates({
     symbol: 'SOFI', quote: { symbol: 'SOFI', price: 20 },
-    technical: { trend: 'bullish', timeframeSummary: { available: 4 }, timeframes: {} },
-    chain, expiration: '2026-09-18', dte: 28,
-    policy: { minCredit: 0.1, minTimeframes: 3, institutionalFlow: { minimumConfidence: 55 } },
-    profile: { id: 'WHEEL', label: 'Rueda', minDte: 14, maxDte: 45, shortDeltaMin: 0.15, shortDeltaMax: 0.35, minLiquidity: 0, minScore: 0, minPop: 0.5, takeProfitPct: 0.5, stopMultiple: 2, timeStopDte: 7 },
+    technical: { trend: 'bullish', timeframeSummary: { available: 4, bullish: 3 }, timeframes: {} },
+    chain, expiration: '2026-09-18', dte: 28, policy: policy(),
+    profile: policy().profiles.wheel,
     dataQuality: { fresh: true },
-    institutionalFlow: { direction: 'BULLISH', confidence: 80 }
+    portfolioState: { cashAvailableUsd: 2000, sharesBySymbol: { SOFI: 100 }, updatedAt: now.toISOString() }, now
   });
   const put = candidates.find((candidate) => candidate.strategy === 'CASH_SECURED_PUT');
   const call = candidates.find((candidate) => candidate.strategy === 'COVERED_CALL');
   assert.equal(put.requirements.collateralUsd, put.shortStrike * 100);
+  assert.equal(put.deterministic.rules.portfolio, true);
   assert.equal(call.requirements.sharesRequired, 100);
-  assert.match(call.requirements.conditional, /100 acciones/i);
+  assert.equal(call.deterministic.rules.portfolio, true);
   assert.equal(put.legs.length, 1);
   assert.equal(call.legs.length, 1);
 });
 
-test('solo marca READY con tiempo real, noticias CLEAR, reglas y revisión Gemini', async () => {
+test('sin estado de colateral, el escaneo nunca presenta READY', async () => {
   const now = new Date('2026-08-21T15:00:00Z');
   const { tradier, gemini } = fakeServices({ now });
   const scan = await scanMarket({ tradier, gemini, symbols: ['AMD'], prioritySymbols: ['AMD'], policy: policy(), realtimeEntitled: true, now });
   assert.equal(scan.source, 'Tradier');
   assert.equal(scan.marketRisk.status, 'CLEAR');
   assert.deepEqual(scan.data.historicalTimeframes, ['5m', '15m', '1h', '1D', '1W']);
-  assert.ok(scan.signals.some((signal) => signal.profile.id === 'CORE'));
-  assert.ok(scan.signals.some((signal) => signal.profile.id === 'AGGRESSIVE'));
-  assert.ok(scan.signals.every((signal) => signal.legs.every((leg) => leg.strike)));
-  assert.ok(scan.signals.every((signal) => signal.instanceId.startsWith(`${scan.id}:`)));
-  assert.deepEqual(scan.market.contextIndices.map((quote) => quote.symbol), ['SPX', 'NDX', 'RUT', 'VIX']);
-  assert.ok(scan.signals.some((signal) => signal.status === 'READY'));
-  assert.ok(scan.signals.filter((signal) => signal.status === 'READY').every((signal) => signal.sizing.mode === 'USER_DECIDES'));
-});
-
-test('el perfil agresivo analiza símbolos fuera de la prioridad cuando no está restringido', async () => {
-  const now = new Date('2026-08-21T15:00:00Z');
-  const { tradier, gemini } = fakeServices({ now });
-  const unrestricted = policy();
-  unrestricted.profiles.aggressive.priorityOnly = false;
-  const scan = await scanMarket({ tradier, gemini, symbols: ['AAPL'], prioritySymbols: ['AMD', 'MSFT', 'SPY'], policy: unrestricted, realtimeEntitled: true, now });
-  assert.ok(scan.signals.some((signal) => signal.symbol === 'AAPL' && signal.profile.id === 'AGGRESSIVE'));
-});
-
-test('SOFI genera candidatos de rueda para put garantizada y covered call', async () => {
-  const now = new Date('2026-08-21T15:00:00Z');
-  const { tradier, gemini } = fakeServices({ now });
-  const scan = await scanMarket({ tradier, gemini, symbols: ['SOFI'], prioritySymbols: ['AMD', 'MSFT', 'SPY'], policy: policy(), realtimeEntitled: true, now });
-  const wheel = scan.signals.filter((signal) => signal.profile.id === 'WHEEL');
-  assert.ok(wheel.some((signal) => signal.strategy === 'CASH_SECURED_PUT'));
-  assert.ok(wheel.some((signal) => signal.strategy === 'COVERED_CALL'));
-});
-
-test('bloquea todas las señales cuando el contexto de noticias no está limpio', async () => {
-  const now = new Date('2026-08-21T15:00:00Z');
-  const caution = { ...clearMarketRisk(now), status: 'CAUTION', riskScore: 55, blockers: ['FOMC cercano.'] };
-  const { tradier, gemini } = fakeServices({ now, marketRisk: caution });
-  const scan = await scanMarket({ tradier, gemini, symbols: ['AMD'], prioritySymbols: ['AMD'], policy: policy(), realtimeEntitled: true, now });
-  assert.equal(scan.summary.ready, 0);
   assert.ok(scan.signals.length > 0);
-  assert.ok(scan.signals.every((signal) => signal.readiness.news === false));
+  assert.ok(scan.signals.every((signal) => ['CASH_SECURED_PUT', 'COVERED_CALL'].includes(signal.strategy)));
+  assert.ok(scan.signals.every((signal) => signal.status !== 'READY'));
+  assert.ok(scan.signals.every((signal) => signal.readiness.portfolio === false));
+  assert.ok(scan.signals.every((signal) => signal.legs.length === 1));
+  assert.ok(scan.signals.every((signal) => signal.instanceId.startsWith(`${scan.id}:`)));
 });
 
-test('bloquea READY si el entitlement de tiempo real no está confirmado', async () => {
+test('un escaneo con efectivo y acciones vigentes permite revisar señales cubiertas', async () => {
   const now = new Date('2026-08-21T15:00:00Z');
   const { tradier, gemini } = fakeServices({ now });
-  const scan = await scanMarket({ tradier, gemini, symbols: ['SPY'], prioritySymbols: ['SPY'], policy: policy(), realtimeEntitled: false, now });
+  const portfolioState = { cashAvailableUsd: 10000, sharesBySymbol: { AMD: 100 }, updatedAt: now.toISOString() };
+  const scan = await scanMarket({ tradier, gemini, symbols: ['AMD'], prioritySymbols: ['AMD'], policy: policy(), realtimeEntitled: true, portfolioState, now });
+  assert.ok(scan.summary.ready > 0);
+  assert.ok(scan.signals.filter((signal) => signal.status === 'READY').every((signal) => signal.deterministic.pass && signal.readiness.final));
+});
+
+test('las señales concurrentes no reutilizan el mismo efectivo de puts', async () => {
+  const now = new Date('2026-08-21T15:00:00Z');
+  const { tradier, gemini } = fakeServices({ now });
+  const portfolioState = { cashAvailableUsd: 9800, sharesBySymbol: {}, updatedAt: now.toISOString() };
+  const scan = await scanMarket({ tradier, gemini, symbols: ['AMD', 'MSFT'], prioritySymbols: ['AMD', 'MSFT'], policy: policy(), realtimeEntitled: true, portfolioState, now });
+  const readyPuts = scan.signals.filter((signal) => signal.strategy === 'CASH_SECURED_PUT' && signal.status === 'READY');
+  assert.equal(readyPuts.length, 1);
+  const blocked = scan.signals.find((signal) => signal.strategy === 'CASH_SECURED_PUT' && signal.status === 'WATCH');
+  assert.match(blocked.readiness.reasons.join(' '), /ya está asignado/i);
+});
+
+test('bloquea una cotización de 15 minutos aunque el entitlement esté marcado', async () => {
+  const now = new Date('2026-08-21T15:00:00Z');
+  const { tradier, gemini } = fakeServices({ now, quoteAgeMinutes: 15 });
+  const portfolioState = { cashAvailableUsd: 10000, sharesBySymbol: { AMD: 100 }, updatedAt: now.toISOString() };
+  const scan = await scanMarket({ tradier, gemini, symbols: ['AMD'], prioritySymbols: ['AMD'], policy: policy(), realtimeEntitled: true, portfolioState, now });
   assert.equal(scan.summary.ready, 0);
   assert.ok(scan.signals.every((signal) => signal.readiness.data === false));
 });
 
-test('el balance no bloquea señales ni limita contratos', async () => {
+test('bloquea señales si noticias o entitlement de tiempo real no están listos', async () => {
   const now = new Date('2026-08-21T15:00:00Z');
-  const { tradier, gemini } = fakeServices({ now });
-  const smallAccountPolicy = { ...policy(), accountSize: 2000, riskPerTradePct: 1 };
-  const scan = await scanMarket({ tradier, gemini, symbols: ['AMD'], prioritySymbols: ['AMD'], policy: smallAccountPolicy, realtimeEntitled: true, now });
-  assert.ok(scan.summary.ready > 0);
-  assert.ok(scan.signals.every((signal) => signal.sizing.contractsAtWorstRisk === null));
-  assert.ok(scan.signals.every((signal) => !Object.hasOwn(signal.deterministic.rules, 'affordable')));
-});
-
-test('infiere flujo direccional sin afirmar identidad institucional', () => {
-  const chain = [
-    { ...option('call', 105, 0.25, 1, 1.1), last: 1.1, volume: 1500, openInterest: 400 },
-    { ...option('call', 110, 0.15, 0.5, 0.6), last: 0.6, volume: 900, openInterest: 300 },
-    { ...option('put', 95, -0.2, 0.6, 0.7), last: 0.6, volume: 500, openInterest: 900 }
-  ];
-  const flow = analyzeInstitutionalFlow({
-    chain,
-    quote: { volume: 180000, changePct: 1.2 },
-    history: dailyBars(),
-    technical: { trend: 'bullish' },
-    now: new Date('2026-08-21T16:00:00Z')
-  });
-  assert.equal(flow.direction, 'BULLISH');
-  assert.ok(flow.unusualContracts.length >= 2);
-  assert.match(flow.limitations, /no revela la identidad/i);
-  assert.equal(flowForStrategy(flow, 'BULL_PUT_CREDIT_SPREAD', 30).aligned, true);
+  const caution = { ...clearMarketRisk(now), status: 'CAUTION', riskScore: 55, blockers: ['Evento macro cercano.'] };
+  const portfolioState = { cashAvailableUsd: 10000, sharesBySymbol: { AMD: 100 }, updatedAt: now.toISOString() };
+  const { tradier, gemini } = fakeServices({ now, marketRisk: caution });
+  const cautionScan = await scanMarket({ tradier, gemini, symbols: ['AMD'], prioritySymbols: ['AMD'], policy: policy(), realtimeEntitled: true, portfolioState, now });
+  assert.equal(cautionScan.summary.ready, 0);
+  assert.ok(cautionScan.signals.every((signal) => signal.readiness.news === false));
+  const { tradier: noEntitlementTradier, gemini: noEntitlementGemini } = fakeServices({ now });
+  const noEntitlementScan = await scanMarket({ tradier: noEntitlementTradier, gemini: noEntitlementGemini, symbols: ['AMD'], prioritySymbols: ['AMD'], policy: policy(), realtimeEntitled: false, portfolioState, now });
+  assert.equal(noEntitlementScan.summary.ready, 0);
+  assert.ok(noEntitlementScan.signals.every((signal) => signal.readiness.data === false));
 });

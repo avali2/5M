@@ -24,6 +24,8 @@ services:
         sync: false
       - key: CLIENT_ORIGIN
         sync: false
+      - key: SITE_ORIGIN
+        value: https://five-millions-signals.jobvalido.chatgpt.site
       - key: PUBLIC_BASE_URL
         sync: false
       - key: TRADIER_TOKEN
@@ -43,7 +45,7 @@ services:
       - key: GEMINI_REQUIRED
         value: "true"
       - key: NEWS_CACHE_MINUTES
-        value: "15"
+        value: "5"
       - key: NEWS_MIN_SOURCES
         value: "3"
       - key: NEWS_MAX_CLEAR_RISK
@@ -68,64 +70,6 @@ services:
         value: "12"
       - key: WATCHLIST_ROTATION_ENABLED
         value: "true"
-      - key: MIN_DTE
-        value: "21"
-      - key: MAX_DTE
-        value: "45"
-      - key: TARGET_DTE
-        value: "30"
-      - key: CORE_SHORT_DELTA_MIN
-        value: "0.12"
-      - key: CORE_SHORT_DELTA_MAX
-        value: "0.30"
-      - key: CORE_MIN_LIQUIDITY
-        value: "40"
-      - key: AGGRESSIVE_ENABLED
-        value: "true"
-      - key: AGGRESSIVE_PRIORITY_ONLY
-        value: "false"
-      - key: AGGRESSIVE_MIN_DTE
-        value: "7"
-      - key: AGGRESSIVE_MAX_DTE
-        value: "20"
-      - key: AGGRESSIVE_TARGET_DTE
-        value: "14"
-      - key: AGGRESSIVE_SHORT_DELTA_MIN
-        value: "0.24"
-      - key: AGGRESSIVE_SHORT_DELTA_MAX
-        value: "0.40"
-      - key: AGGRESSIVE_MIN_LIQUIDITY
-        value: "50"
-      - key: AGGRESSIVE_MAX_CONTRACTS
-        value: "999"
-      - key: ACCOUNT_SIZE
-        value: "0"
-      - key: RISK_PER_TRADE_PCT
-        value: "1"
-      - key: MAX_CONTRACTS
-        value: "999"
-      - key: MAXIMUM_SPREAD_WIDTH
-        value: "25"
-      - key: MIN_POP
-        value: "0.60"
-      - key: MIN_SCORE
-        value: "70"
-      - key: MIN_CREDIT
-        value: "0.10"
-      - key: MAX_DAILY_SIGNALS
-        value: "3"
-      - key: REQUIRE_AFFORDABLE_SIGNAL
-        value: "false"
-      - key: INSTITUTIONAL_FLOW_ENABLED
-        value: "true"
-      - key: INSTITUTIONAL_FLOW_REQUIRED_FOR_AGGRESSIVE
-        value: "true"
-      - key: INSTITUTIONAL_FLOW_MIN_CONFIDENCE
-        value: "55"
-      - key: INSTITUTIONAL_FLOW_MIN_VOLUME
-        value: "100"
-      - key: INSTITUTIONAL_FLOW_MIN_VOLUME_OI
-        value: "0.5"
       - key: WHEEL_ENABLED
         value: "true"
       - key: WHEEL_MIN_DTE
@@ -137,15 +81,27 @@ services:
       - key: WHEEL_SHORT_DELTA_MIN
         value: "0.15"
       - key: WHEEL_SHORT_DELTA_MAX
-        value: "0.35"
+        value: "0.30"
       - key: WHEEL_MIN_LIQUIDITY
-        value: "45"
+        value: "60"
       - key: WHEEL_MIN_SCORE
-        value: "70"
+        value: "65"
+      - key: MIN_OPTION_VOLUME
+        value: "10"
+      - key: MIN_OPEN_INTEREST
+        value: "100"
+      - key: MAX_OPTION_SPREAD_PCT
+        value: "0.25"
+      - key: MIN_CREDIT
+        value: "0.10"
+      - key: MAX_DAILY_SIGNALS
+        value: "3"
+      - key: PORTFOLIO_FRESH_HOURS
+        value: "24"
       - key: MIN_TIMEFRAMES
         value: "3"
       - key: MAX_DATA_AGE_MINUTES
-        value: "20"
+        value: "5"
       - key: SCAN_INTERVAL_MINUTES
         value: "5"
       - key: MANUAL_SCAN_COOLDOWN_SECONDS
