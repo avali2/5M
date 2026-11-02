@@ -21,7 +21,7 @@ services:
       - key: CLIENT_ORIGIN
         sync: false
       - key: SITE_ORIGIN
-        value: https://five-millions-signals.jobvalido.chatgpt.site
+        value: "https://five-millions-signals.jobvalido.chatgpt.site,https://five-millions-5m-free.onrender.com"
       - key: PUBLIC_BASE_URL
         sync: false
       - key: TRADIER_TOKEN
