@@ -25,6 +25,8 @@ Motor privado de señales de opciones para análisis y ejecución manual en Robi
 - Actividad de opciones y aprendizaje son observacionales. No revelan identidad/intención del participante ni pueden aprobar por sí solos una señal.
 - No se usa IV Rank histórico porque el proveedor no aporta una serie histórica completa de volatilidad implícita en esta aplicación.
 
+La [guía operativa](OPERATIONAL_PLAYBOOK.md) reúne el orden de revisión, el uso prudente de análisis técnico y una lista manual antes de enviar la orden. Cada tarjeta también ofrece esa lista; marcarla no cambia el estado algorítmico ni confirma la ejecución.
+
 ## Dashboard de señales en Sites
 
 El panel independiente `five-millions-signals` es privado y de solo lectura. Permite conectar el backend de Render con su URL y `APP_ACCESS_KEY`, filtrar por ticker/estrategia/estado, actualizar señales y consultar el estado del mercado y noticias. La clave se guarda en el almacenamiento local del navegador. Render debe incluir el origen exacto del Site en `SITE_ORIGIN` para permitir CORS; el backend sigue exigiendo `X-5M-Key`.
