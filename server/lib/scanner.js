@@ -95,20 +95,37 @@ function parseTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function dataQualityFor({ quote, technical, now, policy, realtimeEntitled }) {
-  const timestamp = parseTimestamp(quote?.tradeDate) || parseTimestamp(technical?.intradayAsOf);
-  const ageMinutes = timestamp ? (new Date(now).getTime() - timestamp.getTime()) / 60000 : null;
+function dataQualityFor({ quote, technical, now, policy, realtimeEntitled, optionChainFetchedAt = null }) {
+  const quoteTimestamp = parseTimestamp(quote?.tradeDate);
+  const intradayTimestamp = parseTimestamp(technical?.intradayAsOf);
+  const ageMinutes = quoteTimestamp ? (new Date(now).getTime() - quoteTimestamp.getTime()) / 60000 : null;
+  const intradayAgeMinutes = intradayTimestamp
+    ? (new Date(now).getTime() - intradayTimestamp.getTime()) / 60000
+    : null;
   const intradayAvailable = Boolean(technical?.timeframes?.m5?.sufficient);
-  const fresh = ageMinutes !== null && ageMinutes >= 0 &&
-    ageMinutes <= policy.maxDataAgeMinutes && intradayAvailable;
+  const intradayWindowMinutes = finite(technical?.timeframes?.m5?.windowSpanMinutes, null);
+  const quoteFresh = ageMinutes !== null && ageMinutes >= 0 && ageMinutes <= policy.maxDataAgeMinutes;
+  const intradayFresh = intradayAgeMinutes !== null && intradayAgeMinutes >= 0 &&
+    intradayAgeMinutes <= policy.maxDataAgeMinutes;
+  const intradayWindowOk = intradayWindowMinutes !== null &&
+    intradayWindowMinutes >= 0 && intradayWindowMinutes <= 120;
+  const fresh = quoteFresh && intradayFresh && intradayAvailable && intradayWindowOk;
   return {
     realtimeEntitlementConfigured: Boolean(realtimeEntitled),
-    latestTimestamp: timestamp?.toISOString() || null,
+    latestTimestamp: quoteTimestamp?.toISOString() || null,
+    quoteTimestamp: quoteTimestamp?.toISOString() || null,
+    intradayTimestamp: intradayTimestamp?.toISOString() || null,
     ageMinutes: round(ageMinutes, 1),
+    intradayAgeMinutes: round(intradayAgeMinutes, 1),
+    intradayWindowMinutes,
+    intradayWindowMaxMinutes: 120,
+    quoteFresh,
+    intradayFresh,
+    intradayAvailable,
+    intradayWindowOk,
     maxAgeMinutes: policy.maxDataAgeMinutes,
     fresh,
-    intradayAvailable,
-    optionChainFetchedAt: new Date(now).toISOString(),
+    optionChainFetchedAt,
     greeksSource: 'Tradier',
     greeksFrequency: 'Hourly snapshot; exact as-of timestamp unavailable',
     source: 'Tradier'
@@ -376,7 +393,10 @@ export function applyReviews(candidates, geminiResult, { marketOpen, marketRisk,
       !marketOpen ? 'Mercado cerrado: no abrir ni alertar.' : null,
       !newsClear ? !newsFresh ? 'La revisión de noticias falta o está vencida.' : 'Filtro de noticias ' + (marketRisk?.status || 'UNKNOWN') + ': no abrir.' : null,
       !realtimeEntitled ? 'Entitlement de tiempo real no está habilitado en configuración; Tradier no confirma el entitlement por esta bandera.' : null,
-      !candidate.dataQuality?.fresh ? 'Cotización subyacente ausente, futura, vencida o intradía incompleta.' : null,
+      !candidate.dataQuality?.quoteFresh ? 'La cotización del subyacente falta, es futura o está vencida.' : null,
+      !candidate.dataQuality?.intradayFresh ? 'La última vela de 5 minutos falta, es futura o está vencida.' : null,
+      !candidate.dataQuality?.intradayAvailable ? 'Faltan 21 velas de 5 minutos para el contexto intradía.' : null,
+      !candidate.dataQuality?.intradayWindowOk ? 'Las últimas 21 velas de 5 minutos cubren más de 120 minutos; el contexto intradía no es fiable.' : null,
       !candidate.deterministic.rules.portfolio ? 'No se ha verificado en Robinhood efectivo libre o 100 acciones sin compromiso; la cobertura debe estar actualizada.' : null,
       !candidate.deterministic.rules.liquidity ? 'La opción no cumple los mínimos de volumen, interés abierto o spread bid/ask.' : null,
       !deterministicReady ? 'El candidato no supera los filtros cuantitativos y multitemporales.' : null,
@@ -569,6 +589,7 @@ export async function scanMarket({
       errors.push({ symbol, stage: 'chain-wheel', error: error.message });
       return { symbol, quote, technical, dataQuality, candidates: [], errors };
     }
+    const chainDataQuality = { ...dataQuality, optionChainFetchedAt: new Date().toISOString() };
     const institutionalFlow = analyzeInstitutionalFlow({
       chain, quote, history, technical, now, settings: activePolicy.institutionalFlow
     });
@@ -581,13 +602,13 @@ export async function scanMarket({
       dte: selected.dte,
       policy: activePolicy,
       profile: wheelProfile,
-      dataQuality,
+      dataQuality: chainDataQuality,
       institutionalFlow,
       portfolioState,
       isPriority: priority.includes(symbol),
       now
     });
-    return { symbol, quote, technical, dataQuality, candidateCount: candidates.length, candidates, errors };
+    return { symbol, quote, technical, dataQuality: chainDataQuality, candidateCount: candidates.length, candidates, errors };
   });
 
   const [perSymbol, marketRisk] = await Promise.all([perSymbolPromise, marketRiskPromise]);
