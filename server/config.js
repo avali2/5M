@@ -3,21 +3,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
 const asNumber = (value, fallback) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
-
 const asBool = (value, fallback = false) => {
   if (value === undefined || value === null || value === '') return fallback;
   return ['true', '1', 'yes', 'on'].includes(String(value).toLowerCase());
 };
-
 const asList = (value, fallback) => [...new Set(String(value || fallback.join(','))
-  .split(',')
-  .map((item) => item.trim().toUpperCase())
-  .filter(Boolean))];
+  .split(',').map((item) => item.trim().toUpperCase()).filter(Boolean))];
+const asOrigins = (...values) => [...new Set(values.flatMap((value) => String(value || '')
+  .split(',').map((origin) => origin.trim()).filter(Boolean).map((origin) => {
+    const parsed = new URL(origin);
+    if (parsed.origin !== origin.replace(/\/$/, '')) throw new Error(`Expected an origin without a path: ${origin}`);
+    return parsed.origin;
+  })))];
 
 const magnificentSeven = asList(process.env.MAGNIFICENT_7, ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'GOOGL', 'TSLA']);
 const prioritySymbols = asList(process.env.PRIORITY_SYMBOLS, ['AMD', 'MSFT', 'SPY']);
@@ -28,65 +29,21 @@ const sectorAndMacroEtfs = asList(process.env.SECTOR_MACRO_ETFS, ['SMH', 'XLK', 
 const wheelSymbols = asList(process.env.WHEEL_SYMBOLS, ['SOFI', 'MARA']);
 const defaultWatchlist = [...prioritySymbols, ...indexProxies, ...wheelSymbols, ...magnificentSeven, ...optionsLeaders, ...sectorAndMacroEtfs];
 
-const coreProfile = {
-  id: 'CORE',
-  label: 'Base',
-  riskLevel: 'MODERADO',
-  enabled: true,
-  minDte: Math.max(1, asNumber(process.env.MIN_DTE, 21)),
-  maxDte: Math.max(2, asNumber(process.env.MAX_DTE, 45)),
-  targetDte: Math.max(1, asNumber(process.env.TARGET_DTE, 30)),
-  shortDeltaMin: Math.max(0.01, asNumber(process.env.CORE_SHORT_DELTA_MIN, 0.12)),
-  shortDeltaMax: Math.min(0.49, asNumber(process.env.CORE_SHORT_DELTA_MAX, 0.30)),
-  minLiquidity: Math.min(100, Math.max(0, asNumber(process.env.CORE_MIN_LIQUIDITY, 40))),
-  minScore: Math.min(100, Math.max(0, asNumber(process.env.MIN_SCORE, 70))),
-  minPop: Math.min(0.95, Math.max(0.5, asNumber(process.env.MIN_POP, 0.60))),
-  takeProfitPct: Math.min(0.9, Math.max(0.1, asNumber(process.env.CORE_TAKE_PROFIT_PCT, 0.50))),
-  stopMultiple: Math.max(1.1, asNumber(process.env.CORE_STOP_MULTIPLE, 2)),
-  timeStopDte: Math.max(1, asNumber(process.env.CORE_TIME_STOP_DTE, 21)),
-  riskMultiplier: 1,
-  maxContracts: Math.max(1, asNumber(process.env.MAX_CONTRACTS, 3)),
-  priorityOnly: false
-};
-
-const aggressiveProfile = {
-  id: 'AGGRESSIVE',
-  label: 'Agresiva',
-  riskLevel: 'ALTO',
-  enabled: asBool(process.env.AGGRESSIVE_ENABLED, true),
-  minDte: Math.max(1, asNumber(process.env.AGGRESSIVE_MIN_DTE, 7)),
-  maxDte: Math.max(2, asNumber(process.env.AGGRESSIVE_MAX_DTE, 20)),
-  targetDte: Math.max(1, asNumber(process.env.AGGRESSIVE_TARGET_DTE, 14)),
-  shortDeltaMin: Math.max(0.01, asNumber(process.env.AGGRESSIVE_SHORT_DELTA_MIN, 0.24)),
-  shortDeltaMax: Math.min(0.49, asNumber(process.env.AGGRESSIVE_SHORT_DELTA_MAX, 0.40)),
-  minLiquidity: Math.min(100, Math.max(0, asNumber(process.env.AGGRESSIVE_MIN_LIQUIDITY, 50))),
-  minScore: Math.min(100, Math.max(0, asNumber(process.env.AGGRESSIVE_MIN_SCORE, 76))),
-  minPop: Math.min(0.95, Math.max(0.5, asNumber(process.env.AGGRESSIVE_MIN_POP, 0.58))),
-  takeProfitPct: Math.min(0.9, Math.max(0.1, asNumber(process.env.AGGRESSIVE_TAKE_PROFIT_PCT, 0.35))),
-  stopMultiple: Math.max(1.1, asNumber(process.env.AGGRESSIVE_STOP_MULTIPLE, 1.75)),
-  timeStopDte: Math.max(1, asNumber(process.env.AGGRESSIVE_TIME_STOP_DTE, 7)),
-  riskMultiplier: Math.min(1, Math.max(0.1, asNumber(process.env.AGGRESSIVE_RISK_MULTIPLIER, 0.5))),
-  maxContracts: Math.max(1, asNumber(process.env.AGGRESSIVE_MAX_CONTRACTS, 1)),
-  priorityOnly: asBool(process.env.AGGRESSIVE_PRIORITY_ONLY, false)
-};
-
 const wheelProfile = {
   id: 'WHEEL',
   label: 'Rueda',
-  riskLevel: 'ALTO',
+  riskLevel: 'MODERADO',
   enabled: asBool(process.env.WHEEL_ENABLED, true),
-  minDte: Math.max(7, asNumber(process.env.WHEEL_MIN_DTE, 14)),
-  maxDte: Math.max(14, asNumber(process.env.WHEEL_MAX_DTE, 45)),
-  targetDte: Math.max(7, asNumber(process.env.WHEEL_TARGET_DTE, 30)),
+  minDte: Math.max(14, asNumber(process.env.WHEEL_MIN_DTE, 14)),
+  maxDte: Math.max(21, asNumber(process.env.WHEEL_MAX_DTE, 45)),
+  targetDte: Math.max(14, asNumber(process.env.WHEEL_TARGET_DTE, 30)),
   shortDeltaMin: Math.max(0.05, asNumber(process.env.WHEEL_SHORT_DELTA_MIN, 0.15)),
-  shortDeltaMax: Math.min(0.49, asNumber(process.env.WHEEL_SHORT_DELTA_MAX, 0.35)),
-  minLiquidity: Math.min(100, Math.max(0, asNumber(process.env.WHEEL_MIN_LIQUIDITY, 45))),
-  minScore: Math.min(100, Math.max(0, asNumber(process.env.WHEEL_MIN_SCORE, 70))),
-  minPop: Math.min(0.95, Math.max(0.5, asNumber(process.env.WHEEL_MIN_POP, 0.60))),
+  shortDeltaMax: Math.min(0.35, Math.max(0.10, asNumber(process.env.WHEEL_SHORT_DELTA_MAX, 0.30))),
+  minLiquidity: Math.min(100, Math.max(0, asNumber(process.env.WHEEL_MIN_LIQUIDITY, 60))),
+  minScore: Math.min(100, Math.max(0, asNumber(process.env.WHEEL_MIN_SCORE, 65))),
   takeProfitPct: Math.min(0.9, Math.max(0.1, asNumber(process.env.WHEEL_TAKE_PROFIT_PCT, 0.50))),
   stopMultiple: Math.max(1.1, asNumber(process.env.WHEEL_STOP_MULTIPLE, 2)),
-  timeStopDte: Math.max(1, asNumber(process.env.WHEEL_TIME_STOP_DTE, 7)),
-  priorityOnly: false
+  timeStopDte: Math.max(1, asNumber(process.env.WHEEL_TIME_STOP_DTE, 7))
 };
 
 export const config = {
@@ -95,7 +52,7 @@ export const config = {
   host: process.env.HOST || '127.0.0.1',
   nodeEnv: process.env.NODE_ENV || 'development',
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
-  clientOrigin: process.env.CLIENT_ORIGIN || '',
+  clientOrigins: asOrigins(process.env.CLIENT_ORIGIN, process.env.SITE_ORIGIN),
   security: {
     accessKey: process.env.APP_ACCESS_KEY || '',
     requireAccessKey: asBool(process.env.REQUIRE_ACCESS_KEY, false)
@@ -112,8 +69,8 @@ export const config = {
     apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '',
     model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     required: asBool(process.env.GEMINI_REQUIRED, true),
-    newsCacheMinutes: Math.max(1, asNumber(process.env.NEWS_CACHE_MINUTES, 15)),
-    minGroundingSources: Math.max(1, asNumber(process.env.NEWS_MIN_SOURCES, 3)),
+    newsCacheMinutes: Math.min(5, Math.max(1, asNumber(process.env.NEWS_CACHE_MINUTES, 5))),
+    minGroundingSources: Math.max(3, asNumber(process.env.NEWS_MIN_SOURCES, 3)),
     maxClearRiskScore: Math.min(100, Math.max(0, asNumber(process.env.NEWS_MAX_CLEAR_RISK, 35)))
   },
   watchlist: {
@@ -129,28 +86,26 @@ export const config = {
     rotationEnabled: asBool(process.env.WATCHLIST_ROTATION_ENABLED, true)
   },
   policy: {
-    minDte: coreProfile.minDte,
-    maxDte: coreProfile.maxDte,
-    accountSize: Math.max(0, asNumber(process.env.ACCOUNT_SIZE, 0)),
-    riskPerTradePct: Math.max(0.1, asNumber(process.env.RISK_PER_TRADE_PCT, 1)),
-    maxContracts: coreProfile.maxContracts,
-    minPop: coreProfile.minPop,
-    minScore: coreProfile.minScore,
-    minCredit: Math.max(0.01, asNumber(process.env.MIN_CREDIT, 0.1)),
+    minDte: wheelProfile.minDte,
+    maxDte: wheelProfile.maxDte,
+    minScore: wheelProfile.minScore,
+    minLiquidity: wheelProfile.minLiquidity,
+    minOptionVolume: Math.max(1, asNumber(process.env.MIN_OPTION_VOLUME, 10)),
+    minOpenInterest: Math.max(1, asNumber(process.env.MIN_OPEN_INTEREST, 100)),
+    maxOptionSpreadPct: Math.min(0.5, Math.max(0.05, asNumber(process.env.MAX_OPTION_SPREAD_PCT, 0.25))),
+    minCredit: Math.max(0.01, asNumber(process.env.MIN_CREDIT, 0.10)),
     maxDailySignals: Math.max(1, asNumber(process.env.MAX_DAILY_SIGNALS, 3)),
-    block0Dte: asBool(process.env.BLOCK_0DTE, true),
-    requireAffordableSignal: false,
-    maximumSpreadWidth: Math.max(5, asNumber(process.env.MAXIMUM_SPREAD_WIDTH, 25)),
+    block0Dte: true,
+    minTimeframes: Math.min(5, Math.max(3, asNumber(process.env.MIN_TIMEFRAMES, 3))),
+    maxDataAgeMinutes: Math.min(10, Math.max(1, asNumber(process.env.MAX_DATA_AGE_MINUTES, 5))),
+    portfolioFreshHours: Math.min(48, Math.max(1, asNumber(process.env.PORTFOLIO_FRESH_HOURS, 24))),
     institutionalFlow: {
       enabled: asBool(process.env.INSTITUTIONAL_FLOW_ENABLED, true),
-      requiredForAggressive: asBool(process.env.INSTITUTIONAL_FLOW_REQUIRED_FOR_AGGRESSIVE, true),
       minimumConfidence: Math.min(95, Math.max(30, asNumber(process.env.INSTITUTIONAL_FLOW_MIN_CONFIDENCE, 55))),
       minimumUnusualVolume: Math.max(1, asNumber(process.env.INSTITUTIONAL_FLOW_MIN_VOLUME, 100)),
       minimumVolumeOiRatio: Math.max(0.05, asNumber(process.env.INSTITUTIONAL_FLOW_MIN_VOLUME_OI, 0.5))
     },
-    minTimeframes: Math.min(5, Math.max(2, asNumber(process.env.MIN_TIMEFRAMES, 3))),
-    maxDataAgeMinutes: Math.max(1, asNumber(process.env.MAX_DATA_AGE_MINUTES, 20)),
-    profiles: { core: coreProfile, aggressive: aggressiveProfile, wheel: wheelProfile }
+    profiles: { wheel: wheelProfile }
   },
   scanner: {
     intervalMinutes: Math.max(1, asNumber(process.env.SCAN_INTERVAL_MINUTES, 5)),
@@ -183,7 +138,9 @@ export function publicConfig() {
     security: { requiresKey: config.security.requireAccessKey },
     integrations: {
       tradier: Boolean(config.tradier.token),
-      tradierMode: config.tradier.sandbox ? 'sandbox' : config.tradier.realtimeEntitled ? 'real-time-read-only' : 'entitlement-unconfirmed',
+      tradierMode: config.tradier.sandbox ? 'sandbox'
+        : config.tradier.realtimeEntitled ? 'real-time-configured-unverified'
+          : 'entitlement-unconfirmed',
       gemini: Boolean(config.gemini.apiKey),
       groundedNews: Boolean(config.gemini.apiKey),
       push: Boolean(config.push.enabled && config.push.publicKey && config.push.privateKey)

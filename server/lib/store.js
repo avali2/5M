@@ -214,6 +214,44 @@ export async function getLatestScan() {
   return parseJson(row?.value_json, null);
 }
 
+export async function getPortfolioState() {
+  const row = getDatabase().prepare('SELECT value_json FROM app_state WHERE key = ?').get('portfolio_state');
+  return parseJson(row?.value_json, { cashAvailableUsd: 0, sharesBySymbol: {}, updatedAt: null });
+}
+
+export async function savePortfolioState(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('El colateral debe enviarse como un objeto.');
+  }
+  const cashValue = input.cashAvailableUsd;
+  const cash = Number(cashValue);
+  if (cashValue === null || cashValue === undefined || String(cashValue).trim() === '' || !Number.isFinite(cash) || cash < 0 || cash > 1000000000) {
+    throw new Error('El efectivo libre debe ser un número entre $0 y $1,000,000,000.');
+  }
+  const rawShares = input.sharesBySymbol ?? {};
+  if (!rawShares || typeof rawShares !== 'object' || Array.isArray(rawShares)) {
+    throw new Error('Las acciones libres deben enviarse como un mapa por símbolo.');
+  }
+  const entries = Object.entries(rawShares);
+  if (entries.length > 100) throw new Error('Registra como máximo 100 símbolos.');
+  const sharesBySymbol = {};
+  for (const [rawSymbol, rawCount] of entries) {
+    const symbol = String(rawSymbol).trim().toUpperCase();
+    const count = Number(rawCount);
+    if (!/^[A-Z][A-Z0-9.-]{0,11}$/.test(symbol) || !Number.isSafeInteger(count) || count < 0 || count > 1000000) {
+      throw new Error(`Cantidad de acciones inválida para ${symbol || 'símbolo'}. Usa un ticker válido y acciones enteras no negativas.`);
+    }
+    if (count > 0) sharesBySymbol[symbol] = count;
+  }
+  const portfolioState = {
+    cashAvailableUsd: Math.round(cash * 100) / 100,
+    sharesBySymbol,
+    updatedAt: new Date().toISOString()
+  };
+  setState(getDatabase(), 'portfolio_state', portfolioState);
+  return portfolioState;
+}
+
 export async function getScanHistory(limit = 30) {
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 30));
   return getDatabase().prepare('SELECT scan_id, generated_at, source, summary_json, market_risk_json FROM scans ORDER BY generated_at DESC LIMIT ?')

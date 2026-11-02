@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { TradierClient, isTradierConfigured } from '../lib/tradier.js';
 import { GeminiReviewer } from '../lib/gemini.js';
 import { scanMarket } from '../lib/scanner.js';
-import { getLearningSummary, saveScan } from '../lib/store.js';
+import { getLearningSummary, getPortfolioState, saveScan } from '../lib/store.js';
 import { notifyReadySignal } from '../lib/push.js';
 
 if (!isTradierConfigured()) {
@@ -24,7 +24,8 @@ if (!isTradierConfigured()) {
         }
       }
       const learning = await getLearningSummary();
-      const scan = await scanMarket({ tradier, gemini, learningContext: learning.advisory });
+      const portfolioState = await getPortfolioState();
+      const scan = await scanMarket({ tradier, gemini, learningContext: learning.advisory, portfolioState });
       await saveScan(scan);
       for (const signal of scan.signals.filter((item) => item.status === 'READY')) await notifyReadySignal(signal, config.publicBaseUrl);
       console.info(`[5M] Worker scan: ${scan.summary.ready} READY`);

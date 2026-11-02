@@ -8,7 +8,7 @@ import { config, publicConfig } from './config.js';
 import { TradierClient, isTradierConfigured } from './lib/tradier.js';
 import { GeminiReviewer, isGeminiConfigured } from './lib/gemini.js';
 import { scanMarket } from './lib/scanner.js';
-import { getLatestScan, getLearningSummary, getScanHistory, getStoreStatus, saveScan, saveSignalFeedback } from './lib/store.js';
+import { getLatestScan, getLearningSummary, getPortfolioState, getScanHistory, getStoreStatus, savePortfolioState, saveScan, saveSignalFeedback } from './lib/store.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
 
 export const app = express();
@@ -44,8 +44,14 @@ app.use(helmet({
     }
   }
 }));
-if (config.clientOrigin) app.use(cors({ origin: config.clientOrigin }));
-else if (config.nodeEnv !== 'production') app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || config.nodeEnv !== 'production' || config.clientOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origen no autorizado por CORS.'));
+  },
+  allowedHeaders: ['Content-Type', 'X-5M-Key'],
+  methods: ['GET', 'POST', 'OPTIONS']
+}));
 app.use(express.json({ limit: '256kb' }));
 
 function hasValidAccessKey(request) {
@@ -100,6 +106,22 @@ app.get('/api/learning', requireAccess, async (_request, response) => {
   response.json(await getLearningSummary());
 });
 
+app.get('/api/portfolio', requireAccess, async (_request, response) => {
+  const portfolio = await getPortfolioState();
+  const updatedAt = portfolio.updatedAt ? new Date(portfolio.updatedAt) : null;
+  const ageHours = updatedAt ? (Date.now() - updatedAt.getTime()) / 3600000 : null;
+  return response.json({ ...portfolio, fresh: ageHours !== null && ageHours >= 0 && ageHours <= config.policy.portfolioFreshHours, maxAgeHours: config.policy.portfolioFreshHours });
+});
+
+app.post('/api/portfolio', requireAccess, async (request, response) => {
+  try {
+    const portfolio = await savePortfolioState(request.body);
+    return response.json({ ...portfolio, fresh: true, maxAgeHours: config.policy.portfolioFreshHours });
+  } catch (error) {
+    return response.status(400).json({ error: error.message });
+  }
+});
+
 app.post('/api/signals/:signalId/feedback', requireAccess, async (request, response) => {
   try {
     const feedback = await saveSignalFeedback({ ...request.body, signalId: request.params.signalId });
@@ -152,7 +174,8 @@ async function runScan(reason = 'timer') {
         }
       }
       const learning = await getLearningSummary();
-      const scan = await scanMarket({ tradier, gemini, learningContext: learning.advisory });
+      const portfolioState = await getPortfolioState();
+      const scan = await scanMarket({ tradier, gemini, learningContext: learning.advisory, portfolioState });
       latestScan = scan;
       lastScanError = null;
       await saveScan(scan);

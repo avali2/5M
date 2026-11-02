@@ -16,6 +16,11 @@ test('extrae JSON seguro y fuentes de grounding sin duplicados', () => {
 test('Gemini usa Google Search y solo devuelve CLEAR con cobertura y fuentes', async () => {
   const originalFetch = globalThis.fetch;
   let requestBody;
+  let groundingChunks = [
+    { web: { title: 'Federal Reserve', uri: 'https://www.federalreserve.gov/' } },
+    { web: { title: 'BLS', uri: 'https://www.bls.gov/news.release/' } },
+    { web: { title: 'Reuters', uri: 'https://www.reuters.com/markets/' } }
+  ];
   globalThis.fetch = async (_url, options) => {
     requestBody = JSON.parse(options.body);
     const answer = {
@@ -24,18 +29,24 @@ test('Gemini usa Google Search y solo devuelve CLEAR con cobertura y fuentes', a
     };
     return new Response(JSON.stringify({ candidates: [{
       content: { parts: [{ text: JSON.stringify(answer) }] },
-      groundingMetadata: { groundingChunks: [{ web: { title: 'Federal Reserve', uri: 'https://www.federalreserve.gov/' } }], webSearchQueries: ['Fed today'] }
+      groundingMetadata: { groundingChunks, webSearchQueries: ['Fed today'] }
     }] }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
 
   try {
-    const reviewer = new GeminiReviewer({ apiKey: 'test-key', model: 'gemini-test', newsCacheMinutes: 5, minGroundingSources: 1, maxClearRiskScore: 35 });
+    const reviewer = new GeminiReviewer({ apiKey: 'test-key', model: 'gemini-test', newsCacheMinutes: 5, minGroundingSources: 3, maxClearRiskScore: 35 });
     const risk = await reviewer.reviewMarketRisk({ symbols: ['AMD', 'MSFT', 'SPY'], prioritySymbols: ['AMD', 'MSFT', 'SPY'], now: new Date('2026-08-21T15:00:00Z') });
     assert.deepEqual(requestBody.tools, [{ google_search: {} }]);
     assert.equal(risk.status, 'CLEAR');
     assert.equal(risk.coverageComplete, true);
-    assert.equal(risk.sources.length, 1);
+    assert.equal(risk.sources.length, 3);
+    assert.equal(risk.uniqueSourceDomains.length, 3);
     const strictReviewer = new GeminiReviewer({ apiKey: 'test-key', model: 'gemini-test', newsCacheMinutes: 5, minGroundingSources: 3, maxClearRiskScore: 35 });
+    groundingChunks = [
+      { web: { title: 'Page A', uri: 'https://www.reuters.com/markets/a' } },
+      { web: { title: 'Page B', uri: 'https://www.reuters.com/markets/b' } },
+      { web: { title: 'Page C', uri: 'https://www.reuters.com/markets/c' } }
+    ];
     const strictRisk = await strictReviewer.reviewMarketRisk({ symbols: ['AMD'], prioritySymbols: ['AMD'], now: new Date('2026-08-21T15:00:00Z') });
     assert.equal(strictRisk.status, 'UNKNOWN');
     assert.equal(strictRisk.coverageComplete, false);

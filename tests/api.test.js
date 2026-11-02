@@ -45,7 +45,7 @@ test('API guarda feedback de una señal y devuelve aprendizaje', async () => {
     source: 'Tradier',
     summary: { ready: 1 },
     marketRisk: { status: 'CLEAR' },
-    signals: [{ id: signalId, instanceId, generatedAt: new Date().toISOString(), symbol: 'SPY', strategy: 'BULL_PUT_CREDIT_SPREAD', profile: { id: 'CORE' }, status: 'READY' }]
+    signals: [{ id: signalId, instanceId, generatedAt: new Date().toISOString(), symbol: 'SPY', strategy: 'CASH_SECURED_PUT', profile: { id: 'WHEEL' }, status: 'READY' }]
   });
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -58,4 +58,28 @@ test('API guarda feedback de una señal y devuelve aprendizaje', async () => {
   assert.equal(response.status, 200);
   assert.equal(payload.feedback.action, 'WIN');
   assert.ok(payload.learning.overall.sampleSize >= 1);
+});
+
+test('la API exige y persiste colateral manual con acciones enteras', async () => {
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const saved = await fetch(`${base}/api/portfolio`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cashAvailableUsd: 12000.55, sharesBySymbol: { SOFI: 100, AMD: 0 } })
+  });
+  const savedPayload = await saved.json();
+  const read = await fetch(`${base}/api/portfolio`);
+  const readPayload = await read.json();
+  const invalid = await fetch(`${base}/api/portfolio`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cashAvailableUsd: -1, sharesBySymbol: { SOFI: 100.5 } })
+  });
+  await new Promise((resolve) => server.close(resolve));
+  assert.equal(saved.status, 200);
+  assert.equal(savedPayload.cashAvailableUsd, 12000.55);
+  assert.equal(savedPayload.sharesBySymbol.SOFI, 100);
+  assert.ok(savedPayload.updatedAt);
+  assert.equal(readPayload.sharesBySymbol.SOFI, 100);
+  assert.equal(invalid.status, 400);
 });

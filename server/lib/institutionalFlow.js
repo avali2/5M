@@ -112,7 +112,7 @@ export function analyzeInstitutionalFlow({ chain = [], quote = {}, history = [],
 }
 
 export function flowForStrategy(flow, strategy, minimumConfidence = 55) {
-  const bullishStrategies = new Set(['BULL_PUT_CREDIT_SPREAD', 'CASH_SECURED_PUT', 'COVERED_CALL']);
+  const bullishStrategies = new Set(['CASH_SECURED_PUT', 'COVERED_CALL']);
   const expected = bullishStrategies.has(strategy) ? 'BULLISH' : 'BEARISH';
   const aligned = flow?.direction === expected;
   const opposed = flow?.direction !== 'MIXED' && flow?.direction !== expected;
