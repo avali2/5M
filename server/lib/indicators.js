@@ -50,7 +50,7 @@ export function atr(bars = [], length = 14) {
 }
 
 function timestampOf(bar) {
-  const raw = bar?.time ?? bar?.timestamp ?? bar?.date;
+  const raw = bar?.timestamp ?? bar?.time ?? bar?.date;
   if (raw === undefined || raw === null) return null;
   if (typeof raw === 'number') {
     const milliseconds = raw < 1e12 ? raw * 1000 : raw;
@@ -78,7 +78,7 @@ function mergeBars(group) {
   const first = group[0];
   const last = group.at(-1);
   return {
-    time: last.time ?? last.timestamp ?? last.date ?? null,
+    time: last.timestamp ?? last.time ?? last.date ?? null,
     open: first.open,
     high: Math.max(...group.map((bar) => bar.high ?? bar.close)),
     low: Math.min(...group.map((bar) => bar.low ?? bar.close)),
@@ -88,20 +88,23 @@ function mergeBars(group) {
 }
 
 export function aggregateBars(bars = [], factor = 1) {
-  const clean = normalizedBars(bars);
+  // A provider correction replaces the earlier observation for the same interval.
+  const byTime = new Map();
+  for (const bar of normalizedBars(bars)) {
+    if (bar._timestamp !== null && bar._timestamp % 300000 === 0) byTime.set(bar._timestamp, bar);
+  }
+  const clean = [...byTime.values()];
   if (factor <= 1) return clean.map(({ _timestamp, _index, ...bar }) => bar);
-  const bySession = new Map();
+  const buckets = new Map();
+  // Regular US sessions start on the half-hour in both standard and daylight time.
   for (const bar of clean) {
-    const session = bar._timestamp ? new Date(bar._timestamp).toISOString().slice(0, 10) : 'unknown';
-    if (!bySession.has(session)) bySession.set(session, []);
-    bySession.get(session).push(bar);
+    const bucket = Math.floor((bar._timestamp - 1800000) / (factor * 300000));
+    if (!buckets.has(bucket)) buckets.set(bucket, []);
+    buckets.get(bucket).push(bar);
   }
   const aggregated = [];
-  for (const sessionBars of bySession.values()) {
-    for (let index = 0; index < sessionBars.length; index += factor) {
-      const group = sessionBars.slice(index, index + factor);
-      if (group.length) aggregated.push(mergeBars(group));
-    }
+  for (const group of buckets.values()) {
+    if (group.length === factor) aggregated.push(mergeBars(group));
   }
   return aggregated;
 }
