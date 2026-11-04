@@ -29,3 +29,14 @@ test('construye contexto 5m, 15m, 1h, diario y semanal', () => {
   assert.ok(context.timeframes.d1.sufficient);
   assert.ok(aggregateWeekly(daily).length > 40);
 });
+
+test('una corrección de proveedor y un hueco no completan una vela de 15 minutos', () => {
+  const rows = bars(6, new Date('2026-08-21T13:30:00Z'), 5);
+  const corrected = { ...rows[5], close: 55, time: 'hora local ambigua' };
+  const input = [rows[0], rows[0], rows[2], ...rows.slice(3), corrected];
+  assert.equal(aggregateBars(input, 1).length, 5);
+  const groups = aggregateBars(input, 3);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].close, 55);
+  assert.equal(groups[0].time, rows[5].timestamp);
+});
