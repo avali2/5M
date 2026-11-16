@@ -73,7 +73,9 @@ app.get('/api/health', async (_request, response) => {
   response.json({
     ok: true,
     app: '5 MILLIONS',
-    botEngine: 1,
+    botEngine: 2,
+    deployedCommit: process.env.RENDER_GIT_COMMIT || null,
+    execution: { mode: tradingDesk.mode, profile: tradingDesk.profile?.id ?? null, blocked: Boolean(tradingDesk.blocked) },
     timestamp: new Date().toISOString(),
     configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), push: pushStatus().configured },
     marketData: { realtimeEntitled: config.tradier.realtimeEntitled, mode: publicConfig().integrations.tradierMode },

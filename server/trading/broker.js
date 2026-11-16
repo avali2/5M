@@ -44,7 +44,8 @@ export function reconcileFill(order, trade, action) {
     || row.exec_quantity === '' || ![0, 1].includes(Number(row.exec_quantity)))) return null;
   if (matched.every(row => Number(row.exec_quantity) === 0) && order.status !== 'filled') return { filled: false };
   if (!matched.every(row => Number(row.exec_quantity) === 1 && row.avg_fill_price !== null
-    && row.avg_fill_price !== undefined && row.avg_fill_price !== '' && Number(row.avg_fill_price) >= 0)) return null;
+    && row.avg_fill_price !== undefined && row.avg_fill_price !== ''
+    && Number.isFinite(Number(row.avg_fill_price)) && Number(row.avg_fill_price) >= 0)) return null;
   const net = matched.reduce((sum, row) => sum + (row.side.startsWith('sell') ? 1 : -1) * Number(row.avg_fill_price), 0);
   const price = Math.round((action === 'OPEN' ? net : -net) * 100) / 100;
   if (price > trade.width || (action === 'OPEN' && price <= 0)) return null;
@@ -53,7 +54,7 @@ export function reconcileFill(order, trade, action) {
 
 export class TradingBroker extends TradierClient {
   constructor({ mode, account, token }) {
-    if (!['paper', 'live'].includes(mode) || !/^[A-Z0-9]{4,20}$/i.test(account) || !token) {
+    if (!['paper', 'live'].includes(mode) || typeof account !== 'string' || !/^[A-Z0-9]{4,20}$/i.test(account) || !token) {
       throw new Error('Configuración de la cuenta de ejecución incompleta.');
     }
     super({ token, baseUrl: mode === 'live' ? LIVE_URL : PAPER_URL });

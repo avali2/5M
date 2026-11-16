@@ -29,6 +29,17 @@ export class TradingJournal {
       CREATE UNIQUE INDEX IF NOT EXISTS one_pending_order ON bot_orders(trade_id)
         WHERE status IN ('intent','sent');
     `);
+    this.transaction(() => {
+      if (!this.db.prepare('PRAGMA table_info(bot_trades)').all().some(column => column.name === 'exit_reason')) {
+        this.db.exec('ALTER TABLE bot_trades ADD COLUMN exit_reason TEXT');
+      }
+    });
+  }
+
+  requestExit(tradeId, reason) {
+    if (!['VENCIMIENTO_CERCANO', 'UMBRAL_DE_PERDIDA', 'STRIKE_CORTO_ALCANZADO'].includes(reason)) return false;
+    return Boolean(this.db.prepare("UPDATE bot_trades SET exit_reason=COALESCE(exit_reason, ?) WHERE id=? AND state='OPEN'")
+      .run(reason, tradeId).changes);
   }
 
   renew() {
@@ -112,7 +123,7 @@ export class TradingJournal {
 
   finalize(order, status, fill) {
     this.transaction(() => {
-      if (!this.db.prepare("UPDATE bot_orders SET status=? WHERE tag=? AND status IN ('intent','sent')").run(status, order.tag).changes) return;
+      if (!this.db.prepare("UPDATE bot_orders SET status=? WHERE tag=? AND status IN ('intent','sent')").run(fill?.filled ? 'filled' : status, order.tag).changes) return;
       const note = fill?.filled ? order.reason : status;
       if (!fill) {
         this.db.prepare("UPDATE bot_trades SET state='REVIEW', note=? WHERE id=?")

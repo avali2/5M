@@ -59,14 +59,14 @@ function standardContract(option, root, expiration) {
   return option.contractSize === 100 && option.rootSymbol === root && option.symbol === root + suffix;
 }
 
-function verticals(chain, root, expiration, price, shortType, useDelta, now) {
+function verticals(chain, root, expiration, price, shortType, useDelta, now, profile) {
   const legs = chain.filter(option => option.type === shortType && standardContract(option, root, expiration) && liquid(option));
   const candidates = [];
   for (const short of legs) {
     const distance = (shortType === 'put' ? price - short.strike : short.strike - price) / price;
     const delta = shortType === 'put' ? -short.delta : short.delta;
     if (distance < 0.006 || distance > 0.10) continue;
-    if (useDelta && (short.delta === null || delta < 0.15 || delta > 0.32 || !fresh(short.greeksAt, now, 0, 100))) continue;
+    if (useDelta && (!Number.isFinite(short.delta) || delta < (profile?.deltaMin ?? 0.15) || delta > (profile?.deltaMax ?? 0.32) || !fresh(short.greeksAt, now, 0, 100))) continue;
     if (!useDelta && (distance < 0.02 || distance > 0.07)) continue;
     for (const long of legs) {
       const width = shortType === 'put' ? short.strike - long.strike : long.strike - short.strike;
@@ -99,10 +99,10 @@ export function spreadPricing(idea, minimumCreditRatio = 0.17) {
   };
 }
 
-export function buildSpreads({ chain, expiration, root, underlying, bias, now, useDelta, condor }) {
+export function buildSpreads({ chain, expiration, root, underlying, bias, now, useDelta, condor, profile }) {
   const args = [chain, root, expiration, underlying.price];
-  const puts = bias === 'ALCISTA' || (bias === 'LATERAL' && condor) ? verticals(...args, 'put', useDelta, now) : [];
-  const calls = bias === 'BAJISTA' || (bias === 'LATERAL' && condor) ? verticals(...args, 'call', useDelta, now) : [];
+  const puts = bias === 'ALCISTA' || (bias === 'LATERAL' && condor) ? verticals(...args, 'put', useDelta, now, profile) : [];
+  const calls = bias === 'BAJISTA' || (bias === 'LATERAL' && condor) ? verticals(...args, 'call', useDelta, now, profile) : [];
   const pairs = [];
   if (bias === 'ALCISTA') pairs.push(...puts.map(item => ({ ...item, strategy: 'BULL_PUT' })));
   if (bias === 'BAJISTA') pairs.push(...calls.map(item => ({ ...item, strategy: 'BEAR_CALL' })));
@@ -114,7 +114,10 @@ export function buildSpreads({ chain, expiration, root, underlying, bias, now, u
       }
     }
   }
-  return pairs.map(pair => spreadPricing({ ...pair, root, expiration, underlying: underlying.price }))
+  return pairs.map(pair => spreadPricing({ ...pair, root, expiration, underlying: underlying.price,
+    ...(profile ? { profile: profile.id, exitPolicy: { ...profile.exitPolicy },
+      minimumCreditRatio: profile.minimumCreditRatio } : {})
+  }, profile?.minimumCreditRatio ?? 0.17))
     .filter(Boolean).sort((a, b) => b.credit / b.width - a.credit / a.width);
 }
 
@@ -131,12 +134,17 @@ export function repriceSpread(idea, quotes, now, delayMinutes, { closing = false
   return legs.every(Boolean) ? { ...idea, legs } : null;
 }
 
-export function closingQuote(idea, entryCredit, dte) {
+export function closingQuote(idea, entryCredit, dte, { requestedReason, underlying } = {}) {
   const natural = idea.legs.reduce((net, leg) => net + (leg.direction === -1 ? leg.ask : -leg.bid), 0);
   const debit = Math.max(0.01, Math.ceil(natural * 100 - 1e-7) / 100);
-  const reason = dte <= 7 ? 'VENCIMIENTO_CERCANO'
-    : debit <= entryCredit * 0.5 ? 'OBJETIVO_DE_PRIMA'
-      : debit >= entryCredit * 2 ? 'UMBRAL_DE_PERDIDA' : null;
+  const policy = idea.exitPolicy ?? { takeProfitFraction: 0.5, stopMultiple: 2, timeStopDte: 7 };
+  const strikeBreached = policy.shortStrikeExit && Number.isFinite(underlying) && underlying > 0
+    && idea.legs.some(leg => leg.direction === -1
+      && (leg.type === 'put' ? underlying <= leg.strike : underlying >= leg.strike));
+  const reason = requestedReason || (dte <= policy.timeStopDte ? 'VENCIMIENTO_CERCANO'
+    : strikeBreached ? 'STRIKE_CORTO_ALCANZADO'
+      : debit >= entryCredit * policy.stopMultiple ? 'UMBRAL_DE_PERDIDA'
+        : debit <= entryCredit * (1 - policy.takeProfitFraction) ? 'OBJETIVO_DE_PRIMA' : null);
   if (!reason) return null;
   return { debit: Math.min(idea.width, debit), reason };
 }

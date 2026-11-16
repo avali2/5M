@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { PAPER_URL, TradingBroker, orderForm, reconcileFill } from '../server/trading/broker.js';
 import { TradingJournal } from '../server/trading/journal.js';
 import { TradingDesk } from '../server/trading/desk.js';
+import { PROFILES, resolveProfile, selectExpirations } from '../server/trading/profiles.js';
 import { buildSpreads, closingQuote, repriceSpread, trendFromHistory } from '../server/trading/strategy.js';
 
 const now = new Date('2026-11-16T16:00:00Z');
@@ -221,4 +222,138 @@ test('ciclo autónomo paper recupera un envío ambiguo y cierra aun con entradas
   assert.equal(desk.status().trades[0].realizedUsd, 30.64);
   assert.deepEqual(previews, ['OPEN', 'CLOSE']);
   assert.equal(orders.length, 2);
+});
+
+test('el perfil agresivo amplía delta y acorta DTE sin aceptar Greeks inválidos', () => {
+  const chain = [leg('put', 487, 1.2, 1.25, -0.37), leg('put', 485, 0.65, 0.70, -0.17)];
+  assert.deepEqual(build('ALCISTA', { chain, profile: PROFILES.standard }), []);
+  const [idea] = build('ALCISTA', { chain, profile: PROFILES.aggressive });
+  assert.equal(idea.profile, 'aggressive');
+  assert.equal(idea.exitPolicy.stopMultiple, 1.8);
+  assert.equal(idea.minimumCreditRatio, 0.20);
+  assert.deepEqual(build('ALCISTA', { chain: [{ ...chain[0], delta: NaN }, chain[1]], profile: PROFILES.aggressive }), []);
+  assert.deepEqual(selectExpirations(['2026-11-29', '2026-11-30', '2026-12-07', '2026-12-21', '2026-12-22', 'invalid'], day, PROFILES.aggressive),
+    ['2026-12-07', '2026-11-30', '2026-12-21']);
+  assert.throws(() => resolveProfile('unknown'), /BOT_PROFILE/);
+  assert.throws(() => resolveProfile('toString'), /BOT_PROFILE/);
+});
+
+test('el perfil agresivo mantiene el mínimo de crédito al volver a cotizar', () => {
+  const [plan] = build('ALCISTA', { profile: PROFILES.aggressive });
+  const desk = new TradingDesk({ tradier: { token: 'fake', baseUrl: 'https://api.tradier.com/v1' } }, {}, { BOT_MODE: 'shadow' });
+  const stamp = new Date().toISOString();
+  const quotes = [{ symbol: 'XSP', price: 500, tradeDate: stamp }, ...plan.legs.map((item, index) => ({
+    ...item, bid: index ? 0.65 : 1.08, ask: index ? 0.70 : 1.13,
+    bidAt: stamp, askAt: stamp, bidSize: 1, askSize: 1
+  }))];
+  assert.equal(desk.priceCandidate(plan, quotes, {}), null); // 0.38/2 < 20%
+  assert.ok(desk.priceCandidate({ ...plan, minimumCreditRatio: 0.17 }, quotes, {}));
+});
+
+test('la salida respeta la política guardada, el strike y una solicitud persistente', () => {
+  const [standard] = build('ALCISTA');
+  const [aggressive] = build('ALCISTA', { profile: PROFILES.aggressive });
+  assert.equal(closingQuote(standard, 0.32, 20), null);
+  assert.equal(closingQuote(aggressive, 0.32, 20).reason, 'UMBRAL_DE_PERDIDA');
+  assert.equal(closingQuote(aggressive, 0.50, 20), null);
+  assert.equal(closingQuote(aggressive, 0.50, 20, { underlying: 487 }).reason, 'STRIKE_CORTO_ALCANZADO');
+  assert.equal(closingQuote(aggressive, 0.50, 20, { underlying: NaN }), null);
+  assert.equal(closingQuote(aggressive, 0.50, 20, { requestedReason: 'UMBRAL_DE_PERDIDA' }).debit, 0.60);
+});
+
+test('salidas de riesgo sobreviven reinicios y una cancelación; los objetivos de ganancia no quedan forzados', t => {
+  const { journal, db } = withJournal(t);
+  const [plan] = build('ALCISTA');
+  journal.reserve({ tag: 'entry', plan, action: 'OPEN', day, now, price: 0.50, reason: 'reglas', fees: 0.10 });
+  journal.finalize(journal.pending()[0], 'filled', { filled: true, price: 0.50 });
+  assert.equal(journal.requestExit('entry', 'OBJETIVO_DE_PRIMA'), false);
+  assert.equal(journal.activeTrades()[0].exit_reason, null);
+  assert.equal(journal.requestExit('entry', 'UMBRAL_DE_PERDIDA'), true);
+  journal.reserve({ tag: 'exit', tradeId: 'entry', action: 'CLOSE', day, now, price: 1, reason: 'UMBRAL_DE_PERDIDA', fees: 0.10 });
+  journal.finalize(journal.pending()[0], 'canceled', { filled: false });
+  const reopened = new TradingJournal(db);
+  t.after(() => reopened.db.close());
+  assert.equal(reopened.activeTrades()[0].state, 'OPEN');
+  assert.equal(reopened.activeTrades()[0].exit_reason, 'UMBRAL_DE_PERDIDA');
+  assert.equal(reopened.activeTrades()[0].fees, 0.10);
+});
+
+test('un cierre completamente ejecutado cuenta en el presupuesto aunque Tradier marque cancelada la orden', t => {
+  const { journal } = withJournal(t);
+  const [plan] = build('ALCISTA');
+  journal.reserve({ tag: 'entry', plan, action: 'OPEN', day, now, price: 0.50, reason: 'reglas', fees: 0.10 });
+  journal.finalize(journal.pending()[0], 'filled', { filled: true, price: 0.50 });
+  journal.reserve({ tag: 'exit', tradeId: 'entry', action: 'CLOSE', day, now, price: 1, reason: 'UMBRAL_DE_PERDIDA', fees: 0.10 });
+  const filled = reconcileFill({ status: 'canceled', leg: plan.legs.map((item, index) => ({
+    option_symbol: item.symbol, side: index ? 'sell_to_close' : 'buy_to_close',
+    exec_quantity: 1, avg_fill_price: index ? 0.20 : 1.20
+  })) }, plan, 'CLOSE');
+  journal.finalize(journal.pending()[0], 'canceled', filled);
+  assert.equal(journal.realized(day), -50.20);
+  assert.equal(journal.recentOrders().filter(order => order.action === 'CLOSE')[0].status, 'filled');
+});
+
+test('el motor reintenta la salida de riesgo tras preview fallida, reinicio y rechazo aunque el precio se recupere', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const folder = mkdtempSync(path.join(tmpdir(), '5m-risk-exit-'));
+  const settings = { tradier: { baseUrl: 'https://api.tradier.com/v1' },
+    security: { requireAccessKey: true, accessKey: 'fake' }, dataDir: folder };
+  const env = { BOT_MODE: 'paper', BOT_SANDBOX_ACCOUNT_ID: 'AB1234567', TRADIER_SANDBOX_TOKEN: 'fake' };
+  let desk = new TradingDesk(settings, {}, env);
+  t.after(() => { desk.journal.db.close(); rmSync(folder, { recursive: true, force: true }); });
+  const [plan] = build('ALCISTA', { root: 'SPY', useDelta: false, profile: PROFILES.aggressive,
+    chain: [leg('put', 487, 1.2, 1.25, null, 'SPY'), leg('put', 485, 0.65, 0.70, null, 'SPY')] });
+  desk.journal.reserve({ tag: 'entry', plan, action: 'OPEN', day, now, price: 0.50, reason: 'reglas', fees: 0.10 });
+  desk.journal.finalize(desk.journal.pending()[0], 'filled', { filled: true, price: 0.50 });
+  desk.pause(true);
+  let allowPreview = false;
+  let recovered = false;
+  const orders = [];
+  const submitted = [];
+  function configure() {
+    desk.cached.calendar = { day, start: 570, end: 960 };
+    t.mock.method(desk, 'session', async () => ({ day, marketOpen: true, canEnter: true }));
+    t.mock.method(desk.broker, 'orders', async () => orders);
+    t.mock.method(desk.broker, 'getOrder', async id => orders.find(order => String(order.id) === String(id)));
+    t.mock.method(desk.broker, 'positions', async () => plan.legs.map(item => ({ symbol: item.symbol, quantity: item.direction })));
+    t.mock.method(desk.broker, 'getQuotes', async () => {
+      const stamp = new Date(Date.now() - 15 * 60000).toISOString();
+      return [{ symbol: 'SPY', price: 500, tradeDate: stamp }, ...plan.legs.map((item, index) => ({
+        ...item, bid: index ? 0.05 : recovered ? 0.60 : 0.95, ask: index ? 0.10 : recovered ? 0.65 : 1,
+        bidAt: stamp, askAt: stamp, bidSize: 1, askSize: 1
+      }))];
+    });
+    t.mock.method(desk.broker, 'preview', async () => allowPreview ? { fees: 0.10 } : null);
+    t.mock.method(desk.broker, 'submit', async (_plan, action, price, tag) => {
+      submitted.push({ action, price });
+      orders.push({ id: orders.length + 1, tag, class: 'multileg', symbol: 'SPY', status: 'rejected',
+        leg: plan.legs.map((item, index) => ({ option_symbol: item.symbol,
+          side: index ? 'sell_to_close' : 'buy_to_close', exec_quantity: 0 })) });
+      return String(orders.length);
+    });
+  }
+  configure();
+  await desk.tick();
+  assert.equal(desk.status().state, 'AVISO');
+  assert.equal(desk.journal.activeTrades()[0].exit_reason, 'UMBRAL_DE_PERDIDA');
+  desk.journal.db.close();
+  desk = new TradingDesk(settings, {}, env);
+  configure();
+  recovered = true;
+  allowPreview = true;
+  await desk.tick();
+  assert.equal(desk.status().trades[0].state, 'EXIT_PENDING');
+  await desk.tick();
+  assert.deepEqual(submitted, [{ action: 'CLOSE', price: 0.60 }, { action: 'CLOSE', price: 0.60 }]);
+  assert.equal(desk.status().paused, true);
+});
+
+test('la cuenta es obligatoria y un fill no finito queda para revisión', () => {
+  assert.throws(() => new TradingBroker({ mode: 'live', token: 'fake' }), /Configuración/);
+  const [plan] = build('ALCISTA');
+  const order = { status: 'filled', leg: plan.legs.map((item, index) => ({
+    option_symbol: item.symbol, side: index ? 'sell_to_close' : 'buy_to_close',
+    exec_quantity: 1, avg_fill_price: index ? 'Infinity' : 1.20
+  })) };
+  assert.equal(reconcileFill(order, plan, 'CLOSE'), null);
 });

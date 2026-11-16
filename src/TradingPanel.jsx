@@ -10,6 +10,10 @@ const ORDER_STATES = {
   intent: 'Envío por confirmar', sent: 'Recibida por Tradier', filled: 'Ejecutada',
   canceled: 'Cancelada', expired: 'Vencida', error: 'Error', rejected: 'Rechazada'
 };
+const EXIT_REASONS = {
+  VENCIMIENTO_CERCANO: 'Vencimiento cercano', UMBRAL_DE_PERDIDA: 'Límite de pérdida',
+  STRIKE_CORTO_ALCANZADO: 'Strike vendido alcanzado'
+};
 const CURRENCY = new Intl.NumberFormat('es-US', { style: 'currency', currency: 'USD' });
 const NY = new Intl.DateTimeFormat('es-US', {
   timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
@@ -29,6 +33,7 @@ function PositionLedger({ trades, orders }) {
       {trades.length === 0 ? <p>Sin posiciones registradas en este modo.</p> : <ul>
         {trades.map(trade => <li key={trade.createdAt}><b>{trade.root} · {LABELS[trade.strategy]}</b>
           <span>{STATES[trade.state]} · vence {trade.expiration} · riesgo {usd(trade.maxRiskUsd)}</span>
+          {trade.exitReason && trade.state !== 'CLOSED' && <small>Salida en curso: {EXIT_REASONS[trade.exitReason] || trade.exitReason}</small>}
           <small>{trade.realizedUsd === null ? trade.note : `Resultado neto estimado ${usd(trade.realizedUsd)}`}</small>
         </li>)}
       </ul>}
@@ -64,11 +69,17 @@ export default function TradingPanel({ status, onPause, pending }) {
       </button>}
     </div>
     <dl className="bot-stats">
+      <Stat label="Perfil" value={status?.profile?.label || '—'} />
       <Stat label="Subyacente" value={status?.root || '—'} />
       <Stat label="Último ciclo" value={date(status?.lastCycleAt)} />
       <Stat label="Límite configurado" value={usd(status?.maxRiskUsd)} />
       <Stat label="Iron condor" value={status?.condorEnabled ? 'Activo' : 'Desactivado'} />
     </dl>
+    {status?.profile && <p className="bot-foot">
+      Vencimientos {status.profile.minDte}–{status.profile.maxDte} días · delta corta absoluta {status.profile.deltaMin}–{status.profile.deltaMax}
+      {' · '}revisión cada {status.profile.intervalMs / 1000} s mientras el servidor esté activo.
+      {' '}En real: un contrato por pata, una posición y como máximo una entrada por sesión; riesgo total hasta el menor entre tu límite y el 1% del patrimonio.
+    </p>}
     {candidate && <div className="bot-candidate">
       <div className="bot-candidate-head"><div><h3>{candidate.root} · {LABELS[candidate.strategy]}</h3>
         <p>{candidate.expiration} · {candidate.trend.bias.toLowerCase()} · cotizado {date(candidate.evaluatedAt)}
@@ -85,6 +96,11 @@ export default function TradingPanel({ status, onPause, pending }) {
         {candidate.legs.map(leg => <div key={leg.symbol}><b>{leg.direction === -1 ? 'Vender' : 'Comprar'} {leg.type} {usd(leg.strike)}</b>
           <small>Bid {usd(leg.bid)} · ask {usd(leg.ask)}</small></div>)}
       </div>
+      {candidate.exitPolicy && <p>Salida prevista: capturar {candidate.exitPolicy.takeProfitFraction * 100}% de la prima,
+        cerrar si el débito alcanza {candidate.exitPolicy.stopMultiple} veces el crédito o quedan {candidate.exitPolicy.timeStopDte} días.
+        {candidate.exitPolicy.shortStrikeExit ? ' También se solicita cierre si el subyacente alcanza un strike vendido.' : ''}
+        {' '}Son disparadores de órdenes limitadas, no precios de ejecución garantizados.</p>}
+      <p>Probabilidad de beneficio: sin estimación validada. La delta no equivale a esa probabilidad.</p>
       <p>Greeks netos por unidad. Δ {greek(candidate.greeks.delta)} · Γ {greek(candidate.greeks.gamma)} · Θ {greek(candidate.greeks.theta)} · Vega {greek(candidate.greeks.vega)}.</p>
     </div>}
     <PositionLedger trades={status?.trades || []} orders={status?.orders || []} />
