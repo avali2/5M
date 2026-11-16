@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import TradingPanel from './TradingPanel.jsx';
 
 const KEY_STORAGE = 'five-millions-access-key';
 
@@ -248,6 +249,7 @@ function App() {
   const [learning, setLearning] = useState(null);
   const [portfolio, setPortfolio] = useState(null);
   const [portfolioSaving, setPortfolioSaving] = useState(false);
+  const [botPending, setBotPending] = useState(false);
 
   const readySignals = useMemo(() => scan?.signals?.filter((signal) => signal.status === 'READY') || [], [scan]);
   const watchSignals = useMemo(() => scan?.signals?.filter((signal) => signal.status !== 'READY') || [], [scan]);
@@ -258,7 +260,7 @@ function App() {
     setPublicCfg(cfg); setStatus(nextStatus);
     setLearning(nextLearning);
     setPortfolio(currentPortfolio);
-    if (latest) setScan(latest);
+    setScan(latest);
   }
 
   useEffect(() => {
@@ -298,6 +300,16 @@ function App() {
     try { const nextScan = await request('/api/scan', { method: 'POST' }); setScan(nextScan); setStatus(await request('/api/status')); }
     catch (scanError) { setError(formatError(scanError)); }
     finally { setLoading(false); }
+  }
+
+  async function pauseBot(paused) {
+    setBotPending(true);
+    setError('');
+    try {
+      const trading = await request('/api/bot/pause', { method: 'POST', body: JSON.stringify({ paused }) });
+      setStatus(previous => ({ ...previous, trading }));
+    } catch (botError) { setError(formatError(botError)); }
+    finally { setBotPending(false); }
   }
 
   async function savePortfolio(value) {
@@ -357,11 +369,12 @@ function App() {
       : tradierMode === 'real-time-configured-unverified' ? 'Entitlement configurado · validar timestamp'
         : 'Entitlement no confirmado · READY bloqueado';
   return <div className="app-shell">
-    <header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">5M</div><div><p className="eyebrow">OPTIONS SIGNAL ENGINE</p><h1>5 MILLIONS</h1></div></div><div className="top-actions"><Pill tone={scan?.market?.marketOpen ? 'green' : 'slate'}>{scan?.market?.marketOpen ? 'MERCADO ABIERTO' : 'MERCADO CERRADO'}</Pill><button className="primary-btn" onClick={scanNow} disabled={loading}>{loading ? 'Analizando…' : 'Revisar mercado'}</button></div></div></header>
+    <header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">5M</div><div><p className="eyebrow">OPCIONES FINANCIERAS</p><h1>5 MILLIONS</h1></div></div><div className="top-actions"><Pill tone={scan?.market?.marketOpen ? 'green' : 'slate'}>{scan?.market?.marketOpen ? 'MERCADO ABIERTO' : 'MERCADO CERRADO'}</Pill><button className="primary-btn" onClick={scanNow} disabled={loading}>{loading ? 'Analizando…' : 'Revisar mercado'}</button></div></div></header>
     <main className="main-content">
-      <section className="hero"><div><p className="eyebrow blue">CASH-SECURED PUTS · COVERED CALLS</p><h2>Una señal clara o ninguna operación.</h2><p className="hero-copy">Compara candidatos de la rueda con cotizaciones recientes, liquidez, temporalidades, noticias y colateral declarado. Delta y puntuación ordenan ideas; no predicen resultados.</p></div><div className="hero-note"><strong>Robinhood manual</strong><span>Solo Cash-Secured Puts y Covered Calls · sin órdenes automáticas</span></div></section>
+      {error && <div className="error-banner" role="alert">⚠ {error}</div>}
+      <TradingPanel status={status?.trading} onPause={pauseBot} pending={botPending} />
+      <section className="hero"><div><p className="eyebrow blue">CASH-SECURED PUTS · COVERED CALLS</p><h2>Señales para la rueda</h2><p className="hero-copy">Compara cotizaciones, liquidez, temporalidades, noticias y colateral declarado para una revisión manual.</p></div></section>
       <section className="connections"><Connection label="Tradier" value={publicCfg?.integrations?.tradier} note={tradierNote} /><Connection label="Gemini" value={publicCfg?.integrations?.gemini} note={publicCfg?.integrations?.gemini ? 'Decisión estructurada activa' : 'Señales bloqueadas'} /><Connection label="Noticias" value={scan?.marketRisk?.coverageComplete} note={scan?.marketRisk ? `${scan.ai?.groundedSources || 0} fuentes · ${riskLabel(scan.marketRisk.status)}` : 'Sin lectura actual'} /><Connection label="Base de datos" value={status?.store?.provider === 'sqlite'} note={status?.store?.provider === 'sqlite' ? `${status.store.signalsStored || 0} señales · ${status.store.feedbackEvents || 0} feedback` : 'No disponible'} /><Connection label="Segundo plano" value={status?.scanner?.enabled} note={status?.scanner?.enabled ? `Cada ${status.scanner.intervalMinutes} min` : 'Desactivado'} /></section>
-      {error && <div className="error-banner">⚠ {error}</div>}
       {pushMessage && <div className="info-banner" role="status">{pushMessage}</div>}
       {feedbackMessage && <div className="info-banner" role="status">{feedbackMessage}</div>}
       <MarketRiskPanel risk={scan?.marketRisk} />

@@ -1,8 +1,28 @@
 # 5 MILLIONS
 
-Motor privado de señales de opciones para análisis y ejecución manual en Robinhood. Genera únicamente **Cash-Secured Puts** y **Covered Calls** respaldadas por acciones. No abre órdenes ni se conecta a posiciones de Robinhood.
+Mesa privada de spreads y señales de opciones. El motor autónomo usa Tradier para spreads de crédito y el escáner de la rueda genera ideas de Cash-Secured Put y Covered Call para revisión manual.
 
-## Qué hace una señal
+## Motor autónomo de Tradier
+
+| Modo | Subyacente | Comportamiento |
+| --- | --- | --- |
+| `shadow` | XSP con datos de producción o SPY con Sandbox | Calcula candidatos y publica el estado. Es el modo predeterminado en Render Free. |
+| `paper` | SPY | Gestiona órdenes y posiciones de una cuenta Tradier Sandbox con cotizaciones retrasadas. Usa moneyness cuando Sandbox no ofrece Greeks. |
+| `live` | XSP | Previsualiza y envía órdenes multileg cuando la cuenta, cotizaciones, noticias, poder de compra y volumen persistente pasan sus comprobaciones. |
+| `off` | — | Desactiva el motor. |
+
+- Un bull put spread con tendencia alcista, un bear call spread con tendencia bajista o un iron condor simétrico en mercado lateral. El condor está disponible de forma predeterminada en observación y Sandbox. El modo real requiere habilitarlo.
+- El régimen combina EMA20, retorno de cinco sesiones y volatilidad realizada anualizada de SPY. Usa cierres de sesiones completas y descarta volatilidad realizada superior al 35%. Las expiraciones son de 21 a 45 días, con preferencia por 30 días.
+- La entrada exige contratos estándar, liquidez en las patas, crédito natural de al menos el 17% del ancho máximo, cotizaciones recientes y, en real, delta de la pata corta entre 0.15 y 0.32 en valor absoluto. El panel muestra Greeks netos por unidad. Tradier actualiza estos Greeks aproximadamente cada hora.
+- Pérdida teórica antes de comisiones = (ancho máximo menos crédito) × 100. Ganancia bruta máxima = crédito × 100. El motor estima comisión y tasas antes de la entrada. La probabilidad de ganancia queda sin estimar hasta contar con una muestra histórica verificable.
+- Un contrato por pata, una posición del bot a la vez y una entrada registrada como máximo por sesión. En real, el presupuesto queda limitado al menor de `BOT_MAX_RISK_USD`, 1% del patrimonio de la cuenta y el poder de compra en opciones. Las pérdidas netas de la sesión reducen el presupuesto disponible.
+- Objetivo de recompra al 50% del crédito de entrada, umbral de pérdida al débito de 2× el crédito y salida por tiempo desde 7 DTE. Son disparadores de órdenes limitadas. La ejecución depende de la liquidez y no está garantizada.
+- Ante respuestas ambiguas, concilia la orden mediante su etiqueta y el estado de cada pata. Una discrepancia de posiciones bloquea nuevas entradas. La pausa bloquea entradas y solicita cancelar entradas pendientes, con gestión de cierres todavía activa.
+- XSP liquida en efectivo y es de ejercicio europeo. La rentabilidad de estas reglas está por validar. El modo Sandbox con SPY sirve para validar el flujo de órdenes y tiene una mecánica de asignación distinta.
+
+Las claves del broker se configuran en el servidor. El panel de Render tiene el control de pausa y el panel privado de Sites permite consultar candidatos, órdenes y posiciones. La [guía de despliegue](DEPLOYMENT.md) describe las variables y los estados de revisión.
+
+## Qué hace una señal de la rueda
 
 1. Lee cotizaciones, históricos, Time & Sales, expiraciones y cadenas de opciones desde Tradier.
 2. Calcula contexto de 5m, 15m, 1h, 1D y 1W y filtra vencimiento, delta, crédito, volumen, interés abierto y spread bid/ask.
@@ -29,7 +49,7 @@ La [guía operativa](OPERATIONAL_PLAYBOOK.md) reúne el orden de revisión, el u
 
 ## Dashboard de señales en Sites
 
-El panel independiente `five-millions-signals` es privado y de solo lectura. Permite conectar el backend de Render con su URL y `APP_ACCESS_KEY`, filtrar por ticker/estrategia/estado, actualizar señales y consultar el estado del mercado y noticias. La clave se guarda en el almacenamiento local del navegador. Render debe incluir el origen exacto del Site en `SITE_ORIGIN` para permitir CORS; el backend sigue exigiendo `X-5M-Key`.
+El panel privado `five-millions-signals` conecta al servicio Render de 5M con `APP_ACCESS_KEY`. Muestra la actividad del bot y permite filtrar las señales de la rueda por ticker, estrategia y estado. La clave se guarda en el navegador y se envía a la URL de Render del proyecto. `SITE_ORIGIN` permite ese Site por CORS y la API autentica con `X-5M-Key`.
 
 ## Universo y almacenamiento
 

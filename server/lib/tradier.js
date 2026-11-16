@@ -40,6 +40,10 @@ function normalizeQuote(quote) {
     changePct: finite(quote.change_percentage, 0),
     volume: finite(quote.volume, 0),
     tradeDate: isoTimestamp(quote.trade_date),
+    bidAt: isoTimestamp(quote.bid_date),
+    askAt: isoTimestamp(quote.ask_date),
+    bidSize: finite(quote.bidsize, 0),
+    askSize: finite(quote.asksize, 0),
     rawType: quote.type || null,
     source: 'Tradier'
   };
@@ -57,6 +61,9 @@ function normalizeOption(option, underlying, expiration) {
     symbol: option.symbol || null,
     underlying: String(underlying).toUpperCase(),
     expiration,
+    rootSymbol: option.root_symbol || null,
+    contractSize: finite(option.contract_size),
+    greeksAt: isoTimestamp(greeks.updated_at),
     strike: finite(option.strike),
     type,
     bid,
