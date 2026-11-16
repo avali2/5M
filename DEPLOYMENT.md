@@ -60,3 +60,5 @@ No se amplían el límite del 1% del patrimonio, el presupuesto en dólares, el 
 Las operaciones guardan la política vigente al abrirse. Al reiniciar, las operaciones antiguas sin política guardada conservan las salidas anteriores: 50% de prima, 2× crédito y 7 DTE. Las nuevas columnas SQLite se migran automáticamente preservando el historial. Las salidas de riesgo persistidas aparecen en el panel; pausar entradas no las anula.
 
 Verifica que no haya procesos con distintas versiones del motor escribiendo en el mismo volumen durante una actualización. Conserva una copia consistente de SQLite al migrar almacenamiento.
+
+Después de cada actualización de `main`, el workflow `Deployment check` espera hasta ocho minutos y verifica el commit servido por Render, el HTML, el JavaScript compilado y el rechazo de solicitudes sin clave a `/api/status`. `/api/health` expone versión del motor, commit y estado básico de ejecución, sin credenciales ni posiciones. Una comprobación aprobada confirma el despliegue, no la validez de los tokens ni el permiso de opciones de la cuenta.
