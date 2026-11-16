@@ -9,11 +9,13 @@ import { TradierClient, isTradierConfigured } from './lib/tradier.js';
 import { GeminiReviewer, isGeminiConfigured } from './lib/gemini.js';
 import { scanMarket } from './lib/scanner.js';
 import { getLatestScan, getLearningSummary, getPortfolioState, getScanHistory, getStoreStatus, savePortfolioState, saveScan, saveSignalFeedback } from './lib/store.js';
+import { TradingDesk } from './trading/desk.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
 
 export const app = express();
 const tradier = new TradierClient();
 const gemini = new GeminiReviewer();
+const tradingDesk = new TradingDesk(config, gemini);
 let latestScan = null;
 let lastScanError = null;
 let scanInFlight = null;
@@ -71,6 +73,7 @@ app.get('/api/health', async (_request, response) => {
   response.json({
     ok: true,
     app: '5 MILLIONS',
+    botEngine: 1,
     timestamp: new Date().toISOString(),
     configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), push: pushStatus().configured },
     marketData: { realtimeEntitled: config.tradier.realtimeEntitled, mode: publicConfig().integrations.tradierMode },
@@ -89,8 +92,22 @@ app.get('/api/status', requireAccess, async (_request, response) => {
     push: pushStatus(),
     store: await getStoreStatus(),
     scanner: { enabled: config.scanner.enabled, intervalMinutes: config.scanner.intervalMinutes, inFlight: Boolean(scanInFlight), ...schedulerState },
+    trading: tradingDesk.status(),
     lastPushResult
   });
+});
+
+app.post('/api/bot/pause', requireAccess, (request, response) => {
+  if (!config.security.requireAccessKey || !config.security.accessKey) {
+    return response.status(403).json({ error: 'El control del bot requiere autenticación.' });
+  }
+  if (typeof request.body?.paused !== 'boolean') {
+    return response.status(400).json({ error: 'Envía un estado de pausa válido.' });
+  }
+  if (!tradingDesk.pause(request.body.paused)) {
+    return response.status(409).json({ error: 'El motor de ejecución no está habilitado.' });
+  }
+  return response.json(tradingDesk.status());
 });
 
 app.get('/api/scan', requireAccess, (_request, response) => {
@@ -228,4 +245,5 @@ if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
     console.info(`[5M] http://${config.host}:${config.port} · Tradier ${isTradierConfigured() ? 'configurado' : 'no configurado'} · Gemini ${isGeminiConfigured() ? 'configurado' : 'no configurado'}`);
   });
   startScannerScheduler();
+  tradingDesk.start();
 }
