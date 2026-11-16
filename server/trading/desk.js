@@ -5,10 +5,10 @@ import { TradierClient } from '../lib/tradier.js';
 import { toArray } from '../lib/http.js';
 import { LIVE_URL, PAPER_URL, TradingBroker, reconcileFill, terminal } from './broker.js';
 import { TradingJournal } from './journal.js';
+import { resolveProfile, selectExpirations } from './profiles.js';
 import { buildSpreads, closingQuote, daysLeft, easternTime, fresh, repriceSpread, spreadPricing, trendFromHistory } from './strategy.js';
 
 const supportedModes = ['off', 'shadow', 'paper', 'live'];
-const intervalMs = 60000;
 const candleWindowDays = 60;
 const minutes = value => 60 * Number(value.slice(0, 2)) + Number(value.slice(3, 5));
 
@@ -52,7 +52,7 @@ function tradeSummary(row) {
     maxRiskUsd: roundUsd((row.plan.width - entryCredit) * 100 + row.fees),
     closeDebit: row.close_debit,
     realizedUsd: row.state === 'CLOSED' ? roundUsd((entryCredit - row.close_debit) * 100 - row.fees) : null,
-    note: row.note, createdAt: row.created_at
+    note: row.note, exitReason: row.exit_reason, profile: row.plan.profile ?? 'standard', createdAt: row.created_at
   };
 }
 
@@ -72,6 +72,7 @@ export class TradingDesk {
     this.root = rootFor(this.mode, this.market);
 
     try {
+      this.profile = resolveProfile(env.BOT_PROFILE);
       if (!supportedModes.includes(this.mode)) throw new Error('Modo de ejecución inválido.');
       if (this.mode === 'off') return this.setState('APAGADO', 'Motor desactivado.');
       if (this.mode === 'shadow') {
@@ -110,6 +111,7 @@ export class TradingDesk {
   status() {
     return {
       mode: this.mode, root: this.root, condorEnabled: this.condor, ...this.cycle,
+      profile: this.profile ?? null,
       paused: this.journal?.paused() ?? null, scheduled: Boolean(this.timer), candidate: this.latest,
       maxRiskUsd: this.maxRisk || null, trades: this.journal?.trades().map(tradeSummary) ?? [],
       orders: this.journal?.recentOrders() ?? []
@@ -124,7 +126,7 @@ export class TradingDesk {
 
   start() {
     if (this.blocked || this.mode === 'off' || this.timer) return;
-    this.timer = setInterval(() => void this.tick(), intervalMs);
+    this.timer = setInterval(() => void this.tick(), this.profile.intervalMs);
     this.timer.unref?.();
     void this.tick();
   }
@@ -155,14 +157,13 @@ export class TradingDesk {
         this.market.getExpirations(this.root)
       ]);
       this.cached.research = { day, trend: trendFromHistory(daily, day), expirations:
-        expirations.filter(item => daysLeft(item, day) >= 21 && daysLeft(item, day) <= 45)
-          .sort((a, b) => Math.abs(daysLeft(a, day) - 30) - Math.abs(daysLeft(b, day) - 30)).slice(0, 3) };
+        selectExpirations(expirations, day, this.profile) };
     }
 
     const { trend, expirations } = this.cached.research;
     if (!trend || trend.bias === 'INDEFINIDO') return this.setState('ESPERANDO', 'El régimen de SPY no cumple los umbrales de tendencia o volatilidad.');
     if (trend.bias === 'LATERAL' && !this.condor) return this.setState('ESPERANDO', 'Mercado lateral. Iron condor desactivado.');
-    if (!expirations.length) return this.setState('ESPERANDO', 'Tradier no devolvió expiraciones entre 21 y 45 DTE.');
+    if (!expirations.length) return this.setState('ESPERANDO', 'Tradier no devolvió expiraciones dentro del intervalo del perfil activo.');
 
     const [underlying] = await this.market.getQuotes([this.root]);
     if (underlying?.symbol !== this.root || !(underlying.price > 0)
@@ -172,7 +173,7 @@ export class TradingDesk {
     const chains = await Promise.all(expirations.map(expiration => this.market.getOptionChain(this.root, expiration)));
     const ideas = chains.flatMap((chain, index) => buildSpreads({
       chain, expiration: expirations[index], root: this.root, underlying, bias: trend.bias,
-      now: new Date(), useDelta: this.delay === 0, condor: this.condor
+      now: new Date(), useDelta: this.delay === 0, condor: this.condor, profile: this.profile
     })).filter(idea => idea.maxRiskUsd <= riskBudget)
       .sort((a, b) => b.credit / b.width - a.credit / a.width).slice(0, 6);
     if (!ideas.length) return this.setState('ESPERANDO', 'Sin spreads que cumplan distancia, liquidez, delta y crédito para este régimen.');
@@ -192,7 +193,7 @@ export class TradingDesk {
     if (!stillOutOfMoney) return null;
     const repriced = repriceSpread(plan, quotes, now, this.delay);
     if (!repriced || repriced.legs.some(leg => (leg.ask - leg.bid) / ((leg.ask + leg.bid) / 2) > 0.30)) return null;
-    const idea = spreadPricing({ ...repriced, underlying: underlying.price });
+    const idea = spreadPricing({ ...repriced, underlying: underlying.price }, plan.minimumCreditRatio ?? 0.17);
     return idea ? { ...idea, trend, evaluatedAt: new Date().toISOString(), quoteDelayMinutes: this.delay } : null;
   }
 
@@ -272,11 +273,28 @@ export class TradingDesk {
       if (foreignWorkingOrder(accountOrders, plan.root) || !exactPosition(plan, positions)) {
         return this.setState('REVISIÓN', 'La posición o las órdenes del broker no coinciden con el registro. Revisa Tradier.');
       }
-      const quotes = await this.broker.getQuotes(plan.legs.map(leg => leg.symbol));
-      const priced = repriceSpread(plan, quotes, new Date(), this.delay, { closing: true });
-      const exit = priced && closingQuote(priced, trade.entry_credit, daysLeft(plan.expiration, day));
-      if (!priced) return this.setState('DATOS_INSUFICIENTES', 'Posición abierta con cotizaciones de cierre pendientes.');
-      if (exit) return this.place({ tradeId: trade.id, plan, action: 'CLOSE', day, price: exit.debit, reason: exit.reason });
+      const quotes = await this.broker.getQuotes([plan.root, ...plan.legs.map(leg => leg.symbol)]);
+      const checkedAt = new Date();
+      const underlying = quotes.find(quote => quote.symbol === plan.root);
+      const underlyingPrice = underlying?.price > 0 && fresh(underlying.tradeDate, checkedAt, this.delay, 3)
+        ? underlying.price : undefined;
+      const priced = repriceSpread(plan, quotes, checkedAt, this.delay, { closing: true });
+      // Persist time/strike exits even when an option quote is temporarily unavailable.
+      const dte = daysLeft(plan.expiration, day);
+      const policy = plan.exitPolicy ?? { timeStopDte: 7 };
+      const riskReason = trade.exit_reason || (dte <= policy.timeStopDte ? 'VENCIMIENTO_CERCANO'
+        : policy.shortStrikeExit && underlyingPrice && plan.legs.some(leg => leg.direction === -1
+          && (leg.type === 'put' ? underlyingPrice <= leg.strike : underlyingPrice >= leg.strike))
+          ? 'STRIKE_CORTO_ALCANZADO' : undefined);
+      if (riskReason) this.journal.requestExit(trade.id, riskReason);
+      if (!priced) return this.setState('DATOS_INSUFICIENTES', riskReason
+        ? 'Salida de riesgo registrada. Esperando cotizaciones válidas para cerrar.'
+        : 'Posición abierta con cotizaciones de cierre pendientes.');
+      const exit = closingQuote(priced, trade.entry_credit, dte, { requestedReason: riskReason });
+      if (exit) {
+        this.journal.requestExit(trade.id, exit.reason);
+        return this.place({ tradeId: trade.id, plan, action: 'CLOSE', day, price: exit.debit, reason: exit.reason });
+      }
       return this.setState('EN_POSICIÓN', 'Patas reconciliadas. Vigilando objetivo, pérdida y vencimiento.');
     }
 
@@ -287,7 +305,7 @@ export class TradingDesk {
     if (foreignWorkingOrder(accountOrders, this.root) || positions.some(item => touchesRoot(item.symbol, this.root))) {
       return this.setState('REVISIÓN', 'Hay posiciones u órdenes de este subyacente fuera del registro del bot.');
     }
-    if (Date.now() - this.lastResearch < 180000) return;
+    if (Date.now() - this.lastResearch < this.profile.researchMs) return;
     this.lastResearch = Date.now();
     this.latest = null;
     const balance = await this.broker.balance();
@@ -332,7 +350,7 @@ export class TradingDesk {
       });
       if (this.broker) return await this.runBroker(session, now);
       if (!session.marketOpen) return this.setState('MERCADO_CERRADO', 'Los candidatos se actualizan durante la sesión regular.');
-      if (Date.now() - this.lastResearch < 180000) return;
+      if (Date.now() - this.lastResearch < this.profile.researchMs) return;
       this.lastResearch = Date.now();
       this.latest = null;
       if (await this.research(session, now)) this.setState('OBSERVACIÓN', 'Candidato evaluado. La conexión está en modo de observación.');

@@ -12,13 +12,17 @@ Mesa privada de spreads y señales de opciones. El motor autónomo usa Tradier p
 | `off` | — | Desactiva el motor. |
 
 - Un bull put spread con tendencia alcista, un bear call spread con tendencia bajista o un iron condor simétrico en mercado lateral. El condor está disponible de forma predeterminada en observación y Sandbox. El modo real requiere habilitarlo.
-- El régimen combina EMA20, retorno de cinco sesiones y volatilidad realizada anualizada de SPY. Usa cierres de sesiones completas y descarta volatilidad realizada superior al 35%. Las expiraciones son de 21 a 45 días, con preferencia por 30 días.
-- La entrada exige contratos estándar, liquidez en las patas, crédito natural de al menos el 17% del ancho máximo, cotizaciones recientes y, en real, delta de la pata corta entre 0.15 y 0.32 en valor absoluto. El panel muestra Greeks netos por unidad. Tradier actualiza estos Greeks aproximadamente cada hora.
+- El régimen combina EMA20, retorno de cinco sesiones y volatilidad realizada anualizada de SPY. Usa cierres de sesiones completas y descarta volatilidad realizada superior al 35%. El perfil agresivo selecciona 14–35 DTE y prioriza 21 DTE; el perfil estándar conserva 21–45 DTE con objetivo de 30 días.
+- La entrada exige contratos estándar, liquidez en las patas, crédito natural de al menos el 20% del ancho máximo en el perfil agresivo (17% en estándar), cotizaciones recientes y, en real, delta absoluta de la pata corta entre 0.22 y 0.38 en agresivo (0.15–0.32 en estándar). El panel muestra Greeks netos por unidad. Tradier actualiza estos Greeks aproximadamente cada hora.
 - Pérdida teórica antes de comisiones = (ancho máximo menos crédito) × 100. Ganancia bruta máxima = crédito × 100. El motor estima comisión y tasas antes de la entrada. La probabilidad de ganancia queda sin estimar hasta contar con una muestra histórica verificable.
 - Un contrato por pata, una posición del bot a la vez y una entrada registrada como máximo por sesión. En real, el presupuesto queda limitado al menor de `BOT_MAX_RISK_USD`, 1% del patrimonio de la cuenta y el poder de compra en opciones. Las pérdidas netas de la sesión reducen el presupuesto disponible.
-- Objetivo de recompra al 50% del crédito de entrada, umbral de pérdida al débito de 2× el crédito y salida por tiempo desde 7 DTE. Son disparadores de órdenes limitadas. La ejecución depende de la liquidez y no está garantizada.
+- Objetivo de recompra al 50% del crédito de entrada, umbral de pérdida al débito de 1.8× el crédito en agresivo (2× en estándar) y salida por tiempo desde 7 DTE. El perfil agresivo solicita cierre también si el subyacente alcanza un strike vendido con cotización reciente. Son disparadores de órdenes limitadas. La ejecución depende de la liquidez y no está garantizada.
 - Ante respuestas ambiguas, concilia la orden mediante su etiqueta y el estado de cada pata. Una discrepancia de posiciones bloquea nuevas entradas. La pausa bloquea entradas y solicita cancelar entradas pendientes, con gestión de cierres todavía activa.
 - XSP liquida en efectivo y es de ejercicio europeo. La rentabilidad de estas reglas está por validar. El modo Sandbox con SPY sirve para validar el flujo de órdenes y tiene una mecánica de asignación distinta.
+
+El perfil predeterminado es `BOT_PROFILE=aggressive`. Cambiar el perfil solo cambia nuevas entradas: cada operación conserva su política de salida. En agresivo se comprueba el estado cada 30 segundos y se buscan entradas cada 90 segundos; en estándar, cada 60 y 180 segundos. Estos intervalos dependen de que el servidor permanezca activo y de la latencia de las APIs.
+
+Las salidas por pérdida, vencimiento o strike se guardan antes de solicitar la previsualización. Se reintentan con cotizaciones válidas después de un reinicio, rechazo o cancelación confirmada, aunque el precio vuelva a mejorar. Una orden de resultado desconocido se reconcilia antes de intentar otra. Las tomas de beneficio solo se reintentan si el objetivo sigue cumpliéndose. Una pérdida completamente ejecutada se contabiliza incluso si el broker comunica un estado terminal de cancelación.
 
 Las claves del broker se configuran en el servidor. El panel de Render tiene el control de pausa y el panel privado de Sites permite consultar candidatos, órdenes y posiciones. La [guía de despliegue](DEPLOYMENT.md) describe las variables y los estados de revisión.
 
@@ -37,7 +41,7 @@ Las claves del broker se configuran en el servidor. El panel de Render tiene el 
 
 - **Cash-Secured Put:** efectivo requerido = strike × 100 por contrato. La asignación puede ocurrir antes del vencimiento; la acción puede caer por debajo del strike y generar una pérdida grande.
 - **Covered Call:** requiere 100 acciones libres por contrato. Si asignan, las acciones se venden al strike; si el subyacente cae, la pérdida de las acciones puede superar la prima cobrada.
-- Perfil de rueda: 14–45 DTE, objetivo 30 DTE y delta absoluta 0.15–0.30. 0DTE, spreads y posiciones descubiertas no forman parte del motor.
+- Perfil de rueda: 14–45 DTE, objetivo 30 DTE y delta absoluta 0.15–0.30. 0DTE y posiciones descubiertas no forman parte del motor; los spreads pertenecen a la mesa autónoma de Tradier descrita arriba.
 - Volumen mínimo de opción 10, interés abierto mínimo 100 y spread bid/ask máximo 25% del punto medio por defecto. Estos filtros reducen candidatos poco líquidos, pero no garantizan un fill.
 - Las cotizaciones de subyacente deben tener timestamp reciente (5 minutos por defecto) y contexto intradía suficiente. Una bandera de configuración no verifica por sí sola el entitlement de Tradier.
 - Tradier puede entregar Greeks en snapshots horarios sin timestamp por contrato. Revisa delta y precio actuales en Robinhood antes de operar.

@@ -27,7 +27,7 @@ Para desactivar los escaneos programados, configura `SCANNER_ENABLED=false`. Par
 
 ## Motor de órdenes de Tradier
 
-El servicio Free publicado usa `BOT_MODE=shadow` por defecto. El proceso revisa el estado cada minuto mientras Render está activo y consulta candidatos aproximadamente cada tres minutos durante la sesión regular. Cuando Render Free se suspende, el proceso se detiene hasta la próxima activación.
+El servicio Free publicado usa `BOT_MODE=shadow` por defecto. El perfil predeterminado `BOT_PROFILE=aggressive` revisa el estado cada 30 segundos y consulta candidatos aproximadamente cada 90 segundos durante la sesión regular. `BOT_PROFILE=standard` conserva revisiones de 60 segundos y búsquedas de 180 segundos. Cuando Render Free se suspende, el proceso se detiene hasta la próxima activación.
 
 ### Sandbox
 
@@ -41,3 +41,22 @@ Configura `BOT_MODE=paper`, `BOT_SANDBOX_ACCOUNT_ID` y `TRADIER_SANDBOX_TOKEN` p
 4. Verifica el estado privado `GET /api/status` en `trading`. El panel muestra el modo, la hora del último ciclo, candidatos y órdenes recientes. `GET /api/health` indica la versión del motor e integraciones configuradas. Los valores de las claves y el número de cuenta se mantienen en el servidor.
 
 Para suspender entradas sin parar la vigilancia, usa **Pausar entradas** en el panel de Render. Una orden aceptada justo antes de la pausa puede ejecutarse antes de que el bot pueda cancelarla. Las órdenes pendientes se reconcilian mediante su etiqueta y orden de Tradier. Si aparece **Revisión**, compara el ticket, las órdenes y las posiciones en Tradier. Preserva el archivo `bot-*.sqlite` y sus archivos asociados al migrar el servicio.
+
+## Perfil de ejecución
+
+| Regla | Agresivo (predeterminado) | Estándar |
+| --- | --- | --- |
+| Días al vencimiento | 14–35, objetivo 21 | 21–45, objetivo 30 |
+| Delta corta absoluta, datos de producción | 0.22–0.38 | 0.15–0.32 |
+| Crédito / ancho mínimo | 20% | 17% |
+| Objetivo de prima capturada | 50% | 50% |
+| Débito que dispara cierre por pérdida | 1.8 × crédito inicial | 2 × crédito inicial |
+| Cierre por tiempo | 7 DTE o menos | 7 DTE o menos |
+| Cierre por strike corto alcanzado | Sí, con subyacente reciente | No |
+| Revisión / búsqueda de entradas | 30 / 90 segundos | 60 / 180 segundos |
+
+No se amplían el límite del 1% del patrimonio, el presupuesto en dólares, el ancho máximo de cinco puntos ni el máximo de una posición y una entrada por sesión. El perfil agresivo acepta strikes con mayor delta y vencimientos más próximos; su rentabilidad no está validada. Los valores son reglas iniciales para evaluar, no una recomendación personalizada de tamaño o una promesa de ingresos.
+
+Las operaciones guardan la política vigente al abrirse. Al reiniciar, las operaciones antiguas sin política guardada conservan las salidas anteriores: 50% de prima, 2× crédito y 7 DTE. Las nuevas columnas SQLite se migran automáticamente preservando el historial. Las salidas de riesgo persistidas aparecen en el panel; pausar entradas no las anula.
+
+Verifica que no haya procesos con distintas versiones del motor escribiendo en el mismo volumen durante una actualización. Conserva una copia consistente de SQLite al migrar almacenamiento.
