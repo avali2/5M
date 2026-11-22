@@ -192,7 +192,7 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
         </div>
       </Card>
       <Card title="Bot de crédito · Bull Put SPY" icon="cpu" tone="warn"
-        subtitle={credit.data ? `${credit.data.mode} · ${credit.data.armed ? 'armado' : 'desarmado'} · cada ${credit.data.settings ? '' : ''}${credit.data.mode === 'live' ? 'DINERO REAL' : 'sandbox'}` : ''}
+        subtitle={credit.data ? `${credit.data.mode === 'live' ? 'DINERO REAL' : 'papel (sandbox)'} · ${credit.data.armed ? 'armado' : 'desarmado'}${credit.data.paused ? ' · pausado' : ''}` : ''}
         actions={credit.data ? <Badge tone={credit.data.gates?.ok ? 'up' : 'warn'}>{credit.data.gates?.ok ? 'puede operar' : 'faltan requisitos'}</Badge> : null}>
         {credit.loading && !credit.data && <Spinner label="Leyendo el bot…" />}
         {credit.error && <Banner tone="warn" icon="alert-circle">{credit.error}</Banner>}
