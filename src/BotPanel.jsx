@@ -15,6 +15,13 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
   const gates = data.gates || { ok: false, checks: [] };
   const missing = (gates.checks || []).filter((check) => !check.ok);
 
+  async function verifyToken() {
+    setBusy(true); setMessage('');
+    try { const result = await apiPost('/api/bots/live/verify', {}); setMessage(result.verify?.ok ? 'Token de producción válido: ' + (result.verify.name || '') + ' ' + (result.verify.accountType || '') : (result.verify?.error || 'Token inválido.')); bot.reload(); }
+    catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
   async function action(path, body = {}) {
     setBusy(true); setMessage('');
     try {
@@ -71,10 +78,12 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
         <div className="row wrap" style={{ marginTop: 10, gap: 8 }}>
           <button className="btn sm" onClick={() => action('run')} disabled={busy}><Icon name="refresh" size={14} />Evaluar ahora</button>
           <button className="btn sm" onClick={() => action('briefing')} disabled={busy}><Icon name="sparkles" size={14} />Briefing DeepSeek</button>
+          {live && <button className="btn sm" onClick={verifyToken} disabled={busy}><Icon name="key" size={14} />Verificar token producción</button>}
           {data.position && <button className="btn sm" onClick={() => action('close')} disabled={busy}><Icon name="x" size={14} />Cerrar posición</button>}
           <CopyButton text={JSON.stringify({ mode, cycle: data.cycle, gates: gates.checks, aiLast: data.aiLast }, null, 2)} label="Copiar estado" />
         </div>
         {message && <p className="tiny" style={{ marginTop: 6, color: 'var(--text-2)' }}>{message}</p>}
+        {data.lastVerify && <p className="tiny" style={{ marginTop: 4, color: data.lastVerify.ok ? 'var(--up)' : 'var(--down)' }}>Última verificación: {data.lastVerify.ok ? 'token OK · ' + (data.lastVerify.name || '') + ' · cuentas ' + (data.lastVerify.accounts || []).map((account) => account.id).join(', ') : data.lastVerify.error}</p>}
         {bot.error && <Banner tone="danger" icon="alert-circle" title="Sin respuesta del bot">{bot.error}</Banner>}
       </Card>
 

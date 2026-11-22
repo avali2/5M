@@ -4,6 +4,8 @@
 
 ## Bot de crédito (Bull Put SPY)
 
+Para habilitar dinero real seguí [docs/LIVE_SETUP.md](docs/LIVE_SETUP.md): hoy Render solo tiene el token sandbox.
+
 Estrategia pensada para dinero real: **vender un put spread** solo si el precio está sobre EMA50 > EMA200,
 con delta corto 0.15–0.22, 30–45 DTE, crédito/ancho ≥ 20% y liquidez verificada. Toma ganancia al 50% del
 crédito, corta en 2,5x y cierra por tiempo a 21 DTE. Máximo una posición y riesgo acotado por

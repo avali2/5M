@@ -301,6 +301,10 @@ for (const [botName, instance] of Object.entries(bots)) {
     await instance.closePosition('CIERRE_MANUAL', instance.state.position.currentCredit ?? instance.state.position.credit);
     return response.json({ ok: true, bot: botName, ...instance.status() });
   });
+  app.post('/api/bots/' + botName + '/verify', requireAccess, async (_request, response) => {
+    try { return response.json({ ok: true, bot: botName, verify: await instance.verifyLiveToken() }); }
+    catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+  });
   app.post('/api/bots/' + botName + '/tick', async (request, response) => {
     if (!hasCronAccess(request)) return response.status(401).json({ error: 'Token inválido.' });
     instance.maybeAutoArm();

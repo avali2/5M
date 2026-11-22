@@ -151,10 +151,45 @@ export class CreditBot {
     return {
       mode: this.mode, armed: this.state.armed, paused: this.state.paused,
       gates: this.gates(), cycle: this.state.cycle, lastDecision: this.state.lastDecision,
-      aiReview: this.aiReview, autoArm: this.autoArm, aiLast: this.state.aiLast || null,
+      aiReview: this.aiReview, autoArm: this.autoArm, aiLast: this.state.aiLast || null, lastVerify: this.state.lastVerify || null,
       position: this.state.position, history: this.state.history.slice(-10),
       settings: { symbol: this.settings.symbol, dte: [this.settings.dteMin, this.settings.dteMax], delta: [this.settings.shortDeltaMin, this.settings.shortDeltaMax], profitTargetPct: this.settings.profitTargetPct, stopMultiple: this.settings.stopMultiple, timeExitDte: this.settings.timeExitDte }
     };
+  }
+
+  async verifyLiveToken() {
+    if (this.mode !== 'live') {
+      return { ok: true, mode: 'paper', note: 'El modo paper ya está validado con el token sandbox.' };
+    }
+    const token = config.tradier.token || String(this.env.TRADIER_TOKEN || '');
+    if (!token) {
+      const result = { ok: false, at: this.now().toISOString(), error: 'Falta TRADIER_TOKEN de producción en el servidor.' };
+      this.state.lastVerify = result;
+      this.save();
+      return result;
+    }
+    try {
+      const live = new TradierClient({ token, baseUrl: LIVE_URL, sandbox: false, realtimeEntitled: true });
+      const payload = await live.request('/user/profile');
+      let accounts = [];
+      try {
+        const accountsPayload = await live.request('/accounts');
+        const raw = accountsPayload?.accounts?.account;
+        accounts = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((account) => ({ id: account.account_number || account.id || null, type: account.type || null, status: account.status || null }));
+      } catch { /* la lista de cuentas es opcional */ }
+      const result = {
+        ok: true, at: this.now().toISOString(), name: payload?.profile?.name || null,
+        accountType: payload?.profile?.account?.type || null, accounts: accounts.filter((account) => account.id)
+      };
+      this.state.lastVerify = result;
+      this.save();
+      return result;
+    } catch (error) {
+      const result = { ok: false, at: this.now().toISOString(), error: error.message || 'Tradier rechazó el token.' };
+      this.state.lastVerify = result;
+      this.save();
+      return result;
+    }
   }
 
   maybeAutoArm() {
