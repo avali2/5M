@@ -260,3 +260,23 @@ code { padding: 2px 4px; border-radius: 4px; color: #334155; background: #f1f5f9
 .bot-ledger li { display: grid; gap: 3px; margin: 5px 0; padding: 9px; border-bottom: 1px solid #d9e5e0; font-size: 13px; }
 .bot-foot { margin-top: 15px; }
 @media (max-width: 650px) { .bot-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bot-ledger { grid-template-columns: 1fr; } .bot-state { flex-wrap: wrap; } }
+
+/* NiTo Market Pulse — independent responsive visual identity */
+.nito-shell {--nito-accent:#54d9e8; min-height:100vh;}
+.nito-shell .main-content {max-width:1050px;margin:0 auto;padding-inline:18px;}
+.nito-shell .topbar-inner {max-width:1050px;margin:auto;}
+.nito-shell .nito-mark {background:linear-gradient(145deg,#1369b5,#127c86);color:#fff;box-shadow:0 4px 16px #08748030;font-weight:900;}
+.nito-mark span {font-size:.65em;margin-left:1px;}
+.nito-shell .nito-accent {color:#168792;}
+.nito-shell .nito-hero {background:linear-gradient(120deg,#081c32,#123b53);color:#f6fbff;border:1px solid #244e66;border-radius:20px;padding:28px;box-shadow:0 10px 24px #0c244018;margin-top:18px;}
+.nito-hero .eyebrow,.nito-hero .hero-copy {color:#b0e2ef;}
+.nito-hero h2 {color:#fff;margin:12px 0;font-size:clamp(1.4rem,4vw,2.2rem);}
+.nito-direction-grid,.nito-input-grid,.nito-result-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0;}
+.nito-direction-grid .side-card {margin:0;padding:18px;border-radius:16px;display:grid;gap:8px;}
+.nito-direction-grid .nito-call {border-left:4px solid #0e9a76;}.nito-direction-grid .nito-put {border-left:4px solid #df5268;}
+.nito-call span{color:#0e9a76;font-weight:800;}.nito-put span{color:#df5268;font-weight:800;}
+.nito-controls {display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end;}
+.nito-shell .nito-planner {margin-top:16px;border-radius:16px;}.nito-input-grid label,.nito-controls label{display:grid;gap:7px;min-width:0;}
+.nito-input-grid input,.nito-input-grid select,.nito-controls select{box-sizing:border-box;width:100%;padding:12px;border:1px solid #8795a6;border-radius:9px;background:transparent;color:inherit;font:inherit;}
+.nito-result-grid>div{display:grid;gap:6px;padding:12px;border:1px solid #8795a660;border-radius:10px;}.nito-result-grid strong{font-size:1.1rem;}
+@media(max-width:480px){.nito-shell .main-content{padding-inline:12px;}.nito-shell .nito-hero{padding:20px;}.nito-direction-grid .side-card{padding:12px;}.nito-controls{grid-template-columns:1fr;}.nito-shell h1{font-size:1.12rem;}}

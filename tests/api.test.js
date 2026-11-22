@@ -83,3 +83,19 @@ test('la API exige y persiste colateral manual con acciones enteras', async () =
   assert.equal(readPayload.sharesBySymbol.SOFI, 100);
   assert.equal(invalid.status, 400);
 });
+
+ test('NiTo public page API returns a greeting without account information or market quotes',async()=>{
+  const server=http.createServer(app);
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try {
+    const base='http://127.0.0.1:'+server.address().port;
+    const response=await fetch(base+'/api/nito?symbol=AMD');
+    const result=await response.json();
+    assert.equal(response.status,200);
+    assert.equal(result.mode,'public');
+    assert.equal(result.status,'NO_TRADE');
+    assert.deepEqual(result.candidates,[]);
+    assert.equal(Object.hasOwn(result,'price'),false);
+    assert.equal((await fetch(base+'/api/nito?symbol=INVALID')).status,400);
+  }finally{await new Promise(resolve=>server.close(resolve));}
+ });

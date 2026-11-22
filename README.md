@@ -102,3 +102,8 @@ Los datos pueden retrasarse, faltar o cambiar entre el escaneo y la orden. Gemin
 ### Verificación de producción
 
 En Render comprueba `/api/health`, `configured.tradier`, `configured.gemini` y `security.requiresKey`. El escáner exige mercado abierto para READY; los fines de semana no puede validarse una señal intradía en vivo. Verifica las credenciales de forma segura en el panel de entorno, sin registrarlas en GitHub, mensajes ni logs. Las pruebas automáticas no certifican rentabilidad, calidad de fills ni una estrategia de trading.
+
+
+### NiTo Market Pulse
+
+La ruta `/nito` es pública y no pide inicio de sesión. Ofrece saludo diario y laboratorio de escenarios M5 con niveles ingresados por el visitante. La API anónima no consulta Tradier ni devuelve contratos activos. La API de datos de uso personal conserva sus requisitos de autorización. Ninguna página pública accede a órdenes, credenciales, posiciones o balances. Para habilitar cotizaciones públicas se necesita una fuente con derechos de distribución adecuados.

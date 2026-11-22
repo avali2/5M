@@ -391,7 +391,7 @@ function OwnerApp() {
       : tradierMode === 'real-time-configured-unverified' ? 'Entitlement configurado · validar timestamp'
         : 'Entitlement no confirmado · READY bloqueado';
   return <div className="app-shell">
-    <header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">5M</div><div><p className="eyebrow">OPCIONES FINANCIERAS</p><h1>5 MILLIONS</h1></div></div><div className="top-actions"><a className="quiet-btn" href="/nito">NiTo</a><Pill tone={scan?.market?.marketOpen ? 'green' : 'slate'}>{scan?.market?.marketOpen ? 'MERCADO ABIERTO' : 'MERCADO CERRADO'}</Pill><button className="primary-btn" onClick={scanNow} disabled={loading}>{loading ? 'Analizando…' : 'Revisar mercado'}</button></div></div></header>
+    <header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">5M</div><div><p className="eyebrow">OPCIONES FINANCIERAS</p><h1>5 MILLIONS</h1></div></div><div className="top-actions"><a className="quiet-btn" href="/nito">NiTo Market Pulse</a><Pill tone={scan?.market?.marketOpen ? 'green' : 'slate'}>{scan?.market?.marketOpen ? 'MERCADO ABIERTO' : 'MERCADO CERRADO'}</Pill><button className="primary-btn" onClick={scanNow} disabled={loading}>{loading ? 'Analizando…' : 'Revisar mercado'}</button></div></div></header>
     <main className="main-content">
       {error && <div className="error-banner" role="alert">⚠ {error}</div>}
       {loading && <p role="status">Exploración en curso en el servidor. Consultando progreso…</p>}

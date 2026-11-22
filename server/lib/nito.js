@@ -85,3 +85,7 @@ export async function buildNito({tradier,entitled,symbol,now=new Date(),newsRisk
   if(marketGate({now:new Date(),clock:closingClock,entitled,quote})) return block('Cotización caducada durante el análisis.',extra);
   return {...base,...extra,generatedAt:end.toISOString(),status:'WATCH',reason:'Hipótesis direccional para investigación manual; sin probabilidad calibrada ni validación de resultados. Revisar noticias y eventos del ticker.',newsStatus:'UNKNOWN',type,levels:{support,resistance},plan:conditionalM5Plan(type,support,resistance,m5.atr14),candidates};
 }
+
+export function publicNitoSnapshot(symbol,now=new Date()) {
+  return {symbol,greeting:dailyGreeting(now),date:day(now),generatedAt:now.toISOString(),source:'Modo público',mode:'public',status:'NO_TRADE',reason:'Análisis educativo disponible sin contraseña. Los datos de mercado en vivo requieren una fuente autorizada para uso público.',candidates:[]};
+}
