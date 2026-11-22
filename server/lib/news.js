@@ -8,6 +8,12 @@ const UA = { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (
 const CACHE_MS = 5 * 60000;
 let cache = { at: 0, value: null };
 
+const NOISE = /(my (husband|wife|brother|sister|son|daughter|mom|dad|parents|friend|neighbor)|retir(e|ed|ement)|pension|social security|401\(k\)|student loan|credit card debt|should i|how can i|is he being fair|dear moneyist)/i;
+const SOURCE_PRIORITY = { 'google': 0, 'cnbc': 1, 'nasdaq': 2, 'marketwatch': 3 };
+function sourceRank(source) {
+  const key = Object.keys(SOURCE_PRIORITY).find((name) => String(source).toLowerCase().includes(name));
+  return key ? SOURCE_PRIORITY[key] : 5;
+}
 const MARKET_WORDS = /(market|stock|stocks|equity|equities|fed|federal reserve|rate|rates|inflation|cpi|gdp|jobs|payroll|earnings|revenue|guidance|s&p|sp500|nasdaq|dow|treasury|bond|yield|oil|opec|dollar|euro|bitcoin|crypto|tariff|trade|china|war|sanction|volatility|vix|options|futures|spy|qqq|iwm|tech|semiconductor|nvidia|apple|microsoft|tesla|amazon|meta|google|alphabet|amd|intel|boeing|bank|credit|debt|recession|rally|selloff|crash|jobless|retail sales|housing|mortgage)/i;
 function cleanEntities(text) {
   return String(text || '')
@@ -83,7 +89,11 @@ export async function newsStatus({ symbol = 'SPY', force = false } = {}) {
       sources.push({ name: feed.name, ok: false, error: error.message });
     }
   }));
-  const relevant = headlines.filter((row) => row.source?.startsWith('Google News') || MARKET_WORDS.test(row.title)).slice(0, 8);
+  const relevant = headlines
+    .filter((row) => !NOISE.test(row.title))
+    .filter((row) => row.source?.startsWith('Google News') || MARKET_WORDS.test(row.title))
+    .sort((left, right) => sourceRank(left.source) - sourceRank(right.source) || String(right.publishedAt).localeCompare(String(left.publishedAt)))
+    .slice(0, 8);
   const okSources = sources.filter((source) => source.ok).length;
   const status = okSources >= 2 ? 'OK' : okSources === 1 ? 'PARTIAL' : 'DEGRADED';
   const value = {
