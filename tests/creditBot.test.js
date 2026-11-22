@@ -98,11 +98,17 @@ test('en tendencia bajista vende un bear call spread', () => {
   assert.ok(plan.riskUsd <= 500);
 });
 
-test('no opera sin tendencia clara', () => {
-  const bot = new CreditBot({ env: {}, now: () => NOW });
+test('en rango sin tendencia vende un iron condor', () => {
+  const bot = new CreditBot({ env: { CREDIT_BOT_MAX_RISK_USD: '500' }, now: () => NOW });
   const { plan, notes } = bot.playbook(snapshotWithChain({ direction: 'flat' }));
-  assert.equal(plan, null);
-  assert.ok(notes.some((note) => /Sin tendencia/i.test(note)));
+  assert.deepEqual(notes, []);
+  assert.ok(plan);
+  assert.equal(plan.strategy, 'IRON_CONDOR');
+  assert.equal(plan.direction, 'NEUTRAL');
+  assert.equal(plan.legs.length, 4);
+  assert.ok(plan.credit > 0);
+  assert.ok(plan.riskUsd <= 500);
+  assert.ok(plan.exits.stopLossUsd < 0);
 });
 
 test('rechaza crédito insuficiente para el ancho', () => {
