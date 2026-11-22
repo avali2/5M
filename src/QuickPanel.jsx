@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { apiGet, apiPost } from './lib/api.js';
 import { useApi } from './lib/hooks.js';
 import { money, num, pct, ago, dateTime, scoreTone } from './lib/format.js';
-import { Icon, Card, Badge, Stat, Gauge, CopyButton, SourceBanner, Banner, EmptyState, Spinner, LegsTable, Disclaimer } from './components/ui.jsx';
+import { Icon, Card, Badge, Stat, Gauge, CopyButton, SourceBanner, Banner, EmptyState, Spinner, LegsTable, Disclaimer, Check } from './components/ui.jsx';
 import { Sparkline } from './components/charts.jsx';
 
 const URGENCY_TONE = { AHORA: 'up', HOY: 'warn', VIGILAR: 'neutral' };
