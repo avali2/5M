@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dailyGreeting, analyzeContract, marketGate } from '../server/lib/nito.js';
+import { dailyGreeting, analyzeContract, marketGate, isNitoAuthorized, conditionalM5Plan } from '../server/lib/nito.js';
 const now = new Date('2026-11-23T15:30:00Z');
 test('daily greeting is stable within the same New York trading date', () => {
   assert.equal(dailyGreeting(now), dailyGreeting(new Date('2026-11-23T20:00:00Z')));
@@ -32,4 +32,18 @@ test('put scenario has finite payoff at zero, never a guaranteed objective', () 
   const out=analyzeContract({...option,type:'put',delta:-0.55},q,now);
   assert.equal(out.breakEven,97.9);
   assert.equal(out.maxProfitUsd,9790);
+});
+
+test('NiTo supports personal owner access; guest sharing is opt-in',()=> {
+  assert.equal(isNitoAuthorized({supplied:'owner',owner:'owner'}),true);
+  assert.equal(isNitoAuthorized({supplied:'guest',owner:'owner',guest:'guest'}),false);
+  assert.equal(isNitoAuthorized({supplied:'guest',owner:'owner',guest:'guest',shareAuthorized:true}),true);
+  assert.equal(isNitoAuthorized({supplied:'guest',guest:'guest',shareAuthorized:true}),false);
+});
+test('M5 research scenario has directionally correct levels',()=> {
+  const call=conditionalM5Plan('call',95,105,2);
+  assert.deepEqual([call.trigger,call.invalidation,call.target1,call.target2],[105,103,107,109]);
+  const put=conditionalM5Plan('put',95,105,2);
+  assert.deepEqual([put.trigger,put.invalidation,put.target1,put.target2],[95,97,93,91]);
+  assert.equal(conditionalM5Plan('put',1,5,2),null);
 });
