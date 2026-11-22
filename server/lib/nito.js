@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { buildMultiTimeframeContext } from './indicators.js';
 const greetings = [
   '¡Buenos días, NiTo, chico! Primero el plan, después el mercado.',
@@ -13,6 +13,21 @@ const day = (d) => new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',
 export function dailyGreeting(now = new Date()) {
   const index = createHash('sha256').update(day(now)).digest().readUInt32BE(0) % greetings.length;
   return greetings[index];
+}
+export function isNitoAuthorized({supplied='',owner='',guest='',shareAuthorized=false}={}) {
+  const matches=(a,b)=>Boolean(a&&b&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b)));
+  if(!owner)return false;
+  return matches(supplied,owner)||(shareAuthorized&&guest!==owner&&matches(supplied,guest));
+}
+export function conditionalM5Plan(type,support,resistance,atr) {
+  if(!['call','put'].includes(type)||![support,resistance,atr].every(Number.isFinite)||support<=0||resistance<=support||atr<=0)return null;
+  const direction=type==='call'?1:-1;
+  const trigger=type==='call'?resistance:support;
+  const invalidation=r(trigger-direction*atr);
+  const target1=r(trigger+direction*atr);
+  const target2=r(trigger+direction*2*atr);
+  if(invalidation<=0||target2<=0||invalidation===trigger||target1===trigger)return null;
+  return {trigger,invalidation,target1,target2,condition:type==='call'?'Observar cierre M5 por encima de la resistencia, con continuidad M15.':'Observar cierre M5 por debajo del soporte, con continuidad M15.'};
 }
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const fresh = (time, now, max=120000) => {
@@ -68,5 +83,5 @@ export async function buildNito({tradier,entitled,symbol,now=new Date(),newsRisk
   if(!num(support)||!num(resistance)||support>=resistance) return block('Niveles técnicos insuficientes.',extra);
   const closingClock=await tradier.getMarketClock();
   if(marketGate({now:new Date(),clock:closingClock,entitled,quote})) return block('Cotización caducada durante el análisis.',extra);
-  return {...base,...extra,generatedAt:end.toISOString(),status:'WATCH',reason:'Hipótesis direccional para investigación manual; sin probabilidad calibrada ni validación de resultados. Revisar noticias y eventos del ticker.',newsStatus:'UNKNOWN',type,levels:{support,resistance},candidates};
+  return {...base,...extra,generatedAt:end.toISOString(),status:'WATCH',reason:'Hipótesis direccional para investigación manual; sin probabilidad calibrada ni validación de resultados. Revisar noticias y eventos del ticker.',newsStatus:'UNKNOWN',type,levels:{support,resistance},plan:conditionalM5Plan(type,support,resistance,m5.atr14),candidates};
 }
