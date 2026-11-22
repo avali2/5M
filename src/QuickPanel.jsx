@@ -72,7 +72,7 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
       <section className="signal-hero" style={{ '--tone': 'var(--brand)' }}>
         <div className="row between wrap">
           <div>
-            <p className="eyebrow">Modo rápido · 10 segundos</p>
+            <p className="eyebrow">Alertas agresivas · lectura de 10 segundos</p>
             <h2 style={{ fontSize: 23, letterSpacing: '-.6px' }}>
               {data ? (data.marketOpen ? 'Mercado abierto' : 'Mercado cerrado') : 'Cargando…'}
             </h2>
@@ -98,6 +98,24 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
 
       {scan.loading && !top.length && <Card><div className="stack"><div className="skeleton" style={{ height: 120 }} /><div className="skeleton" style={{ height: 120 }} /></div></Card>}
       {!scan.loading && data?.empty && <Card title="Sin posición clara ahora" icon="shield"><EmptyState icon="crosshair" title="Nada supera el filtro">Ningún setup tiene dirección, liquidez y riesgo a favor. Revisá el radar NiTo para ver el motivo de cada símbolo, o esperá la próxima lectura.</EmptyState></Card>}
+
+      <Card title="Noticias" icon="globe" tone="info" actions={<Badge tone={news.data?.green ? 'up' : 'warn'}>{news.data?.green ? 'EN VERDE' : news.data?.status || '—'}</Badge>}>
+        {news.loading && !news.data && <Spinner label="Leyendo mercados…" />}
+        {news.data && (
+          <div className="stack xs">
+            <p className="tiny muted">{news.data.note}</p>
+            {(news.data.headlines || []).slice(0, 5).map((row) => (
+              <a key={row.title} href={row.link} target="_blank" rel="noopener noreferrer" className="small" style={{ color: 'var(--text-2)', lineHeight: 1.4 }}>
+                {row.title} <span className="tiny muted">· {row.source}</span>
+              </a>
+            ))}
+            <div className="row wrap" style={{ gap: 6 }}>
+              {(news.data.sources || []).map((source) => <Badge key={source.name} tone={source.ok ? 'up' : 'neutral'}>{source.name}</Badge>)}
+            </div>
+          </div>
+        )}
+      </Card>
+
 
       {top.map((item, index) => (
         <section key={item.id} className={`signal-hero ${item.kind === 'CALL' ? 'call' : item.kind === 'PUT' ? 'put' : ''}`} style={item.kind === 'SPREAD' ? { '--tone': 'var(--warn)' } : undefined}>
@@ -191,23 +209,6 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
           ))}
         </div>
       </Card>
-      <Card title="Noticias" icon="globe" tone="info" actions={<Badge tone={news.data?.green ? 'up' : 'warn'}>{news.data?.green ? 'EN VERDE' : news.data?.status || '—'}</Badge>}>
-        {news.loading && !news.data && <Spinner label="Leyendo mercados…" />}
-        {news.data && (
-          <div className="stack xs">
-            <p className="tiny muted">{news.data.note}</p>
-            {(news.data.headlines || []).slice(0, 5).map((row) => (
-              <a key={row.title} href={row.link} target="_blank" rel="noopener noreferrer" className="small" style={{ color: 'var(--text-2)', lineHeight: 1.4 }}>
-                {row.title} <span className="tiny muted">· {row.source}</span>
-              </a>
-            ))}
-            <div className="row wrap" style={{ gap: 6 }}>
-              {(news.data.sources || []).map((source) => <Badge key={source.name} tone={source.ok ? 'up' : 'neutral'}>{source.name}</Badge>)}
-            </div>
-          </div>
-        )}
-      </Card>
-
       <Card title="Alertas mientras trabajás" icon="wifi" tone="ai"
         subtitle={alerts.data ? `cada ${alerts.data.intervalMinutes} min · score ≥ ${alerts.data.minScore}` : ''}>
         <div className="stack xs">
