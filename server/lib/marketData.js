@@ -12,7 +12,7 @@ import { demoSnapshot, isMarketOpen as demoMarketOpen } from './demoMarket.js';
 import { freeSnapshot, freeDataEnabled } from './freeData.js';
 
 const CACHE_TTL_MS = 45000;
-const MAX_EXPIRATIONS = 4;
+const MAX_EXPIRATIONS = 5;
 const cache = new Map();
 const inflight = new Map();
 
@@ -41,9 +41,15 @@ function pickExpirations(expirations, now = new Date()) {
     .map((value) => ({ date: value, dte: Math.round((Date.parse(`${value}T21:00:00Z`) - now.getTime()) / 86400000) }))
     .filter((entry) => entry.dte >= 1 && entry.dte <= 75)
     .sort((a, b) => a.dte - b.dte);
-  // Prioriza el primer vencimiento >= 5 días y luego los siguientes, para evitar 0DTE.
+  // Mezcla vencimientos cercanos y de 30-45 días (el bot de crédito necesita ese rango).
   const filtered = parsed.filter((entry) => entry.dte >= 5);
-  return filtered.slice(0, MAX_EXPIRATIONS);
+  const picked = new Map();
+  for (const entry of filtered.slice(0, 2)) picked.set(entry.date, entry);
+  for (const target of [21, 35, 45, 60]) {
+    const closest = filtered.reduce((best, entry) => (Math.abs(entry.dte - target) < Math.abs((best?.dte ?? 999) - target) ? entry : best), null);
+    if (closest) picked.set(closest.date, closest);
+  }
+  return [...picked.values()].sort((left, right) => left.dte - right.dte).slice(0, MAX_EXPIRATIONS);
 }
 
 function tradingStatus({ clock, simulated }) {

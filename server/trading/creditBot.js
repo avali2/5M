@@ -70,15 +70,17 @@ function etMinutes(now) {
 const DEFAULTS = {
   symbol: 'SPY',
   dteMin: 30, dteMax: 45, targetDte: 35,
+  guard: 3,
   shortDeltaMin: 0.15, shortDeltaMax: 0.22, targetDelta: 0.18,
   widthPct: 0.0075,
-  minCreditWidth: 0.14,
+  minCreditWidth: 0.15,
+  minIvRatio: 1,
   maxSpreadPct: 0.08,
   minOpenInterest: 100,
   riskPct: 1.0,
   contractsCap: 10,
   profitTargetPct: 50,
-  stopMultiple: 2.5,
+  stopMultiple: 2,
   timeExitDte: 21,
   hardExitDte: 7,
   entryFromMinutes: 600,  // 10:00 ET
@@ -91,7 +93,12 @@ export class CreditBot {
     this.now = now;
     this.reviewer = reviewer;
     this.stateFile = stateFile || 'credit-bot.json';
-    this.settings = { ...DEFAULTS, ...(config.creditBot || {}) };
+    const profile = String(env.CREDIT_BOT_PROFILE || 'prudent').toLowerCase();
+    this.profile = profile;
+    const presets = profile === 'aggressive'
+      ? { dteMin: 14, dteMax: 24, targetDte: 18, shortDeltaMin: 0.28, shortDeltaMax: 0.36, targetDelta: 0.32, minCreditWidth: 0.25, stopMultiple: 2, minIvRatio: 1.05 }
+      : { minIvRatio: 1, minCreditWidth: 0.15, stopMultiple: 2 };
+    this.settings = { ...DEFAULTS, ...(config.creditBot || {}), ...presets };
     this.mode = String(mode || env.CREDIT_BOT_MODE || config.creditBot?.mode || 'paper').toLowerCase();
     this.state = this.load();
     this.aiReview = ['required', 'optional', 'off'].includes(String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase())
@@ -153,6 +160,7 @@ export class CreditBot {
       gates: this.gates(), cycle: this.state.cycle, lastDecision: this.state.lastDecision,
       aiReview: this.aiReview, autoArm: this.autoArm, aiLast: this.state.aiLast || null, lastVerify: this.state.lastVerify || null,
       position: this.state.position, history: this.state.history.slice(-10),
+      profile: this.profile || 'prudent',
       settings: { symbol: this.settings.symbol, dte: [this.settings.dteMin, this.settings.dteMax], delta: [this.settings.shortDeltaMin, this.settings.shortDeltaMax], profitTargetPct: this.settings.profitTargetPct, stopMultiple: this.settings.stopMultiple, timeExitDte: this.settings.timeExitDte }
     };
   }

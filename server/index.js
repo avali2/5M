@@ -35,9 +35,13 @@ let providerHealth = null;
 let lastAlertResult = null;
 let alertTimer = null;
 const alertCenter = new AlertCenter({ cooldownMinutes: config.alerts.cooldownMinutes });
+function botEnv(mode) {
+  const specific = process.env['CREDIT_BOT_PROFILE_' + mode.toUpperCase()];
+  return { ...process.env, CREDIT_BOT_PROFILE: specific || process.env.CREDIT_BOT_PROFILE || 'prudent' };
+}
 const bots = {
-  paper: new CreditBot({ mode: 'paper', stateFile: 'bot-paper.json' }),
-  live: new CreditBot({ mode: 'live', stateFile: 'bot-live.json' })
+  paper: new CreditBot({ mode: 'paper', stateFile: 'bot-paper.json', env: botEnv('paper') }),
+  live: new CreditBot({ mode: 'live', stateFile: 'bot-live.json', env: botEnv('live') })
 };
 const creditBot = bots.paper;
 let creditBotTimer = null;
