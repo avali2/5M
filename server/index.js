@@ -17,6 +17,7 @@ import { getSnapshot, isDemoActive, dataSourceLabel, providerStatus } from './li
 import { freeProbe } from './lib/freeData.js';
 import { buildQuickScan } from './lib/quickScan.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
+import { CreditBot } from './trading/creditBot.js';
 import { analyzePositions } from './lib/positions.js';
 import { buildDirectionalSignals } from './lib/nitoDirectional.js';
 import { buildSpreadIdeas } from './lib/aggressiveSpreads.js';
@@ -33,6 +34,8 @@ let providerHealth = null;
 let lastAlertResult = null;
 let alertTimer = null;
 const alertCenter = new AlertCenter({ cooldownMinutes: config.alerts.cooldownMinutes });
+const creditBot = new CreditBot();
+let creditBotTimer = null;
 let lastScanError = null;
 let scanInFlight = null;
 let lastPushResult = null;
@@ -106,6 +109,7 @@ app.get('/api/health', async (_request, response) => {
     timestamp: new Date().toISOString(),
     configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), deepseek: isDeepSeekConfigured(), push: pushStatus().configured },
     demo: { active: isDemoActive(), dataSource: dataSourceLabel() },
+    creditBot: { enabled: config.creditBot.enabled, mode: creditBot.mode, armed: creditBot.state.armed },
     providers: providerStatus(),
     providerHealth: providerHealth,
     signalReadiness: { configured: isTradierConfigured() && isGeminiConfigured(), missing: [!isTradierConfigured()?'Tradier':null,!isGeminiConfigured()?'Gemini':null].filter(Boolean) },
@@ -230,6 +234,31 @@ app.get('/api/positions', requireAccess, async (_request, response) => {
   response.set('Cache-Control', 'no-store');
   try { return response.json(await runPositionsAnalysis()); }
   catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
+app.get('/api/credit-bot', requireAccess, (_request, response) => response.json({ ok: true, ...creditBot.status() }));
+
+app.post('/api/credit-bot/arm', requireAccess, (request, response) => {
+  const result = creditBot.arm(request.body?.mode);
+  return response.status(result.ok ? 200 : 409).json({ ok: result.ok, ...creditBot.status(), gates: result.gates });
+});
+
+app.post('/api/credit-bot/pause', requireAccess, (request, response) => {
+  if (typeof request.body?.paused !== 'boolean') return response.status(400).json({ error: 'Enviá { paused: true|false }.' });
+  return response.json({ ok: true, ...creditBot.pause(request.body.paused) });
+});
+
+app.post('/api/credit-bot/disarm', requireAccess, (_request, response) => response.json({ ok: true, ...creditBot.disarm() }));
+
+app.post('/api/credit-bot/run', requireAccess, async (_request, response) => {
+  try { return response.json({ ok: true, ...(await creditBot.runCycle()) }); }
+  catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
+app.post('/api/credit-bot/close', requireAccess, async (_request, response) => {
+  if (!creditBot.state.position) return response.status(409).json({ error: 'No hay posición abierta.' });
+  await creditBot.closePosition('CIERRE_MANUAL', creditBot.state.position.currentCredit ?? creditBot.state.position.credit);
+  return response.json({ ok: true, ...creditBot.status() });
 });
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
@@ -453,6 +482,7 @@ app.get('/api/status', requireAccess, async (_request, response) => {
     scanner: { enabled: config.scanner.enabled, intervalMinutes: config.scanner.intervalMinutes, inFlight: Boolean(scanInFlight), ...schedulerState },
     trading: tradingDesk.status(),
     alerts: { enabled: config.alerts.enabled, intervalMinutes: config.alerts.intervalMinutes, minScore: config.alerts.minScore, pushConfigured: pushStatus().configured, lastRun: lastAlertResult },
+    creditBot: { enabled: config.creditBot.enabled, mode: creditBot.mode, armed: creditBot.state.armed, paused: creditBot.state.paused, cycle: creditBot.state.cycle },
     lastPushResult
   });
 });
@@ -670,4 +700,8 @@ if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
   tradingDesk.start();
   setTimeout(warmupProviders, 300);
   startAlertScheduler();
+  if (config.creditBot.enabled) {
+    creditBotTimer = setInterval(() => { creditBot.runCycle().catch(() => {}); }, config.creditBot.intervalMinutes * 60000);
+    creditBotTimer.unref?.();
+  }
 }

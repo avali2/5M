@@ -2,6 +2,17 @@
 
 > **Mejora integral (rama `mejora-dsh`)**: mesa direccional **NiTo CALL/PUT**, **spreads agresivos**, **posicionamiento institucional** (GEX/DEX/muros/max pain), **analista IA DeepSeek + Gemini** y rediseño completo con tema claro/oscuro, iconos y gráficos propios. Ver [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
 
+## Bot de crédito (Bull Put SPY)
+
+Estrategia pensada para dinero real: **vender un put spread** solo si el precio está sobre EMA50 > EMA200,
+con delta corto 0.15–0.22, 30–45 DTE, crédito/ancho ≥ 20% y liquidez verificada. Toma ganancia al 50% del
+crédito, corta en 2,5x y cierra por tiempo a 21 DTE. Máximo una posición y riesgo acotado por
+`CREDIT_BOT_MAX_RISK_USD`. Arranca en **paper**; para live hace falta `TRADIER_TOKEN` de producción,
+`BOT_ACCOUNT_ID`, `BOT_DURABLE_STORAGE=true` y `LIVE_CONFIRM=I_ACCEPT_REAL_MONEY`.
+
+Endpoints: `GET /api/credit-bot` · `POST /api/credit-bot/arm|pause|disarm|run|close`.
+Panel: pestaña **Rápido** → “Bot de crédito”.
+
 ## Arranque rápido
 
 ```bash

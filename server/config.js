@@ -169,6 +169,28 @@ Object.assign(config, {
     temperature: Math.min(1.2, Math.max(0, asNumber(process.env.AI_TEMPERATURE, 0.35))),
     language: process.env.AI_LANGUAGE || 'es'
   },
+  creditBot: {
+    enabled: asBool(process.env.CREDIT_BOT_ENABLED, true),
+    mode: ['paper', 'live'].includes(String(process.env.CREDIT_BOT_MODE || 'paper').toLowerCase()) ? String(process.env.CREDIT_BOT_MODE || 'paper').toLowerCase() : 'paper',
+    symbol: process.env.CREDIT_BOT_SYMBOL || 'SPY',
+    intervalMinutes: Math.min(120, Math.max(5, asNumber(process.env.CREDIT_BOT_INTERVAL_MINUTES, 15))),
+    dteMin: Math.max(20, asNumber(process.env.CREDIT_BOT_DTE_MIN, 30)),
+    dteMax: Math.min(60, asNumber(process.env.CREDIT_BOT_DTE_MAX, 45)),
+    targetDte: asNumber(process.env.CREDIT_BOT_TARGET_DTE, 35),
+    shortDeltaMin: asNumber(process.env.CREDIT_BOT_DELTA_MIN, 0.15),
+    shortDeltaMax: asNumber(process.env.CREDIT_BOT_DELTA_MAX, 0.22),
+    targetDelta: asNumber(process.env.CREDIT_BOT_TARGET_DELTA, 0.18),
+    widthPct: asNumber(process.env.CREDIT_BOT_WIDTH_PCT, 0.0075),
+    minCreditWidth: asNumber(process.env.CREDIT_BOT_MIN_CREDIT_WIDTH, 0.2),
+    maxSpreadPct: asNumber(process.env.CREDIT_BOT_MAX_SPREAD_PCT, 0.08),
+    minOpenInterest: asNumber(process.env.CREDIT_BOT_MIN_OI, 300),
+    riskPct: asNumber(process.env.CREDIT_BOT_RISK_PCT, 1),
+    contractsCap: asNumber(process.env.CREDIT_BOT_CONTRACTS_CAP, 10),
+    profitTargetPct: asNumber(process.env.CREDIT_BOT_PROFIT_TARGET, 50),
+    stopMultiple: asNumber(process.env.CREDIT_BOT_STOP_MULTIPLE, 2.5),
+    timeExitDte: asNumber(process.env.CREDIT_BOT_TIME_EXIT_DTE, 21),
+    hardExitDte: asNumber(process.env.CREDIT_BOT_HARD_EXIT_DTE, 7)
+  },
   alerts: {
     enabled: asBool(process.env.ALERTS_ENABLED, true),
     intervalMinutes: Math.min(120, Math.max(5, asNumber(process.env.ALERTS_INTERVAL_MINUTES, 15))),
@@ -216,6 +238,7 @@ export function publicConfig() {
     spreads: { activeProfile: config.spreads.activeProfile, profiles: Object.keys(config.spreads.profiles), maxIdeasPerSymbol: config.spreads.maxIdeasPerSymbol },
     ai: { preferred: config.ai.preferred, language: config.ai.language },
     alerts: { enabled: config.alerts.enabled, intervalMinutes: config.alerts.intervalMinutes, minScore: config.alerts.minScore },
+    creditBot: { enabled: config.creditBot.enabled, mode: config.creditBot.mode, symbol: config.creditBot.symbol, intervalMinutes: config.creditBot.intervalMinutes },
     security: { requiresKey: config.security.requireAccessKey },
     integrations: {
       tradier: Boolean(config.tradier.token),
