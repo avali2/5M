@@ -28,13 +28,14 @@ Con `TRADIER_TOKEN` usa datos reales. Para IA: `GEMINI_API_KEY` y/o `DEEPSEEK_AP
 
 ### API nueva
 
-`GET /api/quick-scan?symbols=SPY,QQQ&limit=5` · `GET /api/positions` · `GET /api/market/:symbol` · `GET /api/nito/directional?symbols=SPY,QQQ&side=both&account=10000` · `GET /api/spreads?profile=aggressive` · `GET /api/positioning?symbol=SPY` · `GET /api/ai/status` · `POST /api/ai/analyze` · `POST /api/ai/chat` (SSE).
+`GET /api/quick-scan?symbols=SPY,QQQ&limit=5` · `GET /api/positions` · `GET /api/bot` · `POST /api/bot/trade/:id/exit` · `GET /api/alerts/status` · `GET /api/market/:symbol` · `GET /api/nito/directional?symbols=SPY,QQQ&side=both&account=10000` · `GET /api/spreads?profile=aggressive` · `GET /api/positioning?symbol=SPY` · `GET /api/ai/status` · `POST /api/ai/analyze` · `POST /api/ai/chat` (SSE).
 
 ### Seguridad y límites
 
 - Las claves de IA y Tradier viven **solo en el servidor**; el navegador nunca las recibe.
 - Las probabilidades son de modelo (Black-Scholes + lognormal neutral al riesgo): comparan escenarios, **no garantizan** resultados.
 - En modo demo todas las señales quedan marcadas `operable: false` y la UI muestra el banner de datos simulados.
+- Las alertas push (Web Push con VAPID) avisan oportunidades con score alto y posiciones que piden cierre, con enfriamiento de 120 min.
 - La rueda conserva sus guardas: `READY` exige datos frescos, noticias verificadas y colateral declarado.
 
 

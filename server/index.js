@@ -12,10 +12,11 @@ import { safeScanSnapshot, createScanJob } from './lib/scanLifecycle.js';
 import { getLatestScan, getLearningSummary, getPortfolioState, getScanHistory, getStoreStatus, savePortfolioState, saveScan, saveSignalFeedback } from './lib/store.js';
 import { buildNito, dailyGreeting, NITO_SYMBOLS, isNitoAuthorized, publicNitoSnapshot } from './lib/nito.js';
 import { TradingDesk } from './trading/desk.js';
-import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
+import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush, sendPushAll } from './lib/push.js';
 import { getSnapshot, isDemoActive, dataSourceLabel, providerStatus } from './lib/marketData.js';
 import { freeProbe } from './lib/freeData.js';
 import { buildQuickScan } from './lib/quickScan.js';
+import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { analyzePositions } from './lib/positions.js';
 import { buildDirectionalSignals } from './lib/nitoDirectional.js';
 import { buildSpreadIdeas } from './lib/aggressiveSpreads.js';
@@ -29,6 +30,9 @@ const gemini = new GeminiReviewer();
 const tradingDesk = new TradingDesk(config, gemini);
 let latestScan = null;
 let providerHealth = null;
+let lastAlertResult = null;
+let alertTimer = null;
+const alertCenter = new AlertCenter({ cooldownMinutes: config.alerts.cooldownMinutes });
 let lastScanError = null;
 let scanInFlight = null;
 let lastPushResult = null;
@@ -174,6 +178,40 @@ function snapshotSummary(snapshot) {
   };
 }
 
+async function runQuickScan({ symbols, limit = 6, accountUsd = 0, profile = config.spreads.activeProfile } = {}) {
+  const batches = await snapshotsFor(symbols);
+  const items = [];
+  const errors = [];
+  for (const batch of batches) {
+    if (batch.error) { errors.push({ symbol: batch.symbol, error: batch.error }); continue; }
+    try {
+      const nito = buildDirectionalSignals({ snapshot: batch.snapshot, settings: { ...config.nito, side: 'both' }, account: { sizeUsd: accountUsd, riskPct: config.nito.riskPct } });
+      const spreads = buildSpreadIdeas({ snapshot: batch.snapshot, profile: String(profile).toLowerCase(), settings: config.spreads });
+      items.push({ symbol: batch.symbol, snapshot: batch.snapshot, nito, spreads });
+    } catch (error) { errors.push({ symbol: batch.symbol, error: error.message }); }
+  }
+  const scan = buildQuickScan({ items, limit, now: new Date() });
+  return { ok: true, dataSource: dataSourceLabel(), demo: items.some((item) => item.snapshot?.simulated), accountUsd: accountUsd || null, ...scan, errors };
+}
+
+async function runPositionsAnalysis() {
+  const trading = tradingDesk.status();
+  const trades = tradingDesk.journal?.activeTrades?.() || [];
+  const symbols = [...new Set(trades.map((trade) => trade.plan?.root || trade.plan?.underlying).filter(Boolean))];
+  const snapshots = {};
+  const errors = [];
+  for (const symbol of symbols) {
+    try { snapshots[symbol] = await getSnapshot(symbol, { tradier }); }
+    catch (error) { errors.push({ symbol, error: error.message }); }
+  }
+  const analysis = analyzePositions({ trades, snapshots });
+  return {
+    ok: true, mode: trading.mode, blocked: Boolean(trading.blocked), paused: trading.paused,
+    cycle: { state: trading.state || null, note: trading.note || null },
+    dataSource: dataSourceLabel(), demo: isDemoActive(), ...analysis, errors
+  };
+}
+
 app.get('/api/quick-scan', requireAccess, async (request, response) => {
   response.set('Cache-Control', 'no-store');
   const symbols = readSymbols(request.query.symbols, config.nito.symbols.slice(0, 6), 8);
@@ -181,19 +219,8 @@ app.get('/api/quick-scan', requireAccess, async (request, response) => {
   const accountUsd = Math.max(0, Number(request.query.account) || 0);
   const started = Date.now();
   try {
-    const batches = await snapshotsFor(symbols);
-    const items = [];
-    const errors = [];
-    for (const batch of batches) {
-      if (batch.error) { errors.push({ symbol: batch.symbol, error: batch.error }); continue; }
-      try {
-        const nito = buildDirectionalSignals({ snapshot: batch.snapshot, settings: { ...config.nito, side: 'both' }, account: { sizeUsd: accountUsd, riskPct: config.nito.riskPct } });
-        const spreads = buildSpreadIdeas({ snapshot: batch.snapshot, profile: String(request.query.profile || config.spreads.activeProfile).toLowerCase(), settings: config.spreads });
-        items.push({ symbol: batch.symbol, snapshot: batch.snapshot, nito, spreads });
-      } catch (error) { errors.push({ symbol: batch.symbol, error: error.message }); }
-    }
-    const scan = buildQuickScan({ items, limit, now: new Date() });
-    return response.json({ ok: true, dataSource: dataSourceLabel(), demo: items.some((item) => item.snapshot?.simulated), durationMs: Date.now() - started, accountUsd: accountUsd || null, ...scan, errors });
+    const result = await runQuickScan({ symbols, limit, accountUsd, profile: request.query.profile });
+    return response.json({ ...result, durationMs: Date.now() - started });
   } catch (error) {
     return response.status(503).json({ ok: false, error: error.message, demo: isDemoActive() });
   }
@@ -201,25 +228,44 @@ app.get('/api/quick-scan', requireAccess, async (request, response) => {
 
 app.get('/api/positions', requireAccess, async (_request, response) => {
   response.set('Cache-Control', 'no-store');
-  try {
-    const trading = tradingDesk.status();
-    const trades = tradingDesk.journal?.activeTrades?.() || [];
-    const symbols = [...new Set(trades.map((trade) => trade.plan?.root || trade.plan?.underlying).filter(Boolean))];
-    const snapshots = {};
-    const errors = [];
-    for (const symbol of symbols) {
-      try { snapshots[symbol] = await getSnapshot(symbol, { tradier }); }
-      catch (error) { errors.push({ symbol, error: error.message }); }
-    }
-    const analysis = analyzePositions({ trades, snapshots });
-    return response.json({
-      ok: true, mode: trading.mode, blocked: Boolean(trading.blocked), paused: trading.paused,
-      cycle: { state: trading.state || null, note: trading.note || null },
-      dataSource: dataSourceLabel(), demo: isDemoActive(), ...analysis, errors
-    });
-  } catch (error) {
-    return response.status(503).json({ ok: false, error: error.message });
+  try { return response.json(await runPositionsAnalysis()); }
+  catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
+app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
+  ok: true,
+  enabled: config.alerts.enabled,
+  intervalMinutes: config.alerts.intervalMinutes,
+  minScore: config.alerts.minScore,
+  cooldownMinutes: config.alerts.cooldownMinutes,
+  pushConfigured: pushStatus().configured,
+  pushEnabled: pushStatus().enabled,
+  lastRun: lastAlertResult,
+  recent: alertCenter.peek().slice(-8)
+}));
+
+app.get('/api/bot', requireAccess, (_request, response) => {
+  const status = tradingDesk.status();
+  return response.json({
+    ok: true,
+    mode: status.mode, blocked: Boolean(status.blocked), paused: status.paused,
+    profile: status.profile, root: status.root, maxRiskUsd: status.maxRiskUsd,
+    cycle: { state: status.state ?? null, note: status.note ?? null },
+    condorEnabled: status.condorEnabled,
+    trades: status.trades ?? [], orders: status.orders ?? [],
+    journal: tradingDesk.journal ? { active: tradingDesk.journal.activeTrades().length, pending: tradingDesk.journal.pending().length } : null
+  });
+});
+
+app.post('/api/bot/trade/:tradeId/exit', requireAccess, (request, response) => {
+  if (tradingDesk.mode !== 'paper') return response.status(409).json({ error: 'El cierre manual solo está habilitado en modo paper.' });
+  const reason = String(request.body?.reason || 'UMBRAL_DE_PERDIDA');
+  if (!['VENCIMIENTO_CERCANO', 'UMBRAL_DE_PERDIDA', 'STRIKE_CORTO_ALCANZADO'].includes(reason)) {
+    return response.status(400).json({ error: 'Motivo de cierre inválido.' });
   }
+  const ok = tradingDesk.journal?.requestExit?.(String(request.params.tradeId), reason);
+  if (!ok) return response.status(404).json({ error: 'La posición no está abierta o ya tiene una salida pedida.' });
+  return response.json({ ok: true, reason });
 });
 
 app.get('/api/diagnostics/data', requireAccess, async (request, response) => {
@@ -406,6 +452,7 @@ app.get('/api/status', requireAccess, async (_request, response) => {
     store: await getStoreStatus(),
     scanner: { enabled: config.scanner.enabled, intervalMinutes: config.scanner.intervalMinutes, inFlight: Boolean(scanInFlight), ...schedulerState },
     trading: tradingDesk.status(),
+    alerts: { enabled: config.alerts.enabled, intervalMinutes: config.alerts.intervalMinutes, minScore: config.alerts.minScore, pushConfigured: pushStatus().configured, lastRun: lastAlertResult },
     lastPushResult
   });
 });
@@ -552,6 +599,39 @@ function scheduleNextScan(delayMs) {
   schedulerTimer.unref?.();
 }
 
+async function alertCycle() {
+  if (!config.alerts.enabled) return;
+  const push = pushStatus();
+  if (!push.configured) { lastAlertResult = { at: new Date().toISOString(), skipped: 'push-no-configurado' }; return; }
+  const started = Date.now();
+  try {
+    const scan = await runQuickScan({ symbols: config.nito.symbols.slice(0, 6), limit: 6, accountUsd: 0 });
+    const positions = await runPositionsAnalysis();
+    const candidates = [
+      ...decideOpportunityAlerts({ scan, minScore: config.alerts.minScore }),
+      ...decidePositionAlerts({ analysis: positions })
+    ];
+    const due = alertCenter.due(candidates);
+    let sent = 0;
+    const titles = [];
+    for (const alert of due) {
+      const result = await sendPushAll({ title: alert.title, body: alert.body, tag: '5m-' + alert.key, url: alert.url });
+      sent += result.sent || 0;
+      titles.push(alert.title);
+    }
+    lastAlertResult = { at: new Date().toISOString(), candidates: candidates.length, due: due.length, sent, titles, durationMs: Date.now() - started };
+  } catch (error) {
+    lastAlertResult = { at: new Date().toISOString(), error: error.message };
+  }
+}
+
+function startAlertScheduler() {
+  if (alertTimer || !config.alerts.enabled) return;
+  alertTimer = setInterval(() => { alertCycle().catch(() => {}); }, config.alerts.intervalMinutes * 60000);
+  alertTimer.unref?.();
+  setTimeout(() => alertCycle().catch(() => {}), 60000).unref?.();
+}
+
 function startScannerScheduler() {
   if (schedulerTimer || !config.scanner.enabled || !isTradierConfigured()) return;
   schedulerState.startedAt = new Date().toISOString();
@@ -589,4 +669,5 @@ if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
   startScannerScheduler();
   tradingDesk.start();
   setTimeout(warmupProviders, 300);
+  startAlertScheduler();
 }

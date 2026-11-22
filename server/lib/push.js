@@ -45,6 +45,10 @@ export async function notifyReadySignal(signal, baseUrl = '') {
   return result;
 }
 
+export async function sendPushAll(payload) {
+  return sendPayload(payload);
+}
+
 export async function sendTestPush() {
   return sendPayload({ title: '5 MILLIONS · Notificaciones activas', body: 'La app puede avisarte cuando aparezca una señal READY.', tag: '5m-test' });
 }

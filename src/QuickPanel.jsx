@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { apiGet } from './lib/api.js';
+import { apiGet, apiPost } from './lib/api.js';
 import { useApi } from './lib/hooks.js';
 import { money, num, pct, ago, dateTime, scoreTone } from './lib/format.js';
 import { Icon, Card, Badge, Stat, Gauge, CopyButton, SourceBanner, Banner, EmptyState, Spinner, LegsTable, Disclaimer } from './components/ui.jsx';
@@ -10,6 +10,36 @@ const URGENCY_TONE = { AHORA: 'up', HOY: 'warn', VIGILAR: 'neutral' };
 export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd }) {
   const [tick, setTick] = useState(0);
   const [expanded, setExpanded] = useState(null);
+  const [pushState, setPushState] = useState('');
+  const alerts = useApi(() => apiGet('/api/alerts/status'), [tick]);
+  const [busy, setBusy] = useState(false);
+
+  async function enableAlerts() {
+    setBusy(true);
+    setPushState('Preparando alertas…');
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Este navegador no admite notificaciones push.');
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Permiso de notificaciones no concedido.');
+      const keyResponse = await apiGet('/api/notifications/public-key');
+      if (!keyResponse.configured) throw new Error('Faltan las claves VAPID en el servidor.');
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeKey(keyResponse.publicKey) });
+      await apiPost('/api/notifications/subscribe', subscription);
+      setPushState('Alertas activas: te aviso cuando haya algo bueno.');
+      alerts.reload();
+    } catch (error) { setPushState(error.message); }
+    finally { setBusy(false); }
+  }
+
+  async function testAlerts() {
+    setBusy(true);
+    try { const result = await apiPost('/api/notifications/test'); setPushState(result.sent ? 'Prueba enviada.' : 'No hay suscripciones activas.'); }
+    catch (error) { setPushState(error.message); }
+    finally { setBusy(false); }
+  }
+
   const scan = useApi(() => apiGet(`/api/quick-scan?symbols=${symbols.join(',')}&limit=6&account=${accountUsd}`), [symbols.join(','), accountUsd, tick]);
   const positions = useApi(() => apiGet('/api/positions'), [tick]);
   const data = scan.data || null;
@@ -147,7 +177,32 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
           ))}
         </div>
       </Card>
+      <Card title="Alertas mientras trabajás" icon="wifi" tone="ai"
+        subtitle={alerts.data ? `cada ${alerts.data.intervalMinutes} min · score ≥ ${alerts.data.minScore}` : ''}>
+        <div className="stack xs">
+          <div className="row wrap" style={{ gap: 8 }}>
+            <Badge tone={alerts.data?.pushConfigured ? 'up' : 'warn'} icon="wifi">{alerts.data?.pushConfigured ? 'servidor con push' : 'push sin configurar'}</Badge>
+            <Badge tone={alerts.data?.lastRun?.sent ? 'brand' : 'neutral'}>{alerts.data?.lastRun ? `último envío: ${alerts.data.lastRun.sent ?? 0}` : 'sin envíos aún'}</Badge>
+          </div>
+          <p className="small muted">Te aviso solo cuando una oportunidad supera el score mínimo o una posición abierta pide cierre. No repite el mismo aviso durante {alerts.data?.cooldownMinutes ?? 120} minutos.</p>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <button className="btn primary sm" onClick={enableAlerts} disabled={busy}><Icon name="wifi" size={14} />{busy ? 'Activando…' : 'Activar alertas'}</button>
+            <button className="btn sm" onClick={testAlerts} disabled={busy}>Probar</button>
+          </div>
+          {pushState && <p className="tiny" style={{ color: 'var(--text-2)' }}>{pushState}</p>}
+          {(alerts.data?.lastRun?.titles || []).length > 0 && (
+            <div className="tiny muted">Últimas: {(alerts.data.lastRun.titles || []).slice(0, 3).join(' · ')}</div>
+          )}
+        </div>
+      </Card>
       <Disclaimer />
     </div>
   );
+}
+
+function decodeKey(value) {
+  const padding = '='.repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(base64);
+  return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)));
 }

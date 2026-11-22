@@ -14,9 +14,10 @@ export default function WheelPanel() {
   const [booting, setBooting] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [bot, setBot] = useState(false);
+  const [pauseBusy, setPauseBusy] = useState(false);
   const [pushState, setPushState] = useState('');
   const [detail, setDetail] = useState(null);
+  const [botData, setBotData] = useState(null);
 
   const load = useCallback(async () => {
     setError('');
@@ -36,6 +37,18 @@ export default function WheelPanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    apiGet('/api/bot').then(setBotData).catch(() => setBotData(null));
+  }, [status]);
+
+  async function requestExit(tradeId) {
+    try {
+      await apiPost('/api/bot/trade/' + encodeURIComponent(tradeId) + '/exit', { reason: 'UMBRAL_DE_PERDIDA' });
+      setMessage('Salida solicitada. El bot la procesa en el próximo ciclo.');
+      setBotData(await apiGet('/api/bot'));
+    } catch (error) { setError(error.message); }
+  }
 
   async function scanNow() {
     setLoading(true); setError(''); setMessage('Exploración en curso…');
@@ -57,10 +70,10 @@ export default function WheelPanel() {
   }
 
   async function pauseBot(paused) {
-    setBot(true);
+    setPauseBusy(true);
     try { const trading = await apiPost('/api/bot/pause', { paused }); setStatus((current) => ({ ...current, trading })); }
     catch (requestError) { setError(requestError.message); }
-    finally { setBot(false); }
+    finally { setPauseBusy(false); }
   }
 
   async function enablePush() {
@@ -120,16 +133,41 @@ export default function WheelPanel() {
       {message && <Banner tone="info" icon="info">{message}</Banner>}
       {!tradierOk && <Banner tone="warn" icon="key" title="Tradier no configurado">Agregá TRADIER_TOKEN en el servidor para usar la rueda real. Mientras tanto la app funciona con los módulos NiTo y spreads en modo demo.</Banner>}
 
-      <Card title="Mesa de ejecución" icon="terminal" actions={<Badge tone={status?.trading?.mode === 'live' ? 'down' : status?.trading?.mode === 'paper' ? 'warn' : 'neutral'}>{status?.trading?.mode || 'off'}</Badge>}>
-        <div className="grid-3">
-          <KV label="Modo" value={status?.trading?.mode || '—'} />
-          <KV label="Perfil" value={status?.trading?.profile || '—'} />
-          <KV label="Bloqueado" value={status?.trading?.blocked ? 'SÍ' : 'no'} />
+      <Card title="Mesa de ejecución · Bot" icon="terminal" subtitle={botData?.cycle?.note || ''}
+        actions={<Badge tone={botData?.mode === 'live' ? 'down' : botData?.mode === 'paper' ? 'warn' : 'neutral'}>{botData?.mode || status?.trading?.mode || 'off'}</Badge>}>
+        <div className="grid-4">
+          <Stat label="Modo" value={botData?.mode || '—'} sub={botData?.blocked ? 'BLOQUEADO' : 'operativo'} />
+          <Stat label="Perfil" value={botData?.profile?.id || botData?.profile || '—'} sub={botData?.root ? 'subyacente ' + botData.root : ''} />
+          <Stat label="Riesgo máx." value={money(botData?.maxRiskUsd)} sub="por operación" />
+          <Stat label="Abiertas" value={botData?.journal?.active ?? 0} sub={`${botData?.journal?.pending ?? 0} órdenes pendientes`} />
         </div>
-        <div className="row" style={{ marginTop: 10 }}>
-          <button className="btn sm" onClick={() => pauseBot(true)} disabled={bot}><Icon name="pause" size={14} />Pausar</button>
-          <button className="btn sm" onClick={() => pauseBot(false)} disabled={bot}><Icon name="play" size={14} />Reanudar</button>
+        <div className="row wrap" style={{ marginTop: 10 }}>
+          <button className="btn sm" onClick={() => pauseBot(true)} disabled={pauseBusy}><Icon name="pause" size={14} />Pausar</button>
+          <button className="btn sm" onClick={() => pauseBot(false)} disabled={bot || Boolean(botState)}><Icon name="play" size={14} />Reanudar</button>
+          <button className="btn sm" onClick={async () => { try { setBotData(await apiGet('/api/bot')); } catch (e) { setError(e.message); } }}><Icon name="refresh" size={14} />Refrescar bot</button>
+          <Badge tone={botData?.paused ? 'warn' : 'up'}>{botData?.paused ? 'pausado' : 'activo'}</Badge>
         </div>
+        {(botData?.trades || []).length > 0 && (
+          <div className="stack xs" style={{ marginTop: 10 }}>
+            {bot.trades.slice(0, 6).map((trade) => (
+              <div key={trade.createdAt + trade.strategy} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px', background: 'var(--surface-2)' }}>
+                <div className="row between wrap">
+                  <span className="row" style={{ gap: 8 }}>
+                    <strong style={{ fontFamily: 'var(--mono)' }}>{trade.root}</strong>
+                    <Badge tone="neutral">{String(trade.strategy || '').replaceAll('_', ' ')}</Badge>
+                    <span className="tiny muted">{trade.expiration}</span>
+                  </span>
+                  <span className="row" style={{ gap: 8 }}>
+                    <span className="tiny mono">crédito {money(trade.entryCredit)}</span>
+                    <Badge tone={trade.realizedUsd > 0 ? 'up' : trade.realizedUsd < 0 ? 'down' : 'warn'}>{trade.realizedUsd != null ? money(trade.realizedUsd) : trade.state}</Badge>
+                    {trade.state === 'OPEN' && botData?.mode === 'paper' && <button className="btn sm" onClick={() => requestExit(trade.id || trade.tag)}>Pedir cierre</button>}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {(botData?.orders || []).length > 0 && <p className="tiny muted" style={{ marginTop: 8 }}>Últimas órdenes: {(bot.orders || []).slice(0, 3).map((order) => `${order.action} ${order.status} ${money(order.price)}`).join(' · ')}</p>}
       </Card>
 
       {ready.length + watch.length === 0 && <Card title="Sin señales" icon="compass"><EmptyState icon="compass" title="Todavía no hay una exploración" action={tradierOk ? <button className="btn sm" onClick={scanNow}>Iniciar escaneo</button> : null}>Conectá Tradier y declará el colateral para que el motor pueda marcar entradas.</EmptyState></Card>}

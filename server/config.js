@@ -169,6 +169,12 @@ Object.assign(config, {
     temperature: Math.min(1.2, Math.max(0, asNumber(process.env.AI_TEMPERATURE, 0.35))),
     language: process.env.AI_LANGUAGE || 'es'
   },
+  alerts: {
+    enabled: asBool(process.env.ALERTS_ENABLED, true),
+    intervalMinutes: Math.min(120, Math.max(5, asNumber(process.env.ALERTS_INTERVAL_MINUTES, 15))),
+    minScore: Math.min(95, Math.max(50, asNumber(process.env.ALERTS_MIN_SCORE, 75))),
+    cooldownMinutes: Math.min(1440, Math.max(15, asNumber(process.env.ALERTS_COOLDOWN_MINUTES, 120)))
+  },
   freeData: {
     enabled: asBool(process.env.FREE_DATA, true),
     label: 'Yahoo + cadena pública (delayed)'
@@ -209,6 +215,7 @@ export function publicConfig() {
     nito: { symbols: config.nito.symbols, dteMin: config.nito.dteMin, dteMax: config.nito.dteMax },
     spreads: { activeProfile: config.spreads.activeProfile, profiles: Object.keys(config.spreads.profiles), maxIdeasPerSymbol: config.spreads.maxIdeasPerSymbol },
     ai: { preferred: config.ai.preferred, language: config.ai.language },
+    alerts: { enabled: config.alerts.enabled, intervalMinutes: config.alerts.intervalMinutes, minScore: config.alerts.minScore },
     security: { requiresKey: config.security.requireAccessKey },
     integrations: {
       tradier: Boolean(config.tradier.token),

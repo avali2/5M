@@ -8,6 +8,7 @@ export default function SystemPanel({ theme, toggleTheme, accountUsd, setAccount
   const health = useApi(() => apiGet('/api/health'), []);
   const status = useApi(() => apiGet('/api/status'), []);
   const ai = useApi(() => apiGet('/api/ai/status'), []);
+  const alerts = useApi(() => apiGet('/api/alerts/status'), []);
   const [key, setLocalKey] = useState(getKey());
   const [saved, setSaved] = useState('');
   const [capital, setCapital] = useState(String(accountUsd || 10000));
@@ -59,6 +60,19 @@ AI_PROVIDER=auto`}</pre>
           </label>
           <p className="tiny muted">Se usa para calcular cuántos contratos comprar según el % de riesgo (por defecto 1,5%).</p>
         </div>
+      </Card>
+
+      <Card title="Alertas" icon="wifi">
+        <div className="grid-2">
+          <KV label="Estado" value={alerts.data?.enabled ? 'activas' : 'apagadas'} />
+          <KV label="Cada" value={alerts.data ? alerts.data.intervalMinutes + ' min' : '—'} />
+          <KV label="Score mínimo" value={alerts.data?.minScore ?? '—'} />
+          <KV label="Push servidor" value={alerts.data?.pushConfigured ? 'listo' : 'falta VAPID'} />
+          <KV label="Último envío" value={alerts.data?.lastRun?.sent != null ? alerts.data.lastRun.sent + ' avisos' : '—'} />
+          <KV label="Enfriamiento" value={alerts.data ? alerts.data.cooldownMinutes + ' min' : '—'} />
+        </div>
+        {(alerts.data?.lastRun?.titles || []).length > 0 && <p className="tiny muted" style={{ marginTop: 8 }}>Últimos: {alerts.data.lastRun.titles.slice(0, 3).join(' · ')}</p>}
+        <p className="tiny muted" style={{ marginTop: 8 }}>Activalas desde la pestaña Rápido → “Activar alertas”. Sin suscripción no se envía nada.</p>
       </Card>
 
       <Card title="Apariencia" icon="sun">
