@@ -36,6 +36,9 @@ let alertTimer = null;
 const alertCenter = new AlertCenter({ cooldownMinutes: config.alerts.cooldownMinutes });
 const creditBot = new CreditBot();
 let creditBotTimer = null;
+let lastBriefing = null;
+let briefingTimer = null;
+const CRON_TOKEN = process.env.CRON_TOKEN || '';
 let lastScanError = null;
 let scanInFlight = null;
 let lastPushResult = null;
@@ -233,6 +236,26 @@ app.get('/api/quick-scan', requireAccess, async (request, response) => {
 app.get('/api/positions', requireAccess, async (_request, response) => {
   response.set('Cache-Control', 'no-store');
   try { return response.json(await runPositionsAnalysis()); }
+  catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
+function hasCronAccess(request) {
+  if (hasValidAccessKey(request)) return true;
+  const supplied = String(request.get('X-Cron-Token') || request.query.token || '');
+  if (!CRON_TOKEN || supplied.length !== CRON_TOKEN.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(CRON_TOKEN));
+}
+
+app.post('/api/credit-bot/tick', async (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  if (!hasCronAccess(request)) return response.status(401).json({ error: 'Token de cron inválido.' });
+  creditBot.maybeAutoArm();
+  const status = await creditBot.runCycle();
+  return response.json({ ok: true, cycle: status.cycle, armed: status.armed, position: Boolean(status.position), aiLast: status.aiLast, notes: status.lastDecision?.notes?.slice(0, 3) || [] });
+});
+
+app.post('/api/credit-bot/briefing', requireAccess, async (_request, response) => {
+  try { return response.json({ ok: true, ...(await sendMorningBriefing({ force: true })) }); }
   catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
 });
 
@@ -482,7 +505,7 @@ app.get('/api/status', requireAccess, async (_request, response) => {
     scanner: { enabled: config.scanner.enabled, intervalMinutes: config.scanner.intervalMinutes, inFlight: Boolean(scanInFlight), ...schedulerState },
     trading: tradingDesk.status(),
     alerts: { enabled: config.alerts.enabled, intervalMinutes: config.alerts.intervalMinutes, minScore: config.alerts.minScore, pushConfigured: pushStatus().configured, lastRun: lastAlertResult },
-    creditBot: { enabled: config.creditBot.enabled, mode: creditBot.mode, armed: creditBot.state.armed, paused: creditBot.state.paused, cycle: creditBot.state.cycle },
+    creditBot: { enabled: config.creditBot.enabled, mode: creditBot.mode, armed: creditBot.state.armed, paused: creditBot.state.paused, cycle: creditBot.state.cycle, aiReview: creditBot.aiReview, aiLast: creditBot.state.aiLast || null, lastBriefing },
     lastPushResult
   });
 });
@@ -629,6 +652,32 @@ function scheduleNextScan(delayMs) {
   schedulerTimer.unref?.();
 }
 
+async function sendMorningBriefing({ force = false } = {}) {
+  const scan = await runQuickScan({ symbols: config.nito.symbols.slice(0, 6), limit: 3, accountUsd: 0 });
+  const positions = await runPositionsAnalysis();
+  let text = '';
+  try {
+    const result = await analyzeTask({ task: 'journal', provider: 'auto', payload: { mode: creditBot.mode, armed: creditBot.state.armed, cycle: creditBot.state.cycle, aiLast: creditBot.state.aiLast, opportunities: (scan.opportunities || []).slice(0, 3), positions: positions.positions, summary: positions.summary } });
+    text = result.text || '';
+    lastBriefing = { at: new Date().toISOString(), provider: result.provider, text, sent: 0 };
+  } catch (error) {
+    text = scan.summary;
+    lastBriefing = { at: new Date().toISOString(), error: error.message, text };
+  }
+  if (text) {
+    const push = await sendPushAll({ title: '5M · Briefing del bot', body: text.slice(0, 240), tag: '5m-briefing', url: '/#quick' });
+    lastBriefing.sent = push.sent || 0;
+    if (force) lastBriefing.forced = true;
+  }
+  return lastBriefing;
+}
+
+function briefingMinuteET(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(now).reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+  return parts.hour === '09' && parts.minute === '10';
+}
+
 async function alertCycle() {
   if (!config.alerts.enabled) return;
   const push = pushStatus();
@@ -700,6 +749,14 @@ if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
   tradingDesk.start();
   setTimeout(warmupProviders, 300);
   startAlertScheduler();
+  creditBot.maybeAutoArm();
+  briefingTimer = setInterval(() => {
+    if (!briefingMinuteET()) return;
+    const day = new Date().toISOString().slice(0, 10);
+    if (lastBriefing?.day === day) return;
+    sendMorningBriefing().then((result) => { if (result) lastBriefing = { ...result, day }; }).catch(() => {});
+  }, 60000);
+  briefingTimer.unref?.();
   if (config.creditBot.enabled) {
     creditBotTimer = setInterval(() => { creditBot.runCycle().catch(() => {}); }, config.creditBot.intervalMinutes * 60000);
     creditBotTimer.unref?.();

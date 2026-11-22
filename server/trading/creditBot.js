@@ -18,6 +18,7 @@ import { TradierClient } from '../lib/tradier.js';
 import { getSnapshot, optionChainFor, dteFor } from '../lib/marketData.js';
 import { impliedVol, yearFraction, round2 } from '../lib/optionsMath.js';
 import { TradingBroker, PAPER_URL, LIVE_URL } from './broker.js';
+import { analyzeTask } from '../lib/aiAnalyst.js';
 
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value);
 const DAY = 86400000;
@@ -85,12 +86,16 @@ const DEFAULTS = {
 };
 
 export class CreditBot {
-  constructor({ env = process.env, now = () => new Date() } = {}) {
+  constructor({ env = process.env, now = () => new Date(), reviewer = null } = {}) {
     this.env = env;
     this.now = now;
+    this.reviewer = reviewer;
     this.settings = { ...DEFAULTS, ...(config.creditBot || {}) };
     this.mode = String(env.CREDIT_BOT_MODE || config.creditBot?.mode || 'paper').toLowerCase();
     this.state = this.load();
+    this.aiReview = ['required', 'optional', 'off'].includes(String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase())
+      ? String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase() : 'required';
+    this.autoArm = env.CREDIT_BOT_AUTO_ARM !== 'false';
     this.market = new TradierClient(config.tradier);
   }
 
@@ -145,9 +150,43 @@ export class CreditBot {
     return {
       mode: this.mode, armed: this.state.armed, paused: this.state.paused,
       gates: this.gates(), cycle: this.state.cycle, lastDecision: this.state.lastDecision,
+      aiReview: this.aiReview, autoArm: this.autoArm, aiLast: this.state.aiLast || null,
       position: this.state.position, history: this.state.history.slice(-10),
       settings: { symbol: this.settings.symbol, dte: [this.settings.dteMin, this.settings.dteMax], delta: [this.settings.shortDeltaMin, this.settings.shortDeltaMax], profitTargetPct: this.settings.profitTargetPct, stopMultiple: this.settings.stopMultiple, timeExitDte: this.settings.timeExitDte }
     };
+  }
+
+  maybeAutoArm() {
+    if (this.state.armed || !this.autoArm) return this.state.armed;
+    const gates = this.gates();
+    if (!gates.ok) return false;
+    this.state.armed = true;
+    this.state.cycle = { state: 'ARMADO', note: 'Auto-armado en ' + this.mode + '.' };
+    this.save();
+    return true;
+  }
+
+  async reviewPlan(plan, context) {
+    const reviewer = this.reviewer || (async ({ plan: planPayload, context: contextPayload }) => {
+      const result = await analyzeTask({ task: 'bot', provider: 'auto', payload: { plan: planPayload, context: contextPayload } });
+      return { ...(result.structured || {}), provider: result.provider, model: result.model, raw: result.text };
+    });
+    let review = null;
+    try { review = await reviewer({ plan, context }); }
+    catch (error) { review = { decision: 'WAIT', reasons: ['IA no disponible: ' + error.message], error: true }; }
+    const decision = String(review?.decision || 'WAIT').toUpperCase();
+    const normalized = {
+      decision: ['APPROVE', 'REJECT', 'WAIT'].includes(decision) ? decision : 'WAIT',
+      confidence: Number.isFinite(Number(review?.confidence)) ? Math.max(0, Math.min(100, Number(review.confidence))) : null,
+      reasons: Array.isArray(review?.reasons) ? review.reasons.slice(0, 4).map(String) : [],
+      risks: Array.isArray(review?.risks) ? review.risks.slice(0, 4).map(String) : [],
+      adjustments: Array.isArray(review?.adjustments) ? review.adjustments.slice(0, 3).map(String) : [],
+      provider: review?.provider || 'deepseek',
+      at: this.now().toISOString()
+    };
+    this.state.aiLast = normalized;
+    this.save();
+    return normalized;
   }
 
   /** Construye el plan de una nueva posición si todas las reglas se cumplen. */
@@ -337,6 +376,23 @@ export class CreditBot {
         this.state.cycle = { state: 'ESPERANDO', note: result.notes[0] || 'Sin plan válido.' };
         this.save();
         return this.status();
+      }
+      if (this.aiReview !== 'off') {
+        const review = await this.reviewPlan(result.plan, {
+          spot: result.plan.spot, trend: result.plan.direction, dte: result.plan.dte,
+          creditWidth: result.plan.creditWidth, contracts: result.plan.contracts, riskUsd: result.plan.riskUsd,
+          context: result.plan.context, notes: result.notes,
+          mode: this.mode, marketOpen: snapshot.marketOpen
+        });
+        this.state.lastDecision.ai = review;
+        if (this.aiReview === 'required' && review.decision !== 'APPROVE') {
+          this.state.cycle = {
+            state: review.decision === 'REJECT' ? 'RECHAZADO_IA' : 'ESPERANDO_IA',
+            note: 'DeepSeek ' + review.decision + (review.reasons[0] ? ': ' + review.reasons[0] : '') 
+          };
+          this.save();
+          return this.status();
+        }
       }
       if (!this.state.armed) { this.state.cycle = { state: 'PLAN', note: 'Plan listo: armá para ejecutar.' }; this.save(); return this.status(); }
       if (this.state.position) { this.state.cycle = { state: 'ESPERANDO', note: 'Ya hay una posición abierta.' }; this.save(); return this.status(); }

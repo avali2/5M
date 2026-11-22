@@ -204,6 +204,13 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
               <Stat label="Salidas" value={`${credit.data.settings?.profitTargetPct}% / ${credit.data.settings?.stopMultiple}x`} sub={`tiempo ${credit.data.settings?.timeExitDte}d`} />
               <Stat label="Estado" value={credit.data.cycle?.state || '—'} sub={credit.data.cycle?.note || ''} />
             </div>
+            <div className="row wrap" style={{ gap: 8, marginTop: 8 }}>
+              <Badge tone={credit.data.aiReview === 'required' ? 'ai' : 'neutral'} icon="sparkles">DeepSeek {credit.data.aiReview === 'required' ? 'obligatorio' : credit.data.aiReview}</Badge>
+              <Badge tone={credit.data.autoArm ? 'brand' : 'neutral'} icon="cpu">{credit.data.autoArm ? 'auto-armado' : 'armado manual'}</Badge>
+              {credit.data.aiLast && <Badge tone={credit.data.aiLast.decision === 'APPROVE' ? 'up' : credit.data.aiLast.decision === 'REJECT' ? 'down' : 'warn'}>IA: {credit.data.aiLast.decision}{credit.data.aiLast.confidence != null ? ' ' + Math.round(credit.data.aiLast.confidence) : ''}</Badge>}
+            </div>
+            <div className="grid-4" style={{ display: 'none' }}>
+            </div>
             <div className="checklist">
               {(credit.data.gates?.checks || []).map((check) => (
                 <Check key={check.name} status={check.ok ? 'pos' : 'neg'}><b>{check.name}</b>{check.detail ? <small>{check.detail}</small> : null}</Check>
@@ -224,7 +231,9 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
                 <div className="tiny muted" style={{ marginTop: 3 }}>crédito {money(credit.data.position.credit)} · {credit.data.position.contracts} contrato(s) · {credit.data.position.dte ?? '—'}d · valor actual {money(credit.data.position.currentCredit)}</div>
               </div>
             )}
+            {credit.data.aiLast?.reasons?.length > 0 && <p className="tiny muted">DeepSeek: {credit.data.aiLast.reasons.slice(0, 2).join(' · ')}</p>}
             <div className="row wrap" style={{ gap: 8 }}>
+              <button className="btn sm" onClick={() => botAction('/api/credit-bot/briefing', {})} disabled={botBusy}><Icon name="sparkles" size={14} />Briefing IA</button>
               {!credit.data.armed && <button className="btn primary sm" onClick={() => botAction('/api/credit-bot/arm', { mode: credit.data.mode })} disabled={botBusy || !credit.data.gates?.ok}><Icon name="play" size={14} />Armar {credit.data.mode}</button>}
               {credit.data.armed && <button className="btn sm" onClick={() => botAction('/api/credit-bot/pause', { paused: !credit.data.paused })} disabled={botBusy}><Icon name={credit.data.paused ? 'play' : 'pause'} size={14} />{credit.data.paused ? 'Reanudar' : 'Pausar'}</button>}
               <button className="btn sm" onClick={() => botAction('/api/credit-bot/run', {})} disabled={botBusy}><Icon name="refresh" size={14} />Evaluar ahora</button>

@@ -23,7 +23,7 @@ export function aiStatus() {
     gemini: { configured: isGeminiConfigured(), model: config.gemini.model },
     deepseek: { configured: isDeepSeekConfigured(), model: config.deepseek.model },
     preferred: config.ai.preferred,
-    tasks: ['signal', 'spread', 'positioning', 'briefing', 'risk', 'chat']
+    tasks: ['signal', 'spread', 'positioning', 'briefing', 'risk', 'chat', 'bot', 'journal']
   };
 }
 
@@ -157,6 +157,14 @@ const TASKS = {
     system: `${GUARDRAILS}\nTarea: briefing operativo del día. Devolvé un párrafo inicial de 1 frase y luego 3-5 viñetas con: estado del mercado, mejor oportunidad, riesgo principal del día, evento a vigilar. Máximo 150 palabras.`,
     prompt: (payload) => `Contexto del día:\n${compact(payload)}\nEscribí el briefing.`
   },
+  bot: {
+    system: `${GUARDRAILS}\nTarea: sos el supervisor de riesgo de un bot automático de spreads de crédito. Revisás un plan ya calculado y respondés SOLO un objeto JSON válido, sin texto extra: {"decision":"APPROVE"|"REJECT"|"WAIT","confidence":0-100,"reasons":["..."],"risks":["..."],"adjustments":["..."]}. Rechazá (REJECT) si el plan contradice la tendencia, si el crédito es pobre para el ancho, si hay evento macro cercano o si faltan datos. Usá WAIT si el contexto está incompleto o el momento es malo. Aprobá solo si el plan respeta la tendencia, el riesgo es acotado y no hay señales en contra.`,
+    prompt: (payload) => `Plan del bot y contexto de mercado:\n${compact(payload)}\nDevolvé solo el JSON de revisión.`
+  },
+  journal: {
+    system: `${GUARDRAILS}\nTarea: resumen diario del bot para el trader. Devolvé 4 viñetas cortas: estado del bot, operaciones del día, riesgo abierto y una recomendación concreta. Máximo 120 palabras.`,
+    prompt: (payload) => `Estado y journal del bot:\n${compact(payload)}\nEscribí el resumen diario.`
+  },
   risk: {
     system: `${GUARDRAILS}\nTarea: auditoría de riesgo de una señal o spread. Devolvé: RIESGOS (3-5 viñetas ordenadas por gravedad), CHECKS PREVIOS (lista), QUÉ CANCELARÍA LA OPERACIÓN. Sé directo y escéptico. Máximo 170 palabras.`,
     prompt: (payload) => `Operación a auditar:\n${compact(payload)}\nAuditala.`
@@ -181,7 +189,7 @@ function writeCache(key, value) {
   if (cache.size > 120) cache.delete(cache.keys().next().value);
 }
 
-async function callProvider({ provider, system, messages, json, signal }) {
+async function callProvider({ provider, system, messages, json = false, signal }) {
   if (provider === 'deepseek') {
     const result = await deepseekClient.chat({ messages: [{ role: 'system', content: system }, ...messages], json });
     return { ...result, provider: 'deepseek' };
@@ -204,7 +212,7 @@ export async function analyzeTask({ task = 'signal', provider, payload = {}, que
   let lastError = null;
   for (const attempt of attempts) {
     try {
-      const result = await callProvider({ provider: attempt, system: definition.system, messages, json: false });
+      const result = await callProvider({ provider: attempt, system: definition.system, messages, json: task === 'bot' });
       const output = {
         provider: result.provider,
         model: result.model,

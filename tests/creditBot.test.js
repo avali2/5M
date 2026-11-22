@@ -140,3 +140,33 @@ test('estado: armar, pausar y desarmar sin red', () => {
   assert.ok(Array.isArray(status.gates.checks));
   assert.equal(status.history.length, 0);
 });
+test('auto-armado solo con requisitos completos', () => {
+  const bot = new CreditBot({ env: { CREDIT_BOT_AUTO_ARM: 'true' }, now: () => NOW });
+  bot.gates = () => ({ ok: true, checks: [] });
+  assert.equal(bot.maybeAutoArm(), true);
+  assert.equal(bot.state.armed, true);
+  const blocked = new CreditBot({ env: { CREDIT_BOT_AUTO_ARM: 'true' }, now: () => NOW });
+  blocked.state.armed = false;
+  blocked.gates = () => ({ ok: false, checks: [] });
+  assert.equal(blocked.maybeAutoArm(), false);
+});
+
+test('DeepSeek puede rechazar el plan y el bot no opera', async () => {
+  const bot = new CreditBot({
+    env: { CREDIT_BOT_AI_REVIEW: 'required', CREDIT_BOT_MAX_RISK_USD: '500' },
+    now: () => NOW,
+    reviewer: async () => ({ decision: 'REJECT', confidence: 81, reasons: ['Evento macro cercano'], risks: ['gap'] })
+  });
+  assert.equal(bot.aiReview, 'required');
+  const review = await bot.reviewPlan({ symbol: 'SPY' }, { spot: 100 });
+  assert.equal(review.decision, 'REJECT');
+  assert.equal(review.confidence, 81);
+  assert.ok(review.reasons[0].includes('Evento'));
+});
+
+test('si la IA falla se devuelve WAIT y no se aprueba', async () => {
+  const bot = new CreditBot({ env: {}, now: () => NOW, reviewer: async () => { throw new Error('sin cuota'); } });
+  const review = await bot.reviewPlan({ symbol: 'SPY' }, {});
+  assert.equal(review.decision, 'WAIT');
+  assert.ok(review.reasons.some((reason) => /IA no disponible/.test(reason)));
+});
