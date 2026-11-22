@@ -18,6 +18,7 @@ import { freeProbe } from './lib/freeData.js';
 import { buildQuickScan } from './lib/quickScan.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { CreditBot } from './trading/creditBot.js';
+import { newsStatus, resetNewsCache } from './lib/news.js';
 import { analyzePositions } from './lib/positions.js';
 import { buildDirectionalSignals } from './lib/nitoDirectional.js';
 import { buildSpreadIdeas } from './lib/aggressiveSpreads.js';
@@ -34,7 +35,11 @@ let providerHealth = null;
 let lastAlertResult = null;
 let alertTimer = null;
 const alertCenter = new AlertCenter({ cooldownMinutes: config.alerts.cooldownMinutes });
-const creditBot = new CreditBot();
+const bots = {
+  paper: new CreditBot({ mode: 'paper', stateFile: 'bot-paper.json' }),
+  live: new CreditBot({ mode: 'live', stateFile: 'bot-live.json' })
+};
+const creditBot = bots.paper;
 let creditBotTimer = null;
 let lastBriefing = null;
 let briefingTimer = null;
@@ -113,6 +118,7 @@ app.get('/api/health', async (_request, response) => {
     configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), deepseek: isDeepSeekConfigured(), push: pushStatus().configured },
     demo: { active: isDemoActive(), dataSource: dataSourceLabel() },
     creditBot: { enabled: config.creditBot.enabled, mode: creditBot.mode, armed: creditBot.state.armed },
+    bots: { paperArmed: bots.paper.state.armed, liveArmed: bots.live.state.armed },
     providers: providerStatus(),
     providerHealth: providerHealth,
     signalReadiness: { configured: isTradierConfigured() && isGeminiConfigured(), missing: [!isTradierConfigured()?'Tradier':null,!isGeminiConfigured()?'Gemini':null].filter(Boolean) },
@@ -249,15 +255,59 @@ function hasCronAccess(request) {
 app.post('/api/credit-bot/tick', async (request, response) => {
   response.set('Cache-Control', 'no-store');
   if (!hasCronAccess(request)) return response.status(401).json({ error: 'Token de cron inválido.' });
-  creditBot.maybeAutoArm();
-  const status = await creditBot.runCycle();
-  return response.json({ ok: true, cycle: status.cycle, armed: status.armed, position: Boolean(status.position), aiLast: status.aiLast, notes: status.lastDecision?.notes?.slice(0, 3) || [] });
+  const results = {};
+  for (const [botName, instance] of Object.entries(bots)) {
+    instance.maybeAutoArm();
+    const status = await instance.runCycle();
+    results[botName] = { cycle: status.cycle, armed: status.armed, position: Boolean(status.position), aiLast: status.aiLast, notes: status.lastDecision?.notes?.slice(0, 3) || [] };
+  }
+  return response.json({ ok: true, bots: results });
 });
 
 app.post('/api/credit-bot/briefing', requireAccess, async (_request, response) => {
   try { return response.json({ ok: true, ...(await sendMorningBriefing({ force: true })) }); }
   catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
 });
+
+app.get('/api/news', requireAccess, async (_request, response) => {
+  response.set('Cache-Control', 'no-store');
+  try { return response.json({ ok: true, ...(await newsStatus({ symbol: config.creditBot.symbol })) }); }
+  catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
+app.post('/api/news/refresh', requireAccess, async (_request, response) => {
+  resetNewsCache();
+  try { return response.json({ ok: true, ...(await newsStatus({ symbol: config.creditBot.symbol, force: true })) }); }
+  catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
+for (const [botName, instance] of Object.entries(bots)) {
+  app.get('/api/bots/' + botName, requireAccess, (_request, response) => response.json({ ok: true, bot: botName, ...instance.status() }));
+  app.post('/api/bots/' + botName + '/arm', requireAccess, (request, response) => {
+    const result = instance.arm(botName);
+    return response.status(result.ok ? 200 : 409).json({ ok: result.ok, bot: botName, ...instance.status(), gates: result.gates });
+  });
+  app.post('/api/bots/' + botName + '/pause', requireAccess, (request, response) => {
+    if (typeof request.body?.paused !== 'boolean') return response.status(400).json({ error: 'Enviá { paused: true|false }.' });
+    return response.json({ ok: true, bot: botName, ...instance.pause(request.body.paused) });
+  });
+  app.post('/api/bots/' + botName + '/disarm', requireAccess, (_request, response) => response.json({ ok: true, bot: botName, ...instance.disarm() }));
+  app.post('/api/bots/' + botName + '/run', requireAccess, async (_request, response) => {
+    try { return response.json({ ok: true, bot: botName, ...(await instance.runCycle()) }); }
+    catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+  });
+  app.post('/api/bots/' + botName + '/close', requireAccess, async (_request, response) => {
+    if (!instance.state.position) return response.status(409).json({ error: 'No hay posición abierta.' });
+    await instance.closePosition('CIERRE_MANUAL', instance.state.position.currentCredit ?? instance.state.position.credit);
+    return response.json({ ok: true, bot: botName, ...instance.status() });
+  });
+  app.post('/api/bots/' + botName + '/tick', async (request, response) => {
+    if (!hasCronAccess(request)) return response.status(401).json({ error: 'Token inválido.' });
+    instance.maybeAutoArm();
+    try { return response.json({ ok: true, bot: botName, ...(await instance.runCycle()) }); }
+    catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+  });
+}
 
 app.get('/api/credit-bot', requireAccess, (_request, response) => response.json({ ok: true, ...creditBot.status() }));
 
@@ -506,6 +556,7 @@ app.get('/api/status', requireAccess, async (_request, response) => {
     trading: tradingDesk.status(),
     alerts: { enabled: config.alerts.enabled, intervalMinutes: config.alerts.intervalMinutes, minScore: config.alerts.minScore, pushConfigured: pushStatus().configured, lastRun: lastAlertResult },
     creditBot: { enabled: config.creditBot.enabled, mode: creditBot.mode, armed: creditBot.state.armed, paused: creditBot.state.paused, cycle: creditBot.state.cycle, aiReview: creditBot.aiReview, aiLast: creditBot.state.aiLast || null, lastBriefing },
+    bots: Object.fromEntries(Object.entries(bots).map(([name, instance]) => [name, { mode: instance.mode, armed: instance.state.armed, paused: instance.state.paused, cycle: instance.state.cycle, position: Boolean(instance.state.position), aiLast: instance.state.aiLast || null }])),
     lastPushResult
   });
 });
@@ -749,7 +800,7 @@ if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
   tradingDesk.start();
   setTimeout(warmupProviders, 300);
   startAlertScheduler();
-  creditBot.maybeAutoArm();
+  for (const instance of Object.values(bots)) instance.maybeAutoArm();
   briefingTimer = setInterval(() => {
     if (!briefingMinuteET()) return;
     const day = new Date().toISOString().slice(0, 10);
@@ -758,7 +809,7 @@ if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
   }, 60000);
   briefingTimer.unref?.();
   if (config.creditBot.enabled) {
-    creditBotTimer = setInterval(() => { creditBot.runCycle().catch(() => {}); }, config.creditBot.intervalMinutes * 60000);
+    creditBotTimer = setInterval(() => { for (const instance of Object.values(bots)) instance.runCycle().catch(() => {}); }, config.creditBot.intervalMinutes * 60000);
     creditBotTimer.unref?.();
   }
 }

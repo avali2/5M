@@ -86,21 +86,22 @@ const DEFAULTS = {
 };
 
 export class CreditBot {
-  constructor({ env = process.env, now = () => new Date(), reviewer = null } = {}) {
+  constructor({ env = process.env, now = () => new Date(), reviewer = null, mode = null, stateFile = null } = {}) {
     this.env = env;
     this.now = now;
     this.reviewer = reviewer;
+    this.stateFile = stateFile || 'credit-bot.json';
     this.settings = { ...DEFAULTS, ...(config.creditBot || {}) };
-    this.mode = String(env.CREDIT_BOT_MODE || config.creditBot?.mode || 'paper').toLowerCase();
+    this.mode = String(mode || env.CREDIT_BOT_MODE || config.creditBot?.mode || 'paper').toLowerCase();
     this.state = this.load();
     this.aiReview = ['required', 'optional', 'off'].includes(String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase())
       ? String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase() : 'required';
-    this.autoArm = env.CREDIT_BOT_AUTO_ARM !== 'false';
+    this.autoArm = this.mode === 'live' ? env.CREDIT_BOT_LIVE_AUTO_ARM === 'true' : env.CREDIT_BOT_AUTO_ARM !== 'false';
     this.market = new TradierClient(config.tradier);
   }
 
   file() {
-    return path.join(config.dataDir, 'credit-bot.json');
+    return path.join(config.dataDir, this.stateFile);
   }
 
   load() {
@@ -369,6 +370,11 @@ export class CreditBot {
     if (!gates.ok) { this.state.cycle = { state: 'BLOQUEADO', note: gates.checks.filter((check) => !check.ok).map((check) => check.name).join(', ') }; return this.status(); }
     try {
       if (this.state.position) { await this.manage(); return this.status(); }
+      if (this.mode === 'live' && (!config.tradier.token || config.tradier.sandbox)) {
+        this.state.cycle = { state: 'BLOQUEADO', note: 'Live requiere datos de producción de Tradier.' };
+        this.save();
+        return this.status();
+      }
       const snapshot = await getSnapshot(this.settings.symbol, { tradier: config.tradier.token ? this.market : undefined });
       const result = this.playbook(snapshot);
       this.state.lastDecision = { at: this.now().toISOString(), plan: result.plan, notes: result.notes, dte: result.dte ?? null };

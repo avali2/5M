@@ -3,32 +3,32 @@ import { apiGet } from './lib/api.js';
 import { useLocalStorage, useTheme } from './lib/hooks.js';
 import { Icon, Badge } from './components/ui.jsx';
 import QuickPanel from './QuickPanel.jsx';
-import NitoPanel from './NitoPanel.jsx';
+import BotPanel from './BotPanel.jsx';
 import SpreadsPanel from './SpreadsPanel.jsx';
 import PositioningPanel from './PositioningPanel.jsx';
 import AiPanel from './AiPanel.jsx';
-import WheelPanel from './WheelPanel.jsx';
 import SystemPanel from './SystemPanel.jsx';
 
 const SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', 'AMD', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'PLTR', 'COIN', 'SOFI', 'MARA'];
 const RADAR_DEFAULTS = ['SPY', 'QQQ', 'AMD', 'NVDA', 'TSLA', 'META', 'PLTR'];
 
 const TABS = [
-  { id: 'quick', label: 'Rápido', icon: 'flame', title: 'Modo rápido' },
-  { id: 'nito', label: 'NiTo', icon: 'zap', title: 'NiTo · Call & Put' },
+  { id: 'alertas', label: 'Alertas', icon: 'flame', title: 'Alertas agresivas' },
   { id: 'spreads', label: 'Spreads', icon: 'layers', title: 'Spreads agresivos' },
   { id: 'positioning', label: 'Institucional', icon: 'bar-chart', title: 'Posicionamiento institucional' },
   { id: 'ai', label: 'IA', icon: 'sparkles', title: 'Analista IA' },
-  { id: 'wheel', label: 'Rueda', icon: 'refresh', title: 'Rueda del dueño' },
+  { id: 'botreal', label: 'Bot Real', icon: 'cpu', title: 'Bot de trading real' },
+  { id: 'botpaper', label: 'Bot Paper', icon: 'database', title: 'Bot de paper' },
   { id: 'system', label: 'Sistema', icon: 'settings', title: 'Sistema' }
 ];
 
 function tabFromLocation() {
   const hash = window.location.hash.replace('#', '').toLowerCase();
+  if (hash === 'quick' || hash === 'rapido' || hash === 'rápido') return 'alertas';
   if (TABS.some((tab) => tab.id === hash)) return hash;
-  if (/^\/nito/.test(window.location.pathname)) return 'nito';
-  if (/^\/rapido|^\/rápido/i.test(window.location.pathname)) return 'quick';
-  return 'quick';
+  if (/^\/bot-real|^\/botreal/i.test(window.location.pathname)) return 'botreal';
+  if (/^\/bot-paper|^\/botpaper/i.test(window.location.pathname)) return 'botpaper';
+  return 'alertas';
 }
 
 export default function App() {
@@ -85,12 +85,12 @@ export default function App() {
       </header>
 
       <main className="main">
-        {tab === 'quick' && <QuickPanel {...panelProps} />}
-        {tab === 'nito' && <NitoPanel {...panelProps} />}
+        {tab === 'alertas' && <QuickPanel {...panelProps} />}
+        {tab === 'botreal' && <BotPanel mode="live" accountUsd={accountUsd} />}
+        {tab === 'botpaper' && <BotPanel mode="paper" accountUsd={accountUsd} />}
         {tab === 'spreads' && <SpreadsPanel symbols={radarSymbols.slice(0, 6)} symbol={symbol} setSymbol={setSymbol} />}
         {tab === 'positioning' && <PositioningPanel {...panelProps} />}
         {tab === 'ai' && <AiPanel {...panelProps} />}
-        {tab === 'wheel' && <WheelPanel />}
         {tab === 'system' && <SystemPanel theme={theme} toggleTheme={toggleTheme} accountUsd={accountUsd} setAccountUsd={setAccountUsd} />}
       </main>
 

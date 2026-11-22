@@ -12,7 +12,7 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
   const [expanded, setExpanded] = useState(null);
   const [pushState, setPushState] = useState('');
   const alerts = useApi(() => apiGet('/api/alerts/status'), [tick]);
-  const credit = useApi(() => apiGet('/api/credit-bot'), [tick]);
+  const news = useApi(() => apiGet('/api/news'), [tick]);
   const [botBusy, setBotBusy] = useState(false);
   const [botMsg, setBotMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -191,57 +191,19 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
           ))}
         </div>
       </Card>
-      <Card title="Bot de crédito · Bull Put SPY" icon="cpu" tone="warn"
-        subtitle={credit.data ? `${credit.data.mode === 'live' ? 'DINERO REAL' : 'papel (sandbox)'} · ${credit.data.armed ? 'armado' : 'desarmado'}${credit.data.paused ? ' · pausado' : ''}` : ''}
-        actions={credit.data ? <Badge tone={credit.data.gates?.ok ? 'up' : 'warn'}>{credit.data.gates?.ok ? 'puede operar' : 'faltan requisitos'}</Badge> : null}>
-        {credit.loading && !credit.data && <Spinner label="Leyendo el bot…" />}
-        {credit.error && <Banner tone="warn" icon="alert-circle">{credit.error}</Banner>}
-        {credit.data && (
+      <Card title="Noticias" icon="globe" tone="info" actions={<Badge tone={news.data?.green ? 'up' : 'warn'}>{news.data?.green ? 'EN VERDE' : news.data?.status || '—'}</Badge>}>
+        {news.loading && !news.data && <Spinner label="Leyendo mercados…" />}
+        {news.data && (
           <div className="stack xs">
-            <div className="grid-4">
-              <Stat label="Modo" value={credit.data.mode === 'live' ? 'LIVE' : 'PAPER'} tone={credit.data.mode === 'live' ? 'down' : 'warn'} sub={credit.data.paused ? 'pausado' : credit.data.armed ? 'activo' : 'sin armar'} />
-              <Stat label="Estrategia" value="Bull put" sub={`delta ${credit.data.settings?.delta?.[0]}–${credit.data.settings?.delta?.[1]} · ${credit.data.settings?.dte?.[0]}-${credit.data.settings?.dte?.[1]}d`} />
-              <Stat label="Salidas" value={`${credit.data.settings?.profitTargetPct}% / ${credit.data.settings?.stopMultiple}x`} sub={`tiempo ${credit.data.settings?.timeExitDte}d`} />
-              <Stat label="Estado" value={credit.data.cycle?.state || '—'} sub={credit.data.cycle?.note || ''} />
+            <p className="tiny muted">{news.data.note}</p>
+            {(news.data.headlines || []).slice(0, 5).map((row) => (
+              <a key={row.title} href={row.link} target="_blank" rel="noopener noreferrer" className="small" style={{ color: 'var(--text-2)', lineHeight: 1.4 }}>
+                {row.title} <span className="tiny muted">· {row.source}</span>
+              </a>
+            ))}
+            <div className="row wrap" style={{ gap: 6 }}>
+              {(news.data.sources || []).map((source) => <Badge key={source.name} tone={source.ok ? 'up' : 'neutral'}>{source.name}</Badge>)}
             </div>
-            <div className="row wrap" style={{ gap: 8, marginTop: 8 }}>
-              <Badge tone={credit.data.aiReview === 'required' ? 'ai' : 'neutral'} icon="sparkles">DeepSeek {credit.data.aiReview === 'required' ? 'obligatorio' : credit.data.aiReview}</Badge>
-              <Badge tone={credit.data.autoArm ? 'brand' : 'neutral'} icon="cpu">{credit.data.autoArm ? 'auto-armado' : 'armado manual'}</Badge>
-              {credit.data.aiLast && <Badge tone={credit.data.aiLast.decision === 'APPROVE' ? 'up' : credit.data.aiLast.decision === 'REJECT' ? 'down' : 'warn'}>IA: {credit.data.aiLast.decision}{credit.data.aiLast.confidence != null ? ' ' + Math.round(credit.data.aiLast.confidence) : ''}</Badge>}
-            </div>
-            <div className="grid-4" style={{ display: 'none' }}>
-            </div>
-            <div className="checklist">
-              {(credit.data.gates?.checks || []).map((check) => (
-                <Check key={check.name} status={check.ok ? 'pos' : 'neg'}><b>{check.name}</b>{check.detail ? <small>{check.detail}</small> : null}</Check>
-              ))}
-            </div>
-            {credit.data.lastDecision?.plan && (
-              <div className="banner info"><Icon name="target" /><div><b>Plan listo</b> Vender PUT {credit.data.lastDecision.plan.legs?.[0]?.strike} / comprar {credit.data.lastDecision.plan.legs?.[1]?.strike} · crédito {money(credit.data.lastDecision.plan.credit)} × {credit.data.lastDecision.plan.contracts} · riesgo {money(credit.data.lastDecision.plan.riskUsd)} · vence {credit.data.lastDecision.plan.expiration}</div></div>
-            )}
-            {!credit.data.lastDecision?.plan && credit.data.lastDecision?.notes?.length > 0 && (
-              <p className="tiny muted">Última evaluación: {credit.data.lastDecision.notes.slice(0, 2).join(' · ')}</p>
-            )}
-            {credit.data.position && (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '9px 11px', background: 'var(--surface-2)' }}>
-                <div className="row between wrap">
-                  <span className="row" style={{ gap: 8 }}><b className="mono">{credit.data.position.symbol}</b><Badge tone="warn">{credit.data.position.strategy}</Badge><span className="tiny muted">{credit.data.position.expiration}</span></span>
-                  <Badge tone={(credit.data.position.pnlUsd ?? 0) >= 0 ? 'up' : 'down'}>{money(credit.data.position.pnlUsd)}</Badge>
-                </div>
-                <div className="tiny muted" style={{ marginTop: 3 }}>crédito {money(credit.data.position.credit)} · {credit.data.position.contracts} contrato(s) · {credit.data.position.dte ?? '—'}d · valor actual {money(credit.data.position.currentCredit)}</div>
-              </div>
-            )}
-            {credit.data.aiLast?.reasons?.length > 0 && <p className="tiny muted">DeepSeek: {credit.data.aiLast.reasons.slice(0, 2).join(' · ')}</p>}
-            <div className="row wrap" style={{ gap: 8 }}>
-              <button className="btn sm" onClick={() => botAction('/api/credit-bot/briefing', {})} disabled={botBusy}><Icon name="sparkles" size={14} />Briefing IA</button>
-              {!credit.data.armed && <button className="btn primary sm" onClick={() => botAction('/api/credit-bot/arm', { mode: credit.data.mode })} disabled={botBusy || !credit.data.gates?.ok}><Icon name="play" size={14} />Armar {credit.data.mode}</button>}
-              {credit.data.armed && <button className="btn sm" onClick={() => botAction('/api/credit-bot/pause', { paused: !credit.data.paused })} disabled={botBusy}><Icon name={credit.data.paused ? 'play' : 'pause'} size={14} />{credit.data.paused ? 'Reanudar' : 'Pausar'}</button>}
-              <button className="btn sm" onClick={() => botAction('/api/credit-bot/run', {})} disabled={botBusy}><Icon name="refresh" size={14} />Evaluar ahora</button>
-              {credit.data.position && <button className="btn sm" onClick={() => botAction('/api/credit-bot/close', {})} disabled={botBusy}><Icon name="x" size={14} />Cerrar posición</button>}
-              {credit.data.armed && <button className="btn ghost sm" onClick={() => botAction('/api/credit-bot/disarm', {})} disabled={botBusy}>Desarmar</button>}
-            </div>
-            {botMsg && <p className="tiny" style={{ color: 'var(--text-2)' }}>{botMsg}</p>}
-            <p className="tiny muted">Para dinero real: token de producción de Tradier, cuenta live, disco persistente y <span className="mono">LIVE_CONFIRM=I_ACCEPT_REAL_MONEY</span>. El bot nunca garantiza ganancias; corta en 2,5x el crédito.</p>
           </div>
         )}
       </Card>

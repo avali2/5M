@@ -31,17 +31,17 @@ Con `TRADIER_TOKEN` usa datos reales. Para IA: `GEMINI_API_KEY` y/o `DEEPSEEK_AP
 
 | Pestaña | Qué hace |
 | --- | --- |
-| **Rápido** | Pantalla de 10 segundos: top de posiciones accionables (entrada, stop, objetivo, POP), posiciones abiertas del bot con P/L y acción sugerida, y radar exprés por símbolo. |
-| **NiTo** | Señales de compra de CALL y PUT con contrato, entrada, breakeven, objetivos, stop, POP de modelo, escenarios, tamaño por riesgo y texto para copiar. Radar por símbolo y motivos de descarte. |
-| **Spreads** | Bull put, bear call, iron condor, iron fly, jade lizard, broken wing y débito direccional con perfiles estándar/agresivo/máximo, patas con precio real, POP, EV, stress y plan de ajustes. |
-| **Institucional** | GEX/DEX por strike, muros de calls/puts, gamma flip, max pain, movimiento esperado, IV por vencimiento, skew 25Δ y lectura en español. |
-| **IA** | Chat en streaming y tareas: explicar señal, explicar spread, leer posicionamiento, briefing y auditoría de riesgo. Router DeepSeek/Gemini con fallback. |
-| **Rueda** | Mesa original de Cash-Secured Puts y Covered Calls (Tradier + Gemini), con la nueva estética. |
-| **Sistema** | Estado de integraciones, claves (solo servidor), capital para dimensionar, tema y referencia de variables de entorno. |
+| **Alertas** | Top de oportunidades agresivas (CALL/PUT/spreads) con entrada, stop, objetivo y copiar orden; noticias en verde; alertas push configurables. |
+| **Spreads** | Bull put, bear call, iron condor, iron fly, jade lizard, broken wing y débito direccional con perfiles estándar/agresivo/máximo. |
+| **Institucional** | GEX/DEX, muros, gamma flip, max pain, IV y skew con narrativa. |
+| **IA** | Chat y tareas con DeepSeek + Gemini (explicar señal, spread, posicionamiento, briefing, riesgo). |
+| **Bot Real** | Bot de crédito sobre Tradier de producción. Bloqueado hasta cumplir todos los requisitos; DeepSeek aprueba cada plan. |
+| **Bot Paper** | Mismo motor con la cuenta sandbox de Tradier. Auto-armado y operando en paralelo. |
+| **Sistema** | Estado de integraciones, noticias, bots, claves, capital y tema. |
 
-### API nueva
+## API nueva
 
-`GET /api/quick-scan?symbols=SPY,QQQ&limit=5` · `GET /api/positions` · `GET /api/bot` · `POST /api/bot/trade/:id/exit` · `GET /api/alerts/status` · `GET /api/market/:symbol` · `GET /api/nito/directional?symbols=SPY,QQQ&side=both&account=10000` · `GET /api/spreads?profile=aggressive` · `GET /api/positioning?symbol=SPY` · `GET /api/ai/status` · `POST /api/ai/analyze` · `POST /api/ai/chat` (SSE).
+`GET /api/bots/live` · `GET /api/bots/paper` · `POST /api/bots/:mode/arm|pause|disarm|run|close|tick` · `GET /api/news` · `GET /api/quick-scan?symbols=SPY,QQQ&limit=5` · `GET /api/positions` · `GET /api/bot` · `POST /api/bot/trade/:id/exit` · `GET /api/alerts/status` · `GET /api/market/:symbol` · `GET /api/nito/directional?symbols=SPY,QQQ&side=both&account=10000` · `GET /api/spreads?profile=aggressive` · `GET /api/positioning?symbol=SPY` · `GET /api/ai/status` · `POST /api/ai/analyze` · `POST /api/ai/chat` (SSE).
 
 ### Seguridad y límites
 

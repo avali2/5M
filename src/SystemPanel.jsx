@@ -9,6 +9,7 @@ export default function SystemPanel({ theme, toggleTheme, accountUsd, setAccount
   const status = useApi(() => apiGet('/api/status'), []);
   const ai = useApi(() => apiGet('/api/ai/status'), []);
   const alerts = useApi(() => apiGet('/api/alerts/status'), []);
+  const news = useApi(() => apiGet('/api/news'), []);
   const [key, setLocalKey] = useState(getKey());
   const [saved, setSaved] = useState('');
   const [capital, setCapital] = useState(String(accountUsd || 10000));
@@ -60,6 +61,16 @@ AI_PROVIDER=auto`}</pre>
           </label>
           <p className="tiny muted">Se usa para calcular cuántos contratos comprar según el % de riesgo (por defecto 1,5%).</p>
         </div>
+      </Card>
+
+      <Card title="Noticias y bots" icon="globe">
+        <div className="grid-2">
+          <KV label="Noticias" value={news.data?.status || (news.loading ? 'cargando' : '—')} />
+          <KV label="Fuentes OK" value={news.data ? (news.data.sources || []).filter((source) => source.ok).length + '/' + (news.data.sources || []).length : '—'} />
+          <KV label="Bot paper" value={(health.data?.bots?.paperArmed ?? status.data?.bots?.paper?.armed) ? 'armado' : 'desarmado'} />
+          <KV label="Bot real" value={(health.data?.bots?.liveArmed ?? status.data?.bots?.live?.armed) ? 'armado' : 'bloqueado'} />
+        </div>
+        {(news.data?.headlines || []).slice(0, 2).map((row) => <p key={row.title} className="tiny muted" style={{ marginTop: 6 }}>· {row.title}</p>)}
       </Card>
 
       <Card title="Alertas" icon="wifi">
