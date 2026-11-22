@@ -177,9 +177,14 @@ export class CreditBot {
         const raw = accountsPayload?.accounts?.account;
         accounts = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((account) => ({ id: account.account_number || account.id || null, type: account.type || null, status: account.status || null }));
       } catch { /* la lista de cuentas es opcional */ }
+      const profileAccount = payload?.profile?.account;
+      if (profileAccount?.account_number) {
+        accounts = [{ id: profileAccount.account_number, type: profileAccount.type || null, status: profileAccount.status || null }, ...accounts.filter((account) => account.id !== profileAccount.account_number)];
+      }
       const result = {
         ok: true, at: this.now().toISOString(), name: payload?.profile?.name || null,
-        accountType: payload?.profile?.account?.type || null, accounts: accounts.filter((account) => account.id)
+        accountType: profileAccount?.type || null, optionLevel: profileAccount?.option_level ?? null,
+        accounts: accounts.filter((account) => account.id)
       };
       this.state.lastVerify = result;
       this.save();

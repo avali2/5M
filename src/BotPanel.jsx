@@ -17,7 +17,7 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
 
   async function verifyToken() {
     setBusy(true); setMessage('');
-    try { const result = await apiPost('/api/bots/live/verify', {}); setMessage(result.verify?.ok ? 'Token de producción válido: ' + (result.verify.name || '') + ' ' + (result.verify.accountType || '') : (result.verify?.error || 'Token inválido.')); bot.reload(); }
+    try { const result = await apiPost('/api/bots/live/verify', {}); setMessage(result.verify?.ok ? 'Token válido: ' + (result.verify.name || '') + ' · cuenta ' + ((result.verify.accounts || [])[0]?.id || '—') + ' · nivel opciones ' + (result.verify.optionLevel ?? '—') : (result.verify?.error || 'Token inválido.')); bot.reload(); }
     catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   }
