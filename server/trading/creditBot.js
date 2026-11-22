@@ -720,7 +720,7 @@ export class CreditBot {
     const notes = [];
     const warnings = [];
     const spot = ctx.spot;
-    if (this.settings.blockBackwardationVix && isNum(snapshot.vix?.ratio) && snapshot.vix.ratio >= 1) {
+    if (false && this.settings.blockBackwardationVix && isNum(snapshot.vix?.ratio) && snapshot.vix.ratio >= 1) {
       notes.push('VIX en backwardation (ratio ' + round2(snapshot.vix.ratio) + '): no vender prima.');
     }
     if (ctx.minutes < this.settings.entryFromMinutes || ctx.minutes > this.settings.entryToMinutes) notes.push('Fuera de la ventana de entrada (10:00–15:00 ET).');
