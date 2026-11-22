@@ -9,7 +9,7 @@ import { TradierClient, isTradierConfigured } from './lib/tradier.js';
 import { GeminiReviewer, isGeminiConfigured } from './lib/gemini.js';
 import { scanMarket } from './lib/scanner.js';
 import { getLatestScan, getLearningSummary, getPortfolioState, getScanHistory, getStoreStatus, savePortfolioState, saveScan, saveSignalFeedback } from './lib/store.js';
-import { buildNito, dailyGreeting, NITO_SYMBOLS } from './lib/nito.js';
+import { buildNito, dailyGreeting, NITO_SYMBOLS, isNitoAuthorized } from './lib/nito.js';
 import { TradingDesk } from './trading/desk.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
 
@@ -91,8 +91,9 @@ const nitoInFlight = new Map();
 function requireNito(request,response,next) {
   const expected = process.env.NITO_ACCESS_KEY || '';
   const supplied = request.get('X-NiTo-Key') || '';
-  if (!expected || expected===config.security.accessKey || !config.security.requireAccessKey || !config.security.accessKey) return response.status(503).json({error:'NiTo requiere claves separadas y protección de la cuenta habilitada.'});
-  if (!supplied || Buffer.byteLength(supplied)!==Buffer.byteLength(expected) || !crypto.timingSafeEqual(Buffer.from(supplied),Buffer.from(expected))) return response.status(401).json({error:'Acceso privado NiTo.'});
+  const owner = config.security.accessKey;
+  if (!config.security.requireAccessKey || !owner) return response.status(503).json({error:'NiTo requiere protección de la cuenta habilitada.'});
+  if (!isNitoAuthorized({supplied,owner,guest:expected,shareAuthorized:process.env.NITO_SHARE_AUTHORIZED==='true'})) return response.status(401).json({error:'Acceso privado NiTo. Utiliza la clave del administrador para uso personal. Invitaciones deshabilitadas sin autorización del proveedor.'});
   return next();
 }
 app.get('/api/nito', requireNito, async (request,response) => {
