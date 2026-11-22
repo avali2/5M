@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { apiGet } from './lib/api.js';
+import { apiGet, getKey, setKey } from './lib/api.js';
 import { useLocalStorage, useTheme } from './lib/hooks.js';
-import { Icon, Badge } from './components/ui.jsx';
+import { Icon, Badge, Card } from './components/ui.jsx';
 import QuickPanel from './QuickPanel.jsx';
 import BotPanel from './BotPanel.jsx';
 import SpreadsPanel from './SpreadsPanel.jsx';
@@ -37,6 +37,32 @@ export default function App() {
   const [accountUsd, setAccountUsd] = useLocalStorage('5m-account', 10000);
   const [theme, toggleTheme] = useTheme();
   const [health, setHealth] = useState(null);
+  const [locked, setLocked] = useState(false);
+  const [keyDraft, setKeyDraft] = useState('');
+  const [keyError, setKeyError] = useState('');
+
+  useEffect(() => {
+    const onUnauthorized = () => setLocked(true);
+    window.addEventListener('5m:unauthorized', onUnauthorized);
+    // Clave por URL (?k=...), se guarda y se limpia la barra.
+    const params = new URLSearchParams(window.location.search);
+    const urlKey = params.get('k') || params.get('key');
+    if (urlKey) {
+      setKey(urlKey);
+      params.delete('k'); params.delete('key');
+      const search = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (search ? '?' + search : '') + window.location.hash);
+    }
+    if (!getKey()) setLocked(true);
+    return () => window.removeEventListener('5m:unauthorized', onUnauthorized);
+  }, []);
+
+  function saveKey() {
+    const value = keyDraft.trim();
+    if (!value) { setKeyError('Pegá la clave del servidor.'); return; }
+    setKey(value);
+    window.location.reload();
+  }
 
   useEffect(() => {
     apiGet('/api/health').then(setHealth).catch(() => setHealth(null));
@@ -79,10 +105,31 @@ export default function App() {
               </select>
             </label>
             <Badge tone={health?.demo?.active ? 'warn' : 'up'}>{health?.demo?.active ? 'DEMO' : 'REAL'}</Badge>
+            <button className="icon-btn" onClick={() => setLocked(true)} aria-label="Clave de acceso" title="Clave de acceso"><Icon name="key" /></button>
             <button className="icon-btn" onClick={toggleTheme} aria-label="Cambiar tema"><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></button>
           </div>
         </div>
       </header>
+
+      {locked && (
+        <div className="main" style={{ maxWidth: 520 }}>
+          <Card title="Acceso a 5 MILLIONS" icon="lock" subtitle="Tu servidor privado exige la clave APP_ACCESS_KEY.">
+            <div className="stack">
+              <p className="small" style={{ color: 'var(--text-2)' }}>Pegá la clave una vez: queda guardada solo en este dispositivo y no se envía a nadie más.</p>
+              <label className="field"><span>Clave del servidor</span>
+                <input className="input" type="password" value={keyDraft} placeholder="APP_ACCESS_KEY" onChange={(event) => setKeyDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') saveKey(); }} />
+              </label>
+              {keyError && <p className="tiny down">{keyError}</p>}
+              <div className="row wrap" style={{ gap: 8 }}>
+                <button className="btn primary" onClick={saveKey}><Icon name="lock" size={15} />Guardar y entrar</button>
+                <a className="btn" href="https://dashboard.render.com/web/srv-dbkeeq0m7kps738k7ee0/env" target="_blank" rel="noopener noreferrer">Ver dónde está la clave</a>
+                <button className="btn ghost" onClick={() => setLocked(false)}>Solo mirar</button>
+              </div>
+              <p className="tiny muted">La clave está en Render → tu servicio → Environment → <b>APP_ACCESS_KEY</b>. También podés abrir la app con <span className="mono">?k=TU_CLAVE</span> una vez y se guarda sola.</p>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <main className="main">
         {tab === 'alertas' && <QuickPanel {...panelProps} />}

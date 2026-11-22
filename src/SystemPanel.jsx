@@ -95,11 +95,13 @@ AI_PROVIDER=auto`}</pre>
 
       <Card title="Módulos" icon="layers">
         <div className="stack xs small">
-          <div className="row between"><span>NiTo direccional (CALL/PUT)</span><Badge tone="up">activo</Badge></div>
+          <div className="row between"><span>Alertas agresivas</span><Badge tone="up">activo</Badge></div>
           <div className="row between"><span>Spreads agresivos</span><Badge tone="up">activo</Badge></div>
           <div className="row between"><span>Posicionamiento institucional</span><Badge tone="up">activo</Badge></div>
+          <div className="row between"><span>Noticias</span><Badge tone={news.data?.green ? 'up' : 'warn'}>{news.data?.green ? 'en verde' : news.data?.status || '—'}</Badge></div>
           <div className="row between"><span>Analista DeepSeek + Gemini</span><Badge tone={ai.data?.deepseek?.configured || ai.data?.gemini?.configured ? 'up' : 'warn'}>{ai.data?.deepseek?.configured || ai.data?.gemini?.configured ? 'activo' : 'sin claves'}</Badge></div>
-          <div className="row between"><span>Rueda (CSP / CC)</span><Badge tone={integrations.tradier ? 'up' : 'warn'}>{integrations.tradier ? 'activo' : 'requiere Tradier'}</Badge></div>
+          <div className="row between"><span>Bot Paper (sandbox)</span><Badge tone={health.data?.bots?.paperArmed ? 'up' : 'warn'}>{health.data?.bots?.paperArmed ? 'armado' : 'desarmado'}</Badge></div>
+          <div className="row between"><span>Bot Real (dinero real)</span><Badge tone={health.data?.bots?.liveArmed ? 'down' : 'neutral'}>{health.data?.bots?.liveArmed ? 'OPERANDO' : 'bloqueado'}</Badge></div>
         </div>
       </Card>
 

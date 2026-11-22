@@ -1,5 +1,5 @@
 /* 5M · cliente HTTP del frontend */
-const KEY_STORAGE = 'five-millions-access-key';
+export const KEY_STORAGE = 'five-millions-access-key';
 
 export function getKey() { try { return localStorage.getItem(KEY_STORAGE) || ''; } catch { return ''; } }
 export function setKey(value) { try { localStorage.setItem(KEY_STORAGE, String(value || '').trim()); } catch { /* almacenamiento no disponible */ } }
@@ -17,6 +17,9 @@ export class ApiError extends Error {
 
 async function parse(response) {
   const payload = await response.json().catch(() => null);
+  if (response.status === 401) {
+    try { window.dispatchEvent(new CustomEvent('5m:unauthorized')); } catch { /* sin window */ }
+  }
   if (!response.ok || !payload) throw new ApiError(payload?.error || `API no disponible (HTTP ${response.status}).`, response.status);
   return payload;
 }

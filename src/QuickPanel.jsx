@@ -10,7 +10,10 @@ const URGENCY_TONE = { AHORA: 'up', HOY: 'warn', VIGILAR: 'neutral' };
 export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd }) {
   const [tick, setTick] = useState(0);
   const [expanded, setExpanded] = useState(null);
-  const [pushState, setPushState] = useState('');
+  const [pushState, setPushState] = useState(() => {
+    try { return typeof Notification !== 'undefined' && Notification.permission === 'denied' ? 'Notificaciones bloqueadas en el navegador. Tocá el candado 🔒 al lado de la URL → Notificaciones → Permitir, y recargá la página.' : ''; }
+    catch { return ''; }
+  });
   const alerts = useApi(() => apiGet('/api/alerts/status'), [tick]);
   const news = useApi(() => apiGet('/api/news'), [tick]);
   const [botBusy, setBotBusy] = useState(false);
@@ -23,7 +26,7 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
     try {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Este navegador no admite notificaciones push.');
       const permission = await Notification.requestPermission();
-      if (permission !== 'granted') throw new Error('Permiso de notificaciones no concedido.');
+      if (permission !== 'granted') throw new Error('Permiso denegado. Tocá el candado 🔒 de la barra de direcciones → Notificaciones → Permitir, y volvé a intentar.');
       const keyResponse = await apiGet('/api/notifications/public-key');
       if (!keyResponse.configured) throw new Error('Faltan las claves VAPID en el servidor.');
       const registration = await navigator.serviceWorker.register('/sw.js');
