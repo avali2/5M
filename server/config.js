@@ -169,6 +169,10 @@ Object.assign(config, {
     temperature: Math.min(1.2, Math.max(0, asNumber(process.env.AI_TEMPERATURE, 0.35))),
     language: process.env.AI_LANGUAGE || 'es'
   },
+  freeData: {
+    enabled: asBool(process.env.FREE_DATA, true),
+    label: 'Yahoo + cadena pública (delayed)'
+  },
   demo: {
     enabled: asBool(process.env.DEMO_MODE, !Boolean(process.env.TRADIER_TOKEN)),
     label: process.env.DEMO_LABEL || 'Datos simulados'
@@ -216,6 +220,7 @@ export function publicConfig() {
       deepseek: Boolean(config.deepseek.apiKey),
       aiProvider: config.ai.preferred,
       demo: config.demo.enabled,
+      freeData: config.freeData.enabled,
       allowDemo: config.demo.enabled,
       push: Boolean(config.push.enabled && config.push.publicKey && config.push.privateKey)
     }

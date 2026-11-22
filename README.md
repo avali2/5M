@@ -11,7 +11,7 @@ npm test             # 77 tests
 npm run smoke:engines  # señales, spreads y posicionamiento contra el mercado demo
 ```
 
-Sin `TRADIER_TOKEN` la app arranca en **modo demo** (mercado simulado, marcado como "NO OPERAR").
+Sin `TRADIER_TOKEN` la app usa **datos reales gratuitos** (`FREE_DATA=true`: StockAnalysis para precio/histórico, OptionsProfitCalculator para la cadena, IV/Greeks calculados locales). Si esas fuentes fallan cae a **modo demo** (mercado simulado, marcado "NO OPERAR").
 Con `TRADIER_TOKEN` usa datos reales. Para IA: `GEMINI_API_KEY` y/o `DEEPSEEK_API_KEY`.
 
 ### Pantallas

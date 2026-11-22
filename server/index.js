@@ -13,7 +13,8 @@ import { getLatestScan, getLearningSummary, getPortfolioState, getScanHistory, g
 import { buildNito, dailyGreeting, NITO_SYMBOLS, isNitoAuthorized, publicNitoSnapshot } from './lib/nito.js';
 import { TradingDesk } from './trading/desk.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
-import { getSnapshot, isDemoActive, dataSourceLabel } from './lib/marketData.js';
+import { getSnapshot, isDemoActive, dataSourceLabel, providerStatus } from './lib/marketData.js';
+import { freeProbe } from './lib/freeData.js';
 import { buildDirectionalSignals } from './lib/nitoDirectional.js';
 import { buildSpreadIdeas } from './lib/aggressiveSpreads.js';
 import { buildPositioning } from './lib/positioning.js';
@@ -25,6 +26,7 @@ const tradier = new TradierClient();
 const gemini = new GeminiReviewer();
 const tradingDesk = new TradingDesk(config, gemini);
 let latestScan = null;
+let providerHealth = null;
 let lastScanError = null;
 let scanInFlight = null;
 let lastPushResult = null;
@@ -98,6 +100,8 @@ app.get('/api/health', async (_request, response) => {
     timestamp: new Date().toISOString(),
     configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), deepseek: isDeepSeekConfigured(), push: pushStatus().configured },
     demo: { active: isDemoActive(), dataSource: dataSourceLabel() },
+    providers: providerStatus(),
+    providerHealth: providerHealth,
     signalReadiness: { configured: isTradierConfigured() && isGeminiConfigured(), missing: [!isTradierConfigured()?'Tradier':null,!isGeminiConfigured()?'Gemini':null].filter(Boolean) },
     marketData: { realtimeEntitled: config.tradier.realtimeEntitled, mode: publicConfig().integrations.tradierMode },
     security: { requiresKey: config.security.requireAccessKey }
@@ -168,6 +172,29 @@ function snapshotSummary(snapshot) {
   };
 }
 
+app.get('/api/diagnostics/data', requireAccess, async (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  const symbol = String(request.query.symbol || 'SPY').toUpperCase();
+  try {
+    const probe = await freeProbe(symbol);
+    const snapshot = await getSnapshot(symbol, { tradier, force: true });
+    return response.json({
+      ok: probe.ok && Boolean(snapshot.quote?.price),
+      providers: providerStatus(),
+      probe,
+      snapshot: {
+        symbol: snapshot.symbol, source: snapshot.source, simulated: snapshot.simulated,
+        price: snapshot.quote?.price, expirations: snapshot.expirations,
+        bars: snapshot.history?.length, intraday: snapshot.intraday?.length,
+        strikes: Object.values(snapshot.chains || {}).reduce((sum, chain) => sum + chain.length, 0),
+        warnings: snapshot.warnings
+      }
+    });
+  } catch (error) {
+    return response.status(503).json({ ok: false, error: error.message, providers: providerStatus() });
+  }
+});
+
 app.get('/api/market/:symbol', requireAccess, async (request, response) => {
   response.set('Cache-Control', 'no-store');
   try {
@@ -184,7 +211,7 @@ app.get('/api/market/:symbol', requireAccess, async (request, response) => {
       walls: positioning?.walls ?? null,
       regime: positioning?.regime ?? null
     };
-    return response.json({ ok: true, dataSource: dataSourceLabel(), demo: isDemoActive(), snapshot: snapshotSummary(snapshot), positioning, derived });
+    return response.json({ ok: true, dataSource: dataSourceLabel(), source: snapshot.source, demo: Boolean(snapshot.simulated), snapshot: snapshotSummary(snapshot), positioning, derived });
   } catch (error) {
     return response.status(503).json({ ok: false, error: error.message, demo: isDemoActive() });
   }
@@ -215,7 +242,7 @@ app.get('/api/nito/directional', requireAccess, async (request, response) => {
     signals.sort((left, right) => (right.score ?? 0) - (left.score ?? 0));
     return response.json({
       ok: true,
-      demo: isDemoActive(),
+      demo: batches.some((batch) => batch.snapshot?.simulated),
       dataSource: dataSourceLabel(),
       generatedAt: new Date().toISOString(),
       durationMs: Date.now() - started,
@@ -249,7 +276,7 @@ app.get('/api/spreads', requireAccess, async (request, response) => {
     }
     ideas.sort((left, right) => (right.score ?? 0) - (left.score ?? 0));
     return response.json({
-      ok: true, demo: isDemoActive(), dataSource: dataSourceLabel(),
+      ok: true, demo: batches.some((batch) => batch.snapshot?.simulated), dataSource: dataSourceLabel(),
       generatedAt: new Date().toISOString(), durationMs: Date.now() - started,
       profile, ideas: ideas.slice(0, 12), errors
     });
@@ -265,7 +292,7 @@ app.get('/api/positioning', requireAccess, async (request, response) => {
     const snapshot = await getSnapshot(symbol, { tradier });
     const expiration = request.query.expiration || snapshot.expirations?.[0] || null;
     return response.json({
-      ok: true, demo: isDemoActive(), dataSource: dataSourceLabel(),
+      ok: true, demo: Boolean(snapshot.simulated), dataSource: dataSourceLabel(),
       positioning: buildPositioning({ snapshot, expiration }),
       quote: snapshot.quote,
       expirations: snapshot.expirations,
@@ -495,10 +522,21 @@ if (fs.existsSync(distPath)) {
   });
 }
 
+async function warmupProviders() {
+  try {
+    const probe = await freeProbe(config.nito.symbols?.[0] || 'SPY');
+    providerHealth = { at: new Date().toISOString(), ...probe };
+    if (!probe.ok) console.warn('[5M] Proveedor gratuito con fallos:', probe.steps.filter((step) => !step.ok).map((step) => step.name).join(', '));
+  } catch (error) {
+    providerHealth = { at: new Date().toISOString(), ok: false, error: error.message };
+  }
+}
+
 if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
   app.listen(config.port, config.host, () => {
     console.info(`[5M] http://${config.host}:${config.port} · Tradier ${isTradierConfigured() ? 'configurado' : 'no configurado'} · Gemini ${isGeminiConfigured() ? 'configurado' : 'no configurado'}`);
   });
   startScannerScheduler();
   tradingDesk.start();
+  setTimeout(warmupProviders, 300);
 }

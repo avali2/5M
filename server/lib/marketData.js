@@ -9,6 +9,7 @@ import { config } from '../config.js';
 import { buildTechnicalContext, buildMultiTimeframeContext } from './indicators.js';
 import { analyzeInstitutionalFlow } from './institutionalFlow.js';
 import { demoSnapshot, isMarketOpen as demoMarketOpen } from './demoMarket.js';
+import { freeSnapshot, freeDataEnabled } from './freeData.js';
 
 const CACHE_TTL_MS = 45000;
 const MAX_EXPIRATIONS = 4;
@@ -16,11 +17,22 @@ const cache = new Map();
 const inflight = new Map();
 
 export function isDemoActive() {
-  return !config.tradier.token;
+  return !config.tradier.token && !freeDataEnabled();
 }
 
 export function dataSourceLabel() {
-  return isDemoActive() ? 'SIMULADO' : 'Tradier';
+  if (config.tradier.token) return 'Tradier';
+  if (freeDataEnabled()) return 'Yahoo/OPC';
+  return 'SIMULADO';
+}
+
+export function providerStatus() {
+  return {
+    tradier: Boolean(config.tradier.token),
+    free: freeDataEnabled(),
+    demoActive: isDemoActive(),
+    source: dataSourceLabel()
+  };
 }
 
 function pickExpirations(expirations, now = new Date()) {
@@ -147,11 +159,19 @@ export async function getSnapshot(symbolInput, { tradier, force = false } = {}) 
   const job = (async () => {
     const warnings = [];
     let snapshot;
-    if (isDemoActive()) {
-      snapshot = demoAdapter(symbol, warnings);
-    } else {
+    if (config.tradier.token) {
       if (!tradier) throw new Error('Cliente Tradier no disponible en este proceso.');
       snapshot = await tradierSnapshot(symbol, tradier, warnings);
+    } else if (freeDataEnabled()) {
+      try {
+        snapshot = await freeSnapshot(symbol);
+        warnings.push('Datos gratuitos con retraso (Yahoo + cadena pública). Verificá el precio en tu bróker antes de operar.');
+      } catch (error) {
+        warnings.push(`Proveedor gratuito no disponible (${error.message}). Se usa mercado simulado.`);
+        snapshot = demoAdapter(symbol, warnings);
+      }
+    } else {
+      snapshot = demoAdapter(symbol, warnings);
     }
     const enriched = enrich({ ...snapshot, warnings: [...(snapshot.warnings || []), ...warnings] });
     cache.set(symbol, { at: Date.now(), value: enriched });
