@@ -294,7 +294,7 @@ function OwnerApp() {
         const nextStatus = await request('/api/status');
         setStatus(nextStatus);
         if (nextStatus.latestScan?.id && nextStatus.latestScan.id !== scan?.id) setScan(await request('/api/scan'));
-      } catch { /* the next manual refresh will surface an error */ }
+      } catch (pollError) { setScan(null); setError(formatError(pollError)); }
     }, 60000);
     return () => clearInterval(timer);
   }, [publicCfg, scan?.id]);
@@ -305,9 +305,9 @@ function OwnerApp() {
   }
 
   async function scanNow() {
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setScan(null);
     try { const nextScan = await request('/api/scan', { method: 'POST' }); setScan(nextScan); setStatus(await request('/api/status')); }
-    catch (scanError) { setError(formatError(scanError)); }
+    catch (scanError) { setScan(null); setError(formatError(scanError)); }
     finally { setLoading(false); }
   }
 
