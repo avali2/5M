@@ -20,6 +20,28 @@ function risingHistory(last = 100, count = 240) {
   return bars;
 }
 
+function fallingHistory(last = 100, count = 240) {
+  const bars = [];
+  let price = last * 1.55;
+  for (let index = 0; index < count; index += 1) {
+    const change = index % 3 === 0 ? 0.0021 : -0.0031;
+    price *= 1 + change;
+    bars.push({ date: '2026-01-01', open: price, high: price * 1.004, low: price * 0.996, close: price, volume: 1e6 });
+  }
+  const scale = last / bars[bars.length - 1].close;
+  for (const bar of bars) { bar.open *= scale; bar.high *= scale; bar.low *= scale; bar.close *= scale; }
+  return bars;
+}
+
+function flatHistory(last = 100, count = 240) {
+  const bars = [];
+  for (let index = 0; index < count; index += 1) {
+    const price = last * (1 + Math.sin(index / 3) * 0.003);
+    bars.push({ date: '2026-01-01', open: price, high: price * 1.004, low: price * 0.996, close: price, volume: 1e6 });
+  }
+  return bars;
+}
+
 function snapshotWithChain({ spot = 100, credit = 1.1, direction = 'up' } = {}) {
   const expiration = '2026-12-29';
   const dte = 35;
@@ -27,15 +49,19 @@ function snapshotWithChain({ spot = 100, credit = 1.1, direction = 'up' } = {}) 
     symbol: 'SPY' + strike + 'P', type: 'put', strike, delta, iv: 0.25,
     bid: mid - 0.01, ask: mid + 0.01, mid, openInterest: oi, volume: 100, expiration
   });
+  const call = (strike, delta, mid, oi = 900) => ({
+    symbol: 'SPY' + strike + 'C', type: 'call', strike, delta, iv: 0.25,
+    bid: mid - 0.01, ask: mid + 0.01, mid, openInterest: oi, volume: 100, expiration
+  });
   const shortMid = 1.0 + credit * 0.5;
   const longMid = shortMid - credit;
   return {
     symbol: 'SPY', asOf: NOW.toISOString(), simulated: false, marketOpen: true,
     quote: { price: spot },
-    history: direction === 'up' ? risingHistory(spot) : risingHistory(spot).reverse().map((bar, index, array) => ({ ...bar, close: spot * (1 - index * 0.0005) })),
+    history: direction === 'up' ? risingHistory(spot) : direction === 'down' ? fallingHistory(spot) : flatHistory(spot),
     expirations: [expiration],
     dteByExpiration: { [expiration]: dte },
-    chains: { [expiration]: [put(95, -0.18, shortMid), put(90, -0.1, longMid)] },
+    chains: { [expiration]: [put(95, -0.18, shortMid), put(90, -0.1, longMid), call(105, 0.18, shortMid), call(110, 0.1, longMid)] },
     events: [], warnings: []
   };
 }
@@ -59,11 +85,24 @@ test('arma un bull put con reglas de riesgo cuando la tendencia acompaña', () =
   assert.equal(plan.exits.timeExitDte, 21);
 });
 
-test('no opera en tendencia bajista', () => {
-  const bot = new CreditBot({ env: {}, now: () => NOW });
+test('en tendencia bajista vende un bear call spread', () => {
+  const bot = new CreditBot({ env: { CREDIT_BOT_MAX_RISK_USD: '500' }, now: () => NOW });
   const { plan, notes } = bot.playbook(snapshotWithChain({ direction: 'down' }));
+  assert.deepEqual(notes, []);
+  assert.ok(plan);
+  assert.equal(plan.strategy, 'BEAR_CALL_CREDIT');
+  assert.equal(plan.direction, 'BEARISH');
+  assert.equal(plan.legs[0].type, 'call');
+  assert.ok(plan.legs[0].strike < plan.legs[1].strike, 'en un bear call se vende el strike más bajo');
+  assert.ok(plan.credit > 0);
+  assert.ok(plan.riskUsd <= 500);
+});
+
+test('no opera sin tendencia clara', () => {
+  const bot = new CreditBot({ env: {}, now: () => NOW });
+  const { plan, notes } = bot.playbook(snapshotWithChain({ direction: 'flat' }));
   assert.equal(plan, null);
-  assert.ok(notes.some((note) => /Tendencia/i.test(note)));
+  assert.ok(notes.some((note) => /Sin tendencia/i.test(note)));
 });
 
 test('rechaza crédito insuficiente para el ancho', () => {

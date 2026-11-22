@@ -163,8 +163,12 @@ export class CreditBot {
     if (marketMinutes.minutes < this.settings.entryFromMinutes || marketMinutes.minutes > this.settings.entryToMinutes) {
       notes.push('Fuera de la ventana de entrada (10:00–15:00 ET).');
     }
-    if (!(isNum(ema50) && isNum(ema200) && spot > ema50 && ema50 > ema200)) notes.push('Tendencia no alcista (precio > EMA50 > EMA200 requerido).');
-    if (isNum(rsi14) && rsi14 > 78) notes.push('RSI demasiado alto: riesgo de comprar el techo.');
+    const uptrend = isNum(ema50) && isNum(ema200) && spot > ema50 && ema50 > ema200;
+    const downtrend = isNum(ema50) && isNum(ema200) && spot < ema50 && ema50 < ema200;
+    if (!uptrend && !downtrend) notes.push('Sin tendencia clara (EMA50 y EMA200 alineadas requeridas).');
+    if (uptrend && isNum(rsi14) && rsi14 > 78) notes.push('RSI demasiado alto: riesgo de comprar el techo.');
+    if (downtrend && isNum(rsi14) && rsi14 < 22) notes.push('RSI demasiado bajo: rebote posible contra el spread de calls.');
+    const type = downtrend && !uptrend ? 'call' : 'put';
     const snapshotExpirations = snapshot.expirations || [];
     const candidates = snapshotExpirations
       .map((expiration) => ({ expiration, dte: dteFor(snapshot, expiration) }))
@@ -178,50 +182,53 @@ export class CreditBot {
     const rv = realizedVol(snapshot.history);
     const ivRatio = isNum(atmIv) && isNum(rv) && rv > 0.02 ? atmIv / rv : null;
     if (isNum(ivRatio) && ivRatio < 0.85) notes.push('Prima barata: IV por debajo de la volatilidad realizada (ratio ' + round2(ivRatio) + ').');
-    const puts = chain.filter((option) => option.type === 'put' && isNum(option.delta) && isNum(option.bid) && option.bid > 0)
+    const legOptions = chain.filter((option) => option.type === type && isNum(option.delta) && isNum(option.bid) && option.bid > 0)
       .map((option) => ({ ...option, absDelta: Math.abs(option.delta) }))
       .filter((option) => option.absDelta >= this.settings.shortDeltaMin && option.absDelta <= this.settings.shortDeltaMax)
       .sort((left, right) => Math.abs(left.absDelta - this.settings.targetDelta) - Math.abs(right.absDelta - this.settings.targetDelta));
-    const shortPut = puts[0] || null;
-    if (!shortPut) notes.push('Sin put vendido en la banda de delta ' + this.settings.shortDeltaMin + '–' + this.settings.shortDeltaMax + '.');
+    const shortOption = legOptions[0] || null;
+    if (!shortOption) notes.push('Sin contrato vendido en la banda de delta ' + this.settings.shortDeltaMin + '–' + this.settings.shortDeltaMax + '.');
     const width = Math.max(1, Math.round(spot * this.settings.widthPct));
-    let longPut = null;
-    if (shortPut) {
-      longPut = chain.filter((option) => option.type === 'put' && isNum(option.strike) && isNum(option.ask) && option.ask > 0 && option.strike < shortPut.strike - 0.001)
-        .sort((left, right) => Math.abs(Math.abs(left.strike - (shortPut.strike - width))) - Math.abs(Math.abs(right.strike - (shortPut.strike - width))))[0] || null;
-      if (!longPut || !(longPut.strike < shortPut.strike)) notes.push('No hay ala de protección adecuada.');
+    let longOption = null;
+    if (shortOption) {
+      const targetStrike = type === 'put' ? shortOption.strike - width : shortOption.strike + width;
+      longOption = chain.filter((option) => option.type === type && isNum(option.strike) && isNum(option.ask) && option.ask > 0
+        && (type === 'put' ? option.strike < shortOption.strike - 0.001 : option.strike > shortOption.strike + 0.001))
+        .sort((left, right) => Math.abs(left.strike - targetStrike) - Math.abs(right.strike - targetStrike))[0] || null;
+      if (!longOption) notes.push('No hay ala de protección adecuada.');
     }
     let credit = null; let creditWidth = null; let maxLossPerContract = null;
-    if (shortPut && longPut) {
-      credit = roundTick((shortPut.bid + shortPut.ask) / 2 - (longPut.bid + longPut.ask) / 2);
-      const realWidth = shortPut.strike - longPut.strike;
+    if (shortOption && longOption) {
+      credit = roundTick((shortOption.bid + shortOption.ask) / 2 - (longOption.bid + longOption.ask) / 2);
+      const realWidth = Math.abs(shortOption.strike - longOption.strike);
       creditWidth = credit / realWidth;
       maxLossPerContract = roundTick((realWidth - credit) * 100);
       if (credit < 0) notes.push('El spread no paga crédito a los precios actuales.');
       if (creditWidth < this.settings.minCreditWidth) notes.push('Crédito/ancho ' + round2(creditWidth * 100) + '% por debajo del mínimo ' + Math.round(this.settings.minCreditWidth * 100) + '%.');
       const spreadPct = (option) => ((option.ask - option.bid) / ((option.ask + option.bid) / 2)) * 100;
-      if (spreadPct(shortPut) > this.settings.maxSpreadPct * 100 || spreadPct(longPut) > this.settings.maxSpreadPct * 100) notes.push('Spread de la cadena demasiado ancho.');
-      if ((shortPut.openInterest || 0) < this.settings.minOpenInterest || (longPut.openInterest || 0) < this.settings.minOpenInterest) notes.push('Open interest insuficiente.');
+      if (spreadPct(shortOption) > this.settings.maxSpreadPct * 100 || spreadPct(longOption) > this.settings.maxSpreadPct * 100) notes.push('Spread de la cadena demasiado ancho.');
+      if ((shortOption.openInterest || 0) < this.settings.minOpenInterest || (longOption.openInterest || 0) < this.settings.minOpenInterest) notes.push('Open interest insuficiente.');
     }
     const maxRisk = Number(this.env.CREDIT_BOT_MAX_RISK_USD || 500);
     const equity = Number(this.env.CREDIT_BOT_EQUITY || 0);
     const riskBudget = equity > 0 ? Math.min(maxRisk, equity * (this.settings.riskPct / 100)) : maxRisk;
     const contracts = maxLossPerContract ? Math.max(0, Math.min(this.settings.contractsCap, Math.floor((riskBudget / maxLossPerContract)))) : 0;
-    const plan = shortPut && longPut && credit > 0 && !notes.length && contracts > 0 ? {
+    const plan = shortOption && longOption && credit > 0 && !notes.length && contracts > 0 ? {
       symbol: this.settings.symbol,
-      strategy: 'BULL_PUT_CREDIT',
+      strategy: type === 'put' ? 'BULL_PUT_CREDIT' : 'BEAR_CALL_CREDIT',
+      direction: type === 'put' ? 'BULLISH' : 'BEARISH',
       expiration,
       dte: candidates[0].dte,
       spot: round2(spot),
-      width: round2(shortPut.strike - longPut.strike),
+      width: round2(Math.abs(shortOption.strike - longOption.strike)),
       credit,
       creditWidth: round2(creditWidth * 100) / 100,
       maxLossPerContract,
       contracts,
       riskUsd: roundTick(maxLossPerContract * contracts),
       legs: [
-        { action: 'SELL', type: 'put', strike: shortPut.strike, price: roundTick((shortPut.bid + shortPut.ask) / 2), delta: round2(shortPut.delta), iv: shortPut.iv, oi: shortPut.openInterest, symbol: shortPut.symbol },
-        { action: 'BUY', type: 'put', strike: longPut.strike, price: roundTick((longPut.bid + longPut.ask) / 2), delta: round2(longPut.delta), iv: longPut.iv, oi: longPut.openInterest, symbol: longPut.symbol }
+        { action: 'SELL', type, strike: shortOption.strike, price: roundTick((shortOption.bid + shortOption.ask) / 2), delta: round2(shortOption.delta), iv: shortOption.iv, oi: shortOption.openInterest, symbol: shortOption.symbol },
+        { action: 'BUY', type, strike: longOption.strike, price: roundTick((longOption.bid + longOption.ask) / 2), delta: round2(longOption.delta), iv: longOption.iv, oi: longOption.openInterest, symbol: longOption.symbol }
       ],
       exits: {
         profitTargetUsd: roundTick(credit * 100 * contracts * this.settings.profitTargetPct / 100),

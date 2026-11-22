@@ -136,12 +136,19 @@ export async function fetchOpcSpot(symbol) {
 }
 
 export function normalizeChain({ symbol, spot, rawOptions, now = Date.now(), maxExpirations = 4 }) {
-  const expirations = Object.keys(rawOptions)
+  const allExpirations = Object.keys(rawOptions)
     .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
     .map((date) => ({ date, dte: Math.round((Date.parse(`${date}T21:00:00Z`) - now) / 86400000) }))
     .filter((entry) => entry.dte >= 5 && entry.dte <= 75)
-    .sort((left, right) => left.dte - right.dte)
-    .slice(0, maxExpirations);
+    .sort((left, right) => left.dte - right.dte);
+  // Mezcla vencimientos cercanos y de 30-45 días para que NiTo, spreads y el bot tengan su rango.
+  const picked = new Map();
+  for (const entry of allExpirations.slice(0, 2)) picked.set(entry.date, entry);
+  for (const target of [21, 35, 45, 60]) {
+    const closest = allExpirations.reduce((best, entry) => (Math.abs(entry.dte - target) < Math.abs((best?.dte ?? 999) - target) ? entry : best), null);
+    if (closest) picked.set(closest.date, closest);
+  }
+  const expirations = [...picked.values()].sort((left, right) => left.dte - right.dte).slice(0, Math.max(maxExpirations, 5));
   if (!expirations.length) throw new Error('Sin vencimientos utilizables en la cadena pública.');
   const chains = {};
   const dteByExpiration = {};
