@@ -10,7 +10,7 @@ import { GeminiReviewer, isGeminiConfigured } from './lib/gemini.js';
 import { scanMarket } from './lib/scanner.js';
 import { safeScanSnapshot, createScanJob } from './lib/scanLifecycle.js';
 import { getLatestScan, getLearningSummary, getPortfolioState, getScanHistory, getStoreStatus, savePortfolioState, saveScan, saveSignalFeedback } from './lib/store.js';
-import { buildNito, dailyGreeting, NITO_SYMBOLS, isNitoAuthorized } from './lib/nito.js';
+import { buildNito, dailyGreeting, NITO_SYMBOLS, isNitoAuthorized, publicNitoSnapshot } from './lib/nito.js';
 import { TradingDesk } from './trading/desk.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
 
@@ -94,18 +94,13 @@ app.get('/api/health', async (_request, response) => {
 // NiTo is deliberately separate from the owner's account and order endpoints.
 const nitoCache = new Map();
 const nitoInFlight = new Map();
-function requireNito(request,response,next) {
-  const expected = process.env.NITO_ACCESS_KEY || '';
-  const supplied = request.get('X-NiTo-Key') || '';
-  const owner = config.security.accessKey;
-  if (!config.security.requireAccessKey || !owner) return response.status(503).json({error:'NiTo requiere protección de la cuenta habilitada.'});
-  if (!isNitoAuthorized({supplied,owner,guest:expected,shareAuthorized:process.env.NITO_SHARE_AUTHORIZED==='true'})) return response.status(401).json({error:'Acceso privado NiTo. Utiliza la clave del administrador para uso personal. Invitaciones deshabilitadas sin autorización del proveedor.'});
-  return next();
-}
-app.get('/api/nito', requireNito, async (request,response) => {
+app.get('/api/nito', async (request,response) => {
   response.set('Cache-Control','no-store');
   const symbol=String(request.query.symbol||'AMD').toUpperCase();
   if (!NITO_SYMBOLS.includes(symbol)) return response.status(400).json({error:'Símbolo no admitido.'});
+  const owner=config.security.accessKey;
+  const supplied=request.get('X-NiTo-Key')||'';
+  if (!config.security.requireAccessKey || !isNitoAuthorized({supplied,owner,guest:process.env.NITO_ACCESS_KEY||'',shareAuthorized:process.env.NITO_SHARE_AUTHORIZED==='true'})) return response.json(publicNitoSnapshot(symbol));
   const cached=nitoCache.get(symbol);
   if (cached && Date.now()-cached.at<30000) return response.json(cached.value);
   try {
