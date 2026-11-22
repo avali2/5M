@@ -280,3 +280,10 @@ code { padding: 2px 4px; border-radius: 4px; color: #334155; background: #f1f5f9
 .nito-input-grid input,.nito-input-grid select,.nito-controls select{box-sizing:border-box;width:100%;padding:12px;border:1px solid #8795a6;border-radius:9px;background:transparent;color:inherit;font:inherit;}
 .nito-result-grid>div{display:grid;gap:6px;padding:12px;border:1px solid #8795a660;border-radius:10px;}.nito-result-grid strong{font-size:1.1rem;}
 @media(max-width:480px){.nito-shell .main-content{padding-inline:12px;}.nito-shell .nito-hero{padding:20px;}.nito-direction-grid .side-card{padding:12px;}.nito-controls{grid-template-columns:1fr;}.nito-shell h1{font-size:1.12rem;}}
+
+/* Compact mobile navigation and independent TradingView chart. */
+.topbar .nito-nav{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;text-decoration:none;color:#087d88;border-color:#b4d6dd;background:#edf8fa;}
+.connection-link,.chart-external{color:#1758a8;font-weight:700;text-decoration:none;display:inline-block;line-height:1.5;}
+.market-chart-card{margin:16px 0;padding:16px;min-width:0;}.market-chart-card h2{margin:5px 0;}.chart-controls{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin:12px 0;}.chart-controls label{display:grid;gap:5px;min-width:100px;}.chart-controls select{padding:8px 12px;border:1px solid #c9d4e2;border-radius:8px;background:#fff;color:#172334;font:inherit;}.market-chart-frame{width:100%;height:460px;display:block;border:1px solid #d5dfea;border-radius:12px;margin:12px 0;}.market-chart-card .chart-external{margin:5px 0;}
+@media(max-width:650px){.topbar-inner{gap:8px;flex-wrap:wrap;padding:8px 0;}.topbar .brand{gap:7px;min-width:0;}.topbar .brand-mark{width:37px;height:37px;flex:none;}.topbar .brand h1{font-size:17px;}.topbar .brand .eyebrow{font-size:9px;}.topbar .top-actions{gap:6px;flex-wrap:wrap;}.topbar .nito-nav{font-size:12px;padding:8px 10px;}.topbar .top-actions .primary-btn{white-space:normal;max-width:100px;}.market-chart-frame{height:390px;}.market-chart-card{padding:12px;}}
+@media(max-width:360px){.topbar .nito-nav span{display:none;}.topbar .brand .eyebrow{display:none;}}

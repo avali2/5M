@@ -43,6 +43,7 @@ app.use(helmet({
       fontSrc: ["'self'", 'data:'],
       formAction: ["'self'"],
       frameAncestors: ["'none'"],
+      frameSrc: ["'self'"],
       imgSrc: ["'self'", 'data:'],
       manifestSrc: ["'self'"],
       objectSrc: ["'none'"],
@@ -61,6 +62,12 @@ app.use(cors({
   methods: ['GET', 'POST', 'OPTIONS']
 }));
 app.use(express.json({ limit: '256kb' }));
+// TradingView executes only in the separate, sandboxed chart document.
+app.use('/market-chart.html',(_request,response,next)=>{
+  response.set('Content-Security-Policy',"default-src 'none'; script-src 'self' https://s3.tradingview.com; style-src 'unsafe-inline' https://s3.tradingview.com; frame-src https://*.tradingview.com; connect-src https://*.tradingview.com; img-src https://*.tradingview.com data:; font-src https://*.tradingview.com; frame-ancestors 'self'; base-uri 'none'; form-action 'none'");
+  response.set('X-Frame-Options','SAMEORIGIN');
+  next();
+});
 
 function hasValidAccessKey(request) {
   if (!config.security.requireAccessKey) return true;
@@ -281,6 +288,7 @@ function startScannerScheduler() {
   scheduleNextScan(5000);
 }
 
+app.get(['/nito','/nito/'],(_request,response)=>response.redirect(302,'https://valido-1m.onrender.com/nito'));
 const distPath = path.join(config.root, 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));

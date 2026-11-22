@@ -107,3 +107,10 @@ En Render comprueba `/api/health`, `configured.tradier`, `configured.gemini` y `
 ### NiTo Market Pulse
 
 La ruta `/nito` es pública y no pide inicio de sesión. Ofrece saludo diario y laboratorio de escenarios M5 con niveles ingresados por el visitante. La API anónima no consulta Tradier ni devuelve contratos activos. La API de datos de uso personal conserva sus requisitos de autorización. Ninguna página pública accede a órdenes, credenciales, posiciones o balances. Para habilitar cotizaciones públicas se necesita una fuente con derechos de distribución adecuados.
+
+
+### Gráficos y diagnóstico de integración
+
+El gráfico externo es un widget oficial de TradingView con su atribución, selector de activo/intervalo y enlace directo de respaldo. Está aislado en un iframe sin acceso de mismo origen al panel administrativo y no es un feed ni un requisito de ejecución del bot. Algunos mercados se muestran con retraso y algunos navegadores bloquean contenido externo. El gráfico no solicita las claves de la app.
+
+En Render, añade por separado `TRADIER_TOKEN` y `GEMINI_API_KEY` en el servicio correcto. `APP_ACCESS_KEY` solo protege el acceso web. Si la API falta, la interfaz indica desconexión; no inventa señales ni presume que el scheduler se ejecuta. La mesa educativa NiTo se ofrece en https://valido-1m.onrender.com/nito; no compartas tu clave administrativa ni tokens privados. No se cambia BOT_MODE ni se activa ejecución de órdenes con esta actualización.
