@@ -94,12 +94,14 @@ const DEFAULTS = {
   autoStrategy: true,
   adaptiveLearning: true,
   strategies: { bullPut: true, bearCall: true, ironCondor: true },
-  dteMin: 30, dteMax: 45, targetDte: 35,
-  shortDeltaMin: 0.15, shortDeltaMax: 0.22, targetDelta: 0.18,
-  condorDeltaMin: 0.15, condorDeltaMax: 0.25, condorTargetDelta: 0.2,
+  dteMin: 35, dteMax: 50, targetDte: 45,
+  shortDeltaMin: 0.16, shortDeltaMax: 0.20, targetDelta: 0.18,
+  deltaStop: 0.35,
+  blockBackwardationVix: true,
+  condorDeltaMin: 0.16, condorDeltaMax: 0.24, condorTargetDelta: 0.2,
   minCreditWidth: 0.15,
   minCreditUsd: 45,
-  minIvRatio: 1,
+  minIvRatio: 1.1,
   requireContango: true,
   minAtrTrend: 0.25,
   maxSpreadPct: 0.08,
@@ -128,8 +130,8 @@ export class CreditBot {
     this.mode = String(mode || env.CREDIT_BOT_MODE || config.creditBot?.mode || 'paper').toLowerCase();
     this.profile = String(env.CREDIT_BOT_PROFILE || 'prudent').toLowerCase();
     const presets = this.profile === 'aggressive'
-      ? { dteMin: 14, dteMax: 24, targetDte: 18, shortDeltaMin: 0.28, shortDeltaMax: 0.36, targetDelta: 0.32, minCreditWidth: 0.25, minIvRatio: 1.05, minCreditUsd: 60, condorDeltaMin: 0.2, condorDeltaMax: 0.3, condorTargetDelta: 0.25 }
-      : { minIvRatio: 1, minCreditWidth: 0.15, minCreditUsd: 45 };
+      ? { dteMin: 30, dteMax: 45, targetDte: 40, shortDeltaMin: 0.2, shortDeltaMax: 0.28, targetDelta: 0.24, minCreditWidth: 0.18, minIvRatio: 1.15, minCreditUsd: 60, condorDeltaMin: 0.2, condorDeltaMax: 0.3, condorTargetDelta: 0.25 }
+      : { minIvRatio: 1.1, minCreditWidth: 0.15, minCreditUsd: 45 };
     this.settings = { ...DEFAULTS, ...(config.creditBot || {}), ...presets };
     this.aiReview = ['required', 'optional', 'off'].includes(String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase())
       ? String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase() : 'required';
@@ -314,8 +316,21 @@ export class CreditBot {
       running = roundTick(running + trade.realizedUsd);
       equity.push({ at: trade.closedAt, pnl: running });
     }
+    let peak = 0;
+    let maxDrawdown = 0;
+    let runningEquity = 0;
+    for (const trade of closed.slice().reverse()) {
+      runningEquity = roundTick(runningEquity + trade.realizedUsd);
+      peak = Math.max(peak, runningEquity);
+      maxDrawdown = Math.min(maxDrawdown, roundTick(runningEquity - peak));
+    }
+    const winsList = closed.filter((trade) => trade.realizedUsd > 0).map((trade) => trade.realizedUsd);
+    const lossesList = closed.filter((trade) => trade.realizedUsd <= 0).map((trade) => trade.realizedUsd);
     return {
       summary: this.summary(),
+      maxDrawdownUsd: roundTick(maxDrawdown),
+      avgWinUsd: winsList.length ? roundTick(winsList.reduce((sum, value) => sum + value, 0) / winsList.length) : null,
+      avgLossUsd: lossesList.length ? roundTick(lossesList.reduce((sum, value) => sum + value, 0) / lossesList.length) : null,
       byStrategy: Object.entries(byStrategy).map(([strategy, value]) => ({ strategy, ...value, winRate: value.trades ? roundTick((value.wins / value.trades) * 100) : null })),
       byExitReason: Object.entries(byReason).map(([reason, value]) => ({ reason, ...value })),
       equity,
@@ -552,6 +567,9 @@ export class CreditBot {
       const term = this.termStructure(snapshot, spot);
       if (term?.inverted) notes.push('Estructura de IV invertida (' + round2(term.front * 100) + '% vs ' + round2(term.back * 100) + '%): pánico, no vender prima.');
     }
+    if (this.settings.blockBackwardationVix && isNum(snapshot.vix?.ratio) && snapshot.vix.ratio >= 1) {
+      notes.push('VIX en backwardation (ratio ' + round2(snapshot.vix.ratio) + '): no vender prima.');
+    }
     const events = this.eventChecks(dte || 0);
     notes.push(...events.blocking);
     warnings.push(...events.warnings);
@@ -658,6 +676,9 @@ export class CreditBot {
     if (this.settings.requireContango) {
       const term = this.termStructure(snapshot, spot);
       if (term?.inverted) notes.push('Estructura de IV invertida: no vender prima.');
+    }
+    if (this.settings.blockBackwardationVix && isNum(snapshot.vix?.ratio) && snapshot.vix.ratio >= 1) {
+      notes.push('VIX en backwardation (ratio ' + round2(snapshot.vix.ratio) + '): no vender prima.');
     }
     const events = this.eventChecks(dte || 0);
     notes.push(...events.blocking);
@@ -789,6 +810,15 @@ export class CreditBot {
         }
       }
     }
+    if (!reason && isNum(this.settings.deltaStop)) {
+      try {
+        const snapshot = await getSnapshot(this.settings.symbol, { tradier: config.tradier.token ? this.market : undefined });
+        const chain = optionChainFor(snapshot, position.expiration);
+        const shortLeg = position.legs.find((leg) => leg.action === 'SELL');
+        const match = shortLeg ? chain.find((option) => option.type === shortLeg.type && Math.abs(option.strike - shortLeg.strike) < 0.001) : null;
+        if (match && isNum(match.delta) && Math.abs(match.delta) >= this.settings.deltaStop) reason = 'DELTA';
+      } catch { /* sin cadena: sigue con las otras reglas */ }
+    }
     if (!reason) {
       const events = eventRisk({ now: this.now(), dte: Math.max(0, dte), positionWarnDays: this.settings.positionWarnDays });
       if (events.soon.length && pnlUsd < targetUsd) reason = 'EVENTO';
@@ -905,6 +935,13 @@ export class CreditBot {
         return this.status();
       }
       const snapshot = await getSnapshot(this.settings.symbol, { tradier: config.tradier.token ? this.market : undefined });
+      // Régimen VIX: si VIX/VIX3M >= 1 hay backwardation (estrés) y no se vende prima.
+      try {
+        const vixQuotes = await this.market.getQuotes(['VIX', 'VIX3M']);
+        const vix = vixQuotes.find((quote) => quote.symbol === 'VIX')?.price;
+        const vix3m = vixQuotes.find((quote) => quote.symbol === 'VIX3M')?.price;
+        if (isNum(vix) && isNum(vix3m) && vix3m > 0) snapshot.vix = { vix: round2(vix), vix3m: round2(vix3m), ratio: round2(vix / vix3m) };
+      } catch { /* el proveedor puede no ofrecer VIX: se usa el término de IV de SPY */ }
       const result = this.playbook(snapshot);
       this.state.lastDecision = { at: this.now().toISOString(), plan: result.plan, notes: result.notes, warnings: result.warnings, dte: result.dte ?? null, strategySelected: result.strategySelected || null };
       this.log('EVAL', { strategy: result.strategySelected || null, note: result.notes[0] || (result.plan ? 'plan valido' : 'sin plan'), plan: result.plan ? { strategy: result.plan.strategy, credit: result.plan.credit, riskUsd: result.plan.riskUsd } : null });
