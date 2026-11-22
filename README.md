@@ -18,6 +18,7 @@ Con `TRADIER_TOKEN` usa datos reales. Para IA: `GEMINI_API_KEY` y/o `DEEPSEEK_AP
 
 | Pestaña | Qué hace |
 | --- | --- |
+| **Rápido** | Pantalla de 10 segundos: top de posiciones accionables (entrada, stop, objetivo, POP), posiciones abiertas del bot con P/L y acción sugerida, y radar exprés por símbolo. |
 | **NiTo** | Señales de compra de CALL y PUT con contrato, entrada, breakeven, objetivos, stop, POP de modelo, escenarios, tamaño por riesgo y texto para copiar. Radar por símbolo y motivos de descarte. |
 | **Spreads** | Bull put, bear call, iron condor, iron fly, jade lizard, broken wing y débito direccional con perfiles estándar/agresivo/máximo, patas con precio real, POP, EV, stress y plan de ajustes. |
 | **Institucional** | GEX/DEX por strike, muros de calls/puts, gamma flip, max pain, movimiento esperado, IV por vencimiento, skew 25Δ y lectura en español. |
@@ -27,7 +28,7 @@ Con `TRADIER_TOKEN` usa datos reales. Para IA: `GEMINI_API_KEY` y/o `DEEPSEEK_AP
 
 ### API nueva
 
-`GET /api/market/:symbol` · `GET /api/nito/directional?symbols=SPY,QQQ&side=both&account=10000` · `GET /api/spreads?profile=aggressive` · `GET /api/positioning?symbol=SPY` · `GET /api/ai/status` · `POST /api/ai/analyze` · `POST /api/ai/chat` (SSE).
+`GET /api/quick-scan?symbols=SPY,QQQ&limit=5` · `GET /api/positions` · `GET /api/market/:symbol` · `GET /api/nito/directional?symbols=SPY,QQQ&side=both&account=10000` · `GET /api/spreads?profile=aggressive` · `GET /api/positioning?symbol=SPY` · `GET /api/ai/status` · `POST /api/ai/analyze` · `POST /api/ai/chat` (SSE).
 
 ### Seguridad y límites
 

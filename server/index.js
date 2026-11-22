@@ -15,6 +15,8 @@ import { TradingDesk } from './trading/desk.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
 import { getSnapshot, isDemoActive, dataSourceLabel, providerStatus } from './lib/marketData.js';
 import { freeProbe } from './lib/freeData.js';
+import { buildQuickScan } from './lib/quickScan.js';
+import { analyzePositions } from './lib/positions.js';
 import { buildDirectionalSignals } from './lib/nitoDirectional.js';
 import { buildSpreadIdeas } from './lib/aggressiveSpreads.js';
 import { buildPositioning } from './lib/positioning.js';
@@ -171,6 +173,54 @@ function snapshotSummary(snapshot) {
     }))
   };
 }
+
+app.get('/api/quick-scan', requireAccess, async (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  const symbols = readSymbols(request.query.symbols, config.nito.symbols.slice(0, 6), 8);
+  const limit = Math.min(8, Math.max(1, Number(request.query.limit) || 5));
+  const accountUsd = Math.max(0, Number(request.query.account) || 0);
+  const started = Date.now();
+  try {
+    const batches = await snapshotsFor(symbols);
+    const items = [];
+    const errors = [];
+    for (const batch of batches) {
+      if (batch.error) { errors.push({ symbol: batch.symbol, error: batch.error }); continue; }
+      try {
+        const nito = buildDirectionalSignals({ snapshot: batch.snapshot, settings: { ...config.nito, side: 'both' }, account: { sizeUsd: accountUsd, riskPct: config.nito.riskPct } });
+        const spreads = buildSpreadIdeas({ snapshot: batch.snapshot, profile: String(request.query.profile || config.spreads.activeProfile).toLowerCase(), settings: config.spreads });
+        items.push({ symbol: batch.symbol, snapshot: batch.snapshot, nito, spreads });
+      } catch (error) { errors.push({ symbol: batch.symbol, error: error.message }); }
+    }
+    const scan = buildQuickScan({ items, limit, now: new Date() });
+    return response.json({ ok: true, dataSource: dataSourceLabel(), demo: items.some((item) => item.snapshot?.simulated), durationMs: Date.now() - started, accountUsd: accountUsd || null, ...scan, errors });
+  } catch (error) {
+    return response.status(503).json({ ok: false, error: error.message, demo: isDemoActive() });
+  }
+});
+
+app.get('/api/positions', requireAccess, async (_request, response) => {
+  response.set('Cache-Control', 'no-store');
+  try {
+    const trading = tradingDesk.status();
+    const trades = tradingDesk.journal?.activeTrades?.() || [];
+    const symbols = [...new Set(trades.map((trade) => trade.plan?.root || trade.plan?.underlying).filter(Boolean))];
+    const snapshots = {};
+    const errors = [];
+    for (const symbol of symbols) {
+      try { snapshots[symbol] = await getSnapshot(symbol, { tradier }); }
+      catch (error) { errors.push({ symbol, error: error.message }); }
+    }
+    const analysis = analyzePositions({ trades, snapshots });
+    return response.json({
+      ok: true, mode: trading.mode, blocked: Boolean(trading.blocked), paused: trading.paused,
+      cycle: { state: trading.state || null, note: trading.note || null },
+      dataSource: dataSourceLabel(), demo: isDemoActive(), ...analysis, errors
+    });
+  } catch (error) {
+    return response.status(503).json({ ok: false, error: error.message });
+  }
+});
 
 app.get('/api/diagnostics/data', requireAccess, async (request, response) => {
   response.set('Cache-Control', 'no-store');

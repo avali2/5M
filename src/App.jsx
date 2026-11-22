@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { apiGet } from './lib/api.js';
 import { useLocalStorage, useTheme } from './lib/hooks.js';
 import { Icon, Badge } from './components/ui.jsx';
+import QuickPanel from './QuickPanel.jsx';
 import NitoPanel from './NitoPanel.jsx';
 import SpreadsPanel from './SpreadsPanel.jsx';
 import PositioningPanel from './PositioningPanel.jsx';
@@ -13,6 +14,7 @@ const SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', 'AMD', 'NVDA', 'TSLA', 'AAPL', 'MSF
 const RADAR_DEFAULTS = ['SPY', 'QQQ', 'AMD', 'NVDA', 'TSLA', 'META', 'PLTR'];
 
 const TABS = [
+  { id: 'quick', label: 'Rápido', icon: 'flame', title: 'Modo rápido' },
   { id: 'nito', label: 'NiTo', icon: 'zap', title: 'NiTo · Call & Put' },
   { id: 'spreads', label: 'Spreads', icon: 'layers', title: 'Spreads agresivos' },
   { id: 'positioning', label: 'Institucional', icon: 'bar-chart', title: 'Posicionamiento institucional' },
@@ -25,7 +27,8 @@ function tabFromLocation() {
   const hash = window.location.hash.replace('#', '').toLowerCase();
   if (TABS.some((tab) => tab.id === hash)) return hash;
   if (/^\/nito/.test(window.location.pathname)) return 'nito';
-  return 'nito';
+  if (/^\/rapido|^\/rápido/i.test(window.location.pathname)) return 'quick';
+  return 'quick';
 }
 
 export default function App() {
@@ -82,6 +85,7 @@ export default function App() {
       </header>
 
       <main className="main">
+        {tab === 'quick' && <QuickPanel {...panelProps} />}
         {tab === 'nito' && <NitoPanel {...panelProps} />}
         {tab === 'spreads' && <SpreadsPanel symbols={radarSymbols.slice(0, 6)} symbol={symbol} setSymbol={setSymbol} />}
         {tab === 'positioning' && <PositioningPanel {...panelProps} />}
