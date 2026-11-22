@@ -16,6 +16,7 @@ import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush, send
 import { getSnapshot, isDemoActive, dataSourceLabel, providerStatus } from './lib/marketData.js';
 import { freeProbe } from './lib/freeData.js';
 import { buildQuickScan } from './lib/quickScan.js';
+import { CryptoPaper } from './trading/cryptoPaper.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { CreditBot } from './trading/creditBot.js';
 import { newsStatus, resetNewsCache } from './lib/news.js';
@@ -357,6 +358,32 @@ app.post('/api/credit-bot/close', requireAccess, async (_request, response) => {
   await creditBot.closePosition('CIERRE_MANUAL', creditBot.state.position.currentCredit ?? creditBot.state.position.credit);
   return response.json({ ok: true, ...creditBot.status() });
 });
+
+
+// Crypto SOL (paper, libro separado del bot de opciones)
+const cryptoPaper = new CryptoPaper({});
+const cryptoTickTimer = setInterval(() => {
+  if (cryptoPaper.status().armed && !cryptoPaper.status().paused) cryptoPaper.runCycle().catch(() => {});
+}, 15 * 60 * 1000);
+cryptoTickTimer.unref?.();
+app.get('/api/crypto/paper', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.status() }));
+app.get('/api/crypto/paper/config', requireAccess, (_request, response) => response.json({ ok: true, config: cryptoPaper.getConfig() }));
+app.put('/api/crypto/paper/config', requireAccess, (request, response) => {
+  const result = cryptoPaper.updateConfig(request.body || {});
+  return response.status(result.ok ? 200 : 400).json({ ok: result.ok, ...result });
+});
+app.get('/api/crypto/paper/log', requireAccess, (request, response) => {
+  const limit = Math.min(200, Math.max(1, Number(request.query.limit) || 50));
+  response.json({ ok: true, log: (cryptoPaper.status().log || []).slice(-limit) });
+});
+app.post('/api/crypto/paper/tick', async (request, response) => {
+  if (request.query.token !== config.security.cronToken) return response.status(403).json({ error: 'token inválido' });
+  const status = await cryptoPaper.runCycle();
+  return response.json({ ok: true, ...status });
+});
+app.post('/api/crypto/paper/arm', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.arm() }));
+app.post('/api/crypto/paper/pause', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.pause(true) }));
+app.post('/api/crypto/paper/disarm', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.disarm() }));
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,

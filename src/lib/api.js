@@ -37,6 +37,11 @@ export async function apiGet(path, { timeoutMs = 90000 } = {}) {
   } finally { clearTimeout(timer); }
 }
 
+export async function apiPut(path, body, options = {}) {
+  const response = await fetch(path, { method: 'PUT', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify(body ?? {}), cache: 'no-store' });
+  return await parse(response);
+}
+
 export async function apiPost(path, body, { timeoutMs = 90000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
