@@ -149,8 +149,9 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
               </label>
               <label className="field"><span>Stop</span>
                 <select className="select" value={configDraft.stopMode} onChange={(event) => setConfigDraft({ ...configDraft, stopMode: event.target.value })}>
+                  <option value="hybrid">Híbrido (prima 2x + subyacente)</option>
+                  <option value="premium">Solo prima 2x</option>
                   <option value="underlying">Subyacente + 3x</option>
-                  <option value="premium">Solo prima</option>
                 </select>
               </label>
             </div>
@@ -163,7 +164,7 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
               ))}
             </div>
             <div className="grid-3">
-              {[['minCreditWidth', 'Crédito/ancho mín.'], ['minIvRatio', 'IV vs RV mín.'], ['hardStopMultiple', 'Stop duro (x)'], ['profitTargetPct', 'Objetivo %'], ['timeExitDte', 'Cierre por tiempo (d)'], ['minAtrTrend', 'Distancia EMA (ATR)']].map(([key, label]) => (
+              {[['minCreditWidth', 'Crédito/ancho mín.'], ['minIvRatio', 'IV vs RV mín.'], ['hardStopMultiple', 'Stop duro (x)'], ['profitTargetPct', 'Objetivo %'], ['timeExitDte', 'Cierre por tiempo (d)'], ['minAtrTrend', 'Distancia EMA (ATR)'], ['stopMultiple', 'Stop prima (x)'], ['ivrFloor', 'IV Rank mínimo']].map(([key, label]) => (
                 <label key={key} className="field"><span>{label}</span>
                   <input className="input" type="number" step="0.01" value={configDraft[key] ?? ''} onChange={(event) => setConfigDraft({ ...configDraft, [key]: Number(event.target.value) })} />
                 </label>
@@ -183,7 +184,7 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
         )}
       </Card>
 
-      <Card title="Estadísticas" icon="bar-chart" subtitle={data.stats ? (data.stats.summary.trades + ' operaciones cerradas · riesgo x' + data.stats.riskMultiplier) : ''}>
+      <Card title="Estadísticas" icon="bar-chart" subtitle={data.stats ? (data.stats.summary.trades + ' cerradas · riesgo x' + data.stats.riskMultiplier + (data.vixRegime ? ' · VIX ' + data.vixRegime.ratio + ' ' + data.vixRegime.state : '') + (data.ivr && data.ivr.value !== null ? ' · IVR ' + data.ivr.value : '')) : ''}>
         {data.stats && (
           <div className="stack xs">
             <div className="grid-4">
