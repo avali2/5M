@@ -218,13 +218,21 @@ export async function freeSnapshot(symbolInput, { now = new Date() } = {}) {
     const payload = await cached('quote:' + symbol, 20000, () => getJson(`https://stockanalysis.com/api/quotes/s/${encodeURIComponent(symbol)}`));
     quoteData = payload?.data || null;
   } catch (error) { warnings.push('Cotización de StockAnalysis no disponible: ' + error.message); }
-  const spot = Number.isFinite(opcSpot?.last) ? opcSpot.last : Number.isFinite(quoteData?.p) ? quoteData.p : lastClose;
+  const regularPrice = Number.isFinite(quoteData?.p) ? quoteData.p : lastClose;
+  const marketOpen = isMarketOpenET(now);
+  let spot = marketOpen && Number.isFinite(opcSpot?.last) ? opcSpot.last : regularPrice;
+  let spotSource = spot === opcSpot?.last && marketOpen ? 'opc' : 'stockanalysis';
+  if (Number.isFinite(regularPrice) && Number.isFinite(opcSpot?.last) && regularPrice > 0) {
+    const gap = Math.abs(opcSpot.last - regularPrice) / regularPrice;
+    if (gap > 0.015) {
+      warnings.push(`El precio de OPC (${round2(opcSpot.last)}) difiere ${round2(gap * 100)}% de la cotización (${round2(regularPrice)}): se usa la cotización.`);
+      spot = regularPrice;
+      spotSource = 'stockanalysis';
+    }
+  }
   if (!Number.isFinite(spot) || spot <= 0) throw new Error('Sin precio de subyacente verificable.');
-  const quote = quoteFromStockAnalysis(symbol, {
-    ...(quoteData || {}),
-    p: spot,
-    ep: quoteData?.ep ?? (Number.isFinite(opcSpot?.last) && spot !== lastClose ? null : quoteData?.ep)
-  }, lastClose);
+  const quote = quoteFromStockAnalysis(symbol, { ...(quoteData || {}), p: spot }, lastClose);
+  quote.spotSource = spotSource;
   const intraday = await fetchIntraday(symbol);
   if (!intraday.length) warnings.push('Sin intradía: tendencia basada en diario y semanal.');
   const normalized = normalizeChain({ symbol, spot, rawOptions, now: now.getTime(), maxExpirations: 4 });
@@ -233,7 +241,7 @@ export async function freeSnapshot(symbolInput, { now = new Date() } = {}) {
     asOf: now.toISOString(),
     source: 'free',
     simulated: false,
-    marketOpen: isMarketOpenET(now),
+    marketOpen,
     marketState: quote.marketState || (isMarketOpenET(now) ? 'open' : 'closed'),
     quote,
     history,
