@@ -89,3 +89,16 @@ El workflow de GitHub Actions ejecuta `npm test` y `npm run build` en cada pull 
 ## Límites
 
 Los datos pueden retrasarse, faltar o cambiar entre el escaneo y la orden. Gemini puede omitir noticias; un filtro `CLEAR` no elimina el riesgo. Las primas, asignación temprana, slippage, gaps y movimientos del subyacente pueden cambiar el resultado. Las señales son herramientas de revisión y no asesoramiento financiero personalizado.
+
+
+## Integridad operativa del escáner y NiTo
+
+- El panel general inicia una exploración manual con `POST /api/scan/jobs` y consulta su progreso con `GET /api/scan/jobs`. La ruta original permanece disponible para clientes existentes.
+- Las revisiones READY se degradan a WATCH si caducan cotizaciones, velas, noticias o colateral, o durante una exploración pendiente o fallida. Se revalida la vigencia antes de publicar el resultado y al consultar la API; los estados históricos no autorizan una orden.
+- `/api/health` distingue la disponibilidad HTTP de la configuración de Tradier/Gemini. Una aplicación publicada no equivale a una integración operativa.
+- NiTo (`/nito`) es una herramienta privada de investigación M5/M15/D1. No envía órdenes. El propietario accede mediante su clave habitual. Para invitados se necesita autorización de distribución del proveedor y una clave privada distinta; `NITO_SHARE_AUTHORIZED` no debe habilitarse sin dicha autorización.
+- Render Free puede suspender la instancia cuando está inactiva; no se garantiza la ejecución continua ni la persistencia de trabajos en curso. Nunca traslades un token de negociación a otro servicio sin revisar su alcance.
+
+### Verificación de producción
+
+En Render comprueba `/api/health`, `configured.tradier`, `configured.gemini` y `security.requiresKey`. El escáner exige mercado abierto para READY; los fines de semana no puede validarse una señal intradía en vivo. Verifica las credenciales de forma segura en el panel de entorno, sin registrarlas en GitHub, mensajes ni logs. Las pruebas automáticas no certifican rentabilidad, calidad de fills ni una estrategia de trading.
