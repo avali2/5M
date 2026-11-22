@@ -8,6 +8,7 @@ import { config, publicConfig } from './config.js';
 import { TradierClient, isTradierConfigured } from './lib/tradier.js';
 import { GeminiReviewer, isGeminiConfigured } from './lib/gemini.js';
 import { scanMarket } from './lib/scanner.js';
+import { safeScanSnapshot, createScanJob } from './lib/scanLifecycle.js';
 import { getLatestScan, getLearningSummary, getPortfolioState, getScanHistory, getStoreStatus, savePortfolioState, saveScan, saveSignalFeedback } from './lib/store.js';
 import { buildNito, dailyGreeting, NITO_SYMBOLS, isNitoAuthorized } from './lib/nito.js';
 import { TradingDesk } from './trading/desk.js';
@@ -23,6 +24,10 @@ let scanInFlight = null;
 let lastPushResult = null;
 let lastManualScanAt = 0;
 let schedulerTimer = null;
+const manualScanJob = createScanJob(() => runScan('manual'), {cooldownMs:config.scanner.manualCooldownSeconds*1000});
+function currentScan(scan=latestScan, blocked=Boolean(scanInFlight||lastScanError)) {
+  return safeScanSnapshot(scan,{maxDataAgeMinutes:config.policy.maxDataAgeMinutes, newsCacheMinutes:config.gemini.newsCacheMinutes,portfolioFreshHours:config.policy.portfolioFreshHours,blocked});
+}
 const schedulerState = { startedAt: null, lastRunAt: null, nextRunAt: null, lastSkippedAt: null };
 
 try { latestScan = await getLatestScan(); }
@@ -79,6 +84,7 @@ app.get('/api/health', async (_request, response) => {
     execution: { mode: tradingDesk.mode, profile: tradingDesk.profile?.id ?? null, blocked: Boolean(tradingDesk.blocked) },
     timestamp: new Date().toISOString(),
     configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), push: pushStatus().configured },
+    signalReadiness: { configured: isTradierConfigured() && isGeminiConfigured(), missing: [!isTradierConfigured()?'Tradier':null,!isGeminiConfigured()?'Gemini':null].filter(Boolean) },
     marketData: { realtimeEntitled: config.tradier.realtimeEntitled, mode: publicConfig().integrations.tradierMode },
     security: { requiresKey: config.security.requireAccessKey }
   });
@@ -121,7 +127,7 @@ app.get('/api/config', requireAccess, (_request, response) => response.json(publ
 app.get('/api/status', requireAccess, async (_request, response) => {
   response.json({
     app: '5 MILLIONS',
-    latestScan: latestScan ? { id: latestScan.id, generatedAt: latestScan.generatedAt, summary: latestScan.summary, source: latestScan.source } : null,
+    latestScan: latestScan ? { id: latestScan.id, generatedAt: latestScan.generatedAt, summary: currentScan().summary, source: latestScan.source } : null,
     lastScanError,
     integrations: publicConfig().integrations,
     push: pushStatus(),
@@ -147,7 +153,8 @@ app.post('/api/bot/pause', requireAccess, (request, response) => {
 
 app.get('/api/scan', requireAccess, (_request, response) => {
   if (!latestScan) return response.status(404).json({ error: 'Todavía no hay una exploración. Pulsa Escanear ahora.' });
-  return response.json(latestScan);
+  response.set('Cache-Control','no-store');
+  return response.json(currentScan());
 });
 
 app.get('/api/history', requireAccess, async (request, response) => {
@@ -183,6 +190,18 @@ app.post('/api/signals/:signalId/feedback', requireAccess, async (request, respo
   }
 });
 
+app.post('/api/scan/jobs', requireAccess, (_request,response) => {
+  response.set('Cache-Control','no-store');
+  if(!isTradierConfigured()) return response.status(503).json({error:'Tradier no está configurado en este servidor.'});
+  const job=manualScanJob.start();
+  return response.status(job.state==='running'?202:200).json({...job,result:currentScan(job.result)});
+});
+app.get('/api/scan/jobs', requireAccess, (_request,response) => {
+  response.set('Cache-Control','no-store');
+  const job=manualScanJob.status();
+  return response.json({...job,result:currentScan(job.result)});
+});
+
 app.post('/api/scan', requireAccess, async (_request, response) => {
   try {
     const cooldownMs = config.scanner.manualCooldownSeconds * 1000;
@@ -190,7 +209,7 @@ app.post('/api/scan', requireAccess, async (_request, response) => {
     if (remainingMs > 0) return response.status(429).json({ error: `Espera ${Math.ceil(remainingMs / 1000)} segundos antes de iniciar otra revisión.` });
     lastManualScanAt = Date.now();
     const scan = await runScan('manual');
-    return response.json(scan);
+    return response.json(currentScan(scan));
   } catch (error) {
     return response.status(503).json({ error: error.message, integrations: publicConfig().integrations });
   }
@@ -228,14 +247,15 @@ async function runScan(reason = 'timer') {
       const learning = await getLearningSummary();
       const portfolioState = await getPortfolioState();
       const scan = await scanMarket({ tradier, gemini, learningContext: learning.advisory, portfolioState });
-      latestScan = scan;
+      const checked = currentScan(scan,false);
+      await saveScan(checked);
+      latestScan = checked;
       lastScanError = null;
-      await saveScan(scan);
-      for (const signal of scan.signals.filter((item) => item.status === 'READY')) {
+      for (const signal of checked.signals.filter((item) => item.status === 'READY')) {
         lastPushResult = await notifyReadySignal(signal, config.publicBaseUrl);
       }
       console.info(`[5M] Scan ${reason}: ${scan.summary.ready} READY, ${scan.summary.watch} WATCH, ${scan.durationMs}ms`);
-      return scan;
+      return checked;
     } catch (error) {
       lastScanError = { message: error.message, at: new Date().toISOString() };
       console.error(`[5M] Scan ${reason} falló: ${error.message}`);
