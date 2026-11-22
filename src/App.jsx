@@ -25,6 +25,19 @@ async function request(path, options = {}) {
   } finally { clearTimeout(timeout); }
 }
 
+async function refreshScanJob(){
+  let job=await request('/api/scan/jobs',{method:'POST'});
+  const id=job.id;
+  const deadline=Date.now()+240000;
+  while(job.state==='running'&&Date.now()<deadline){
+    await new Promise(resolve=>setTimeout(resolve,3000));
+    job=await request('/api/scan/jobs');
+    if(job.id!==id)throw new Error('El servidor reinició la exploración. Vuelve a consultar.');
+  }
+  if(job.state!=='done'||!job.result)throw new Error(job.error||'La exploración sigue pendiente. Consulta el estado del servidor.');
+  return job.result;
+}
+
 function money(value, digits = 2) {
   if (value === null || value === undefined || value === '') return '—';
   const number = Number(value);
@@ -293,7 +306,7 @@ function OwnerApp() {
       try {
         const nextStatus = await request('/api/status');
         setStatus(nextStatus);
-        if (nextStatus.latestScan?.id && nextStatus.latestScan.id !== scan?.id) setScan(await request('/api/scan'));
+        if (nextStatus.latestScan?.id) { setScan(await request('/api/scan')); setError(''); } else { setScan(null); }
       } catch (pollError) { setScan(null); setError(formatError(pollError)); }
     }, 60000);
     return () => clearInterval(timer);
@@ -306,7 +319,7 @@ function OwnerApp() {
 
   async function scanNow() {
     setLoading(true); setError(''); setScan(null);
-    try { const nextScan = await request('/api/scan', { method: 'POST' }); setScan(nextScan); setStatus(await request('/api/status')); }
+    try { const nextScan = await refreshScanJob(); setScan(nextScan); setStatus(await request('/api/status')); }
     catch (scanError) { setScan(null); setError(formatError(scanError)); }
     finally { setLoading(false); }
   }
@@ -381,6 +394,9 @@ function OwnerApp() {
     <header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">5M</div><div><p className="eyebrow">OPCIONES FINANCIERAS</p><h1>5 MILLIONS</h1></div></div><div className="top-actions"><a className="quiet-btn" href="/nito">NiTo</a><Pill tone={scan?.market?.marketOpen ? 'green' : 'slate'}>{scan?.market?.marketOpen ? 'MERCADO ABIERTO' : 'MERCADO CERRADO'}</Pill><button className="primary-btn" onClick={scanNow} disabled={loading}>{loading ? 'Analizando…' : 'Revisar mercado'}</button></div></div></header>
     <main className="main-content">
       {error && <div className="error-banner" role="alert">⚠ {error}</div>}
+      {loading && <p role="status">Exploración en curso en el servidor. Consultando progreso…</p>}
+      {publicCfg && (!publicCfg.integrations?.tradier || !publicCfg.integrations?.gemini) && <section className="warning-panel"><strong>Configuración incompleta</strong><p>Las señales necesitan Tradier y Gemini. El administrador debe configurar las credenciales en Render; no uses datos anteriores para operar.</p></section>}
+      {scan?.snapshotState === "REVIEW_ONLY" && <section className="warning-panel"><strong>Lectura histórica o bloqueada</strong><p>{scan.snapshotWarnings?.join(" · ")}</p></section>}
       <TradingPanel status={status?.trading} onPause={pauseBot} pending={botPending} />
       <section className="hero"><div><p className="eyebrow blue">CASH-SECURED PUTS · COVERED CALLS</p><h2>Señales para la rueda</h2><p className="hero-copy">Compara cotizaciones, liquidez, temporalidades, noticias y colateral declarado para una revisión manual.</p></div></section>
       <section className="connections"><Connection label="Tradier" value={publicCfg?.integrations?.tradier} note={tradierNote} /><Connection label="Gemini" value={publicCfg?.integrations?.gemini} note={publicCfg?.integrations?.gemini ? 'Decisión estructurada activa' : 'Señales bloqueadas'} /><Connection label="Noticias" value={scan?.marketRisk?.coverageComplete} note={scan?.marketRisk ? `${scan.ai?.groundedSources || 0} fuentes · ${riskLabel(scan.marketRisk.status)}` : 'Sin lectura actual'} /><Connection label="Base de datos" value={status?.store?.provider === 'sqlite'} note={status?.store?.provider === 'sqlite' ? `${status.store.signalsStored || 0} señales · ${status.store.feedbackEvents || 0} feedback` : 'No disponible'} /><Connection label="Segundo plano" value={status?.scanner?.enabled} note={status?.scanner?.enabled ? `Cada ${status.scanner.intervalMinutes} min` : 'Desactivado'} /></section>
