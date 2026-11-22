@@ -28,7 +28,7 @@ export function marketGate({now,clock,entitled,quote}) {
 }
 export function analyzeContract(option, quote, now) {
   if (!option || quote?.symbol !== option.symbol || option.contractSize !== 100 || !['call','put'].includes(option.type)) return null;
-  if (!num(option.strike) || option.strike <= 0 || ![option.delta,option.gamma,option.theta,option.vega,option.iv].every(num) || !fresh(option.greeksAt,now,7200000)) return null;
+  if (!num(option.strike) || option.strike <= 0 || ![option.delta,option.gamma,option.theta,option.vega,option.iv].every(num) || option.iv<=0 || option.gamma<=0 || !fresh(option.greeksAt,now,7200000)) return null;
   if (!num(option.volume) || option.volume<50 || !num(option.openInterest) || option.openInterest<100) return null;
   if (!num(quote.bid) || !num(quote.ask) || quote.bid<=0 || quote.ask<quote.bid || !fresh(quote.bidAt,now) || !fresh(quote.askAt,now)) return null;
   const mid=(quote.ask+quote.bid)/2;
@@ -66,5 +66,7 @@ export async function buildNito({tradier,entitled,symbol,now=new Date(),newsRisk
   if(!candidates.length) return block('Ningún contrato pasó validación de cotizaciones y Greeks.',extra);
   const support=m5.support20,resistance=m5.resistance20;
   if(!num(support)||!num(resistance)||support>=resistance) return block('Niveles técnicos insuficientes.',extra);
-  return {...base,...extra,generatedAt:end.toISOString(),status:'WATCH',reason:'Hipótesis direccional para investigación manual; sin probabilidad calibrada ni validación de resultados. Revisar noticias y eventos del ticker.',newsStatus:newsRisk?.status||'UNKNOWN',type,levels:{support,resistance},candidates};
+  const closingClock=await tradier.getMarketClock();
+  if(marketGate({now:new Date(),clock:closingClock,entitled,quote})) return block('Cotización caducada durante el análisis.',extra);
+  return {...base,...extra,generatedAt:end.toISOString(),status:'WATCH',reason:'Hipótesis direccional para investigación manual; sin probabilidad calibrada ni validación de resultados. Revisar noticias y eventos del ticker.',newsStatus:'UNKNOWN',type,levels:{support,resistance},candidates};
 }
