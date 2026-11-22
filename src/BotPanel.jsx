@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { apiGet, apiPost } from './lib/api.js';
 import { useApi } from './lib/hooks.js';
 import { money, num, pct, ago, dateTime } from './lib/format.js';
@@ -8,6 +8,17 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
   const live = mode === 'live';
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [configDraft, setConfigDraft] = useState({});
+  React.useEffect(() => { if (bot.data?.config) setConfigDraft(bot.data.config); }, [bot.data?.config]);
+  async function saveConfig() {
+    setBusy(true); setMessage('');
+    try {
+      const result = await apiPost('/api/bots/' + mode + '/config', configDraft);
+      setMessage(result.ok ? 'Configuración guardada.' : (result.errors || []).join(' · '));
+      bot.reload();
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
   const [tick, setTick] = useState(0);
   const bot = useApi(() => apiGet('/api/bots/' + mode), [mode, tick]);
   const news = useApi(() => apiGet('/api/news'), [tick]);
@@ -124,6 +135,99 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
             <Badge tone={(trade.realizedUsd ?? 0) >= 0 ? 'up' : 'down'}>{money(trade.realizedUsd)}</Badge>
           </div>
         ))}
+      </Card>
+
+      <Card title="Configuración del bot" icon="settings" subtitle="Se guarda en el servidor y aplica en el próximo ciclo">
+        {data.config && (
+          <div className="stack xs">
+            <div className="grid-2">
+              <label className="field"><span>Perfil</span>
+                <select className="select" value={configDraft.profile} onChange={(event) => setConfigDraft({ ...configDraft, profile: event.target.value })}>
+                  <option value="prudent">Prudente</option>
+                  <option value="aggressive">Agresivo</option>
+                </select>
+              </label>
+              <label className="field"><span>Stop</span>
+                <select className="select" value={configDraft.stopMode} onChange={(event) => setConfigDraft({ ...configDraft, stopMode: event.target.value })}>
+                  <option value="underlying">Subyacente + 3x</option>
+                  <option value="premium">Solo prima</option>
+                </select>
+              </label>
+            </div>
+            <div className="row wrap" style={{ gap: 12 }}>
+              {[['bullPut', 'Bull put'], ['bearCall', 'Bear call'], ['ironCondor', 'Iron condor']].map(([key, label]) => (
+                <label key={key} className="row" style={{ gap: 6 }}>
+                  <input type="checkbox" checked={Boolean(configDraft.strategies?.[key])} onChange={(event) => setConfigDraft({ ...configDraft, strategies: { ...configDraft.strategies, [key]: event.target.checked } })} />
+                  <span className="small">{label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="grid-3">
+              {[['minCreditWidth', 'Crédito/ancho mín.'], ['minIvRatio', 'IV vs RV mín.'], ['hardStopMultiple', 'Stop duro (x)'], ['profitTargetPct', 'Objetivo %'], ['timeExitDte', 'Cierre por tiempo (d)'], ['minAtrTrend', 'Distancia EMA (ATR)']].map(([key, label]) => (
+                <label key={key} className="field"><span>{label}</span>
+                  <input className="input" type="number" step="0.01" value={configDraft[key] ?? ''} onChange={(event) => setConfigDraft({ ...configDraft, [key]: Number(event.target.value) })} />
+                </label>
+              ))}
+            </div>
+            <div className="row wrap" style={{ gap: 12 }}>
+              <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={Boolean(configDraft.autoStrategy)} onChange={(event) => setConfigDraft({ ...configDraft, autoStrategy: event.target.checked })} /><span className="small">Elegir mejor estrategia según régimen</span></label>
+              <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={Boolean(configDraft.adaptiveLearning)} onChange={(event) => setConfigDraft({ ...configDraft, adaptiveLearning: event.target.checked })} /><span className="small">Aprendizaje adaptativo (baja riesgo tras rachas)</span></label>
+              <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={Boolean(configDraft.requireContango)} onChange={(event) => setConfigDraft({ ...configDraft, requireContango: event.target.checked })} /><span className="small">Exigir contango de IV</span></label>
+            </div>
+            <div className="row wrap" style={{ gap: 8 }}>
+              <button className="btn primary sm" onClick={saveConfig} disabled={busy}><Icon name="check" size={14} />Guardar configuración</button>
+              <button className="btn sm" onClick={() => action('review')} disabled={busy}><Icon name="sparkles" size={14} />Analizar último cierre con IA</button>
+              {message && <span className="tiny" style={{ color: 'var(--text-2)' }}>{message}</span>}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card title="Estadísticas" icon="bar-chart" subtitle={data.stats ? (data.stats.summary.trades + ' operaciones cerradas · riesgo x' + data.stats.riskMultiplier) : ''}>
+        {data.stats && (
+          <div className="stack xs">
+            <div className="grid-4">
+              <Stat label="Trades" value={data.stats.summary.trades} sub={(data.stats.summary.winRate ?? 0) + '% win'} />
+              <Stat label="P/L total" value={money(data.stats.summary.totalPnlUsd)} tone={(data.stats.summary.totalPnlUsd ?? 0) >= 0 ? 'up' : 'down'} />
+              <Stat label="Expectativa" value={money(data.stats.summary.expectancyUsd)} sub="por operación" />
+              <Stat label="Captura prom." value={(data.stats.summary.avgCapturePct ?? 0) + '%'} sub={'MAE ' + (data.stats.summary.avgMaePct ?? 0) + '%'} />
+            </div>
+            {(data.stats.byStrategy || []).length > 0 && (
+              <div className="table-wrap"><table className="legs"><thead><tr><th>Estrategia</th><th>Trades</th><th>Win %</th><th>P/L</th></tr></thead>
+                <tbody>{data.stats.byStrategy.map((row) => <tr key={row.strategy}><td>{String(row.strategy).replaceAll('_', ' ')}</td><td className="num">{row.trades}</td><td className="num">{row.winRate ?? 0}</td><td className="num">{money(row.pnl)}</td></tr>)}</tbody>
+              </table></div>
+            )}
+            {(data.stats.byExitReason || []).length > 0 && <p className="tiny muted">Salidas: {data.stats.byExitReason.map((row) => row.reason + ' ' + row.trades + ' (' + money(row.pnl) + ')').join(' · ')}</p>}
+            {(data.stats.lessons || []).length > 0 && (
+              <div>
+                <p className="tiny" style={{ fontWeight: 700 }}>Lecciones de DeepSeek</p>
+                {data.stats.lessons.slice(-3).map((lesson) => <p key={lesson.at} className="tiny muted" style={{ marginTop: 4 }}>· {lesson.text}</p>)}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Registro de decisiones" icon="terminal" subtitle="Por qué entró, saltó o cerró" actions={<button className="btn sm" onClick={() => bot.reload()}><Icon name="refresh" size={13} />Refrescar</button>}>
+        {(data.log || []).length === 0 && <EmptyState icon="terminal" title="Sin registros todavía">El bot guardará cada evaluación, entrada y salida.</EmptyState>}
+        <div className="stack xs">
+          {(data.log || []).slice().reverse().slice(0, 18).map((entry, index) => (
+            <div key={(entry.at || '') + index} style={{ borderBottom: '1px solid var(--border)', padding: '6px 0' }}>
+              <div className="row between wrap" style={{ gap: 6 }}>
+                <span className="row" style={{ gap: 6 }}>
+                  <Badge tone={entry.type === 'ENTRY' ? 'up' : entry.type === 'EXIT' ? 'brand' : entry.type === 'AI_LESSON' ? 'ai' : entry.type === 'AI' ? 'ai' : 'neutral'}>{entry.type}</Badge>
+                  {entry.strategy && <span className="tiny mono">{String(entry.strategy).replaceAll('_', ' ')}</span>}
+                </span>
+                <span className="tiny muted">{entry.at ? new Date(entry.at).toLocaleTimeString('es-US', { timeZone: 'America/New_York' }) : ''} ET</span>
+              </div>
+              <p className="tiny" style={{ marginTop: 2, color: 'var(--text-2)' }}>
+                {entry.note || entry.text || (entry.plan ? ((entry.plan.strategy || '') + ' · crédito ' + money(entry.plan.credit) + ' · riesgo ' + money(entry.plan.riskUsd)) : '')}
+                {entry.decision ? (' · IA ' + entry.decision) : ''}
+                {entry.pnlUsd !== undefined ? (' · P/L ' + money(entry.pnlUsd)) : ''}
+              </p>
+            </div>
+          ))}
+        </div>
       </Card>
 
       <Card title="Noticias" icon="info" actions={<Badge tone={news.data?.green ? 'up' : 'warn'}>{news.data?.green ? 'verde' : news.data?.status || '—'}</Badge>}>

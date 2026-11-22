@@ -91,6 +91,9 @@ function atmIvForChain(chain, spot) {
 const DEFAULTS = {
   symbol: 'SPY',
   allowCondor: true,
+  autoStrategy: true,
+  adaptiveLearning: true,
+  strategies: { bullPut: true, bearCall: true, ironCondor: true },
   dteMin: 30, dteMax: 45, targetDte: 35,
   shortDeltaMin: 0.15, shortDeltaMax: 0.22, targetDelta: 0.18,
   condorDeltaMin: 0.15, condorDeltaMax: 0.25, condorTargetDelta: 0.2,
@@ -131,12 +134,100 @@ export class CreditBot {
     this.aiReview = ['required', 'optional', 'off'].includes(String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase())
       ? String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase() : 'required';
     this.autoArm = this.mode === 'live' ? env.CREDIT_BOT_LIVE_AUTO_ARM === 'true' : env.CREDIT_BOT_AUTO_ARM !== 'false';
+    this.configFile = 'bot-config-' + this.mode + '.json';
     this.state = this.load();
+    this.overrides = this.loadConfig();
+    this.settings = { ...this.settings, ...this.overrides };
     this.market = new TradierClient(config.tradier);
   }
 
   file() {
     return path.join(config.dataDir, this.stateFile);
+  }
+
+  configPath() {
+    return path.join(config.dataDir, this.configFile);
+  }
+
+  loadConfig() {
+    try { return JSON.parse(fs.readFileSync(this.configPath(), 'utf8')) || {}; }
+    catch { return {}; }
+  }
+
+  saveConfig() {
+    try {
+      fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(this.configPath(), JSON.stringify(this.overrides, null, 1), { mode: 0o600 });
+    } catch { /* sin disco */ }
+  }
+
+  getConfig() {
+    return {
+      profile: this.profile,
+      autoStrategy: this.settings.autoStrategy,
+      strategies: this.settings.strategies,
+      riskUsd: Number(this.env.CREDIT_BOT_MAX_RISK_USD || 500),
+      minCreditWidth: this.settings.minCreditWidth,
+      minCreditUsd: this.settings.minCreditUsd,
+      minIvRatio: this.settings.minIvRatio,
+      requireContango: this.settings.requireContango,
+      stopMode: this.settings.stopMode,
+      hardStopMultiple: this.settings.hardStopMultiple,
+      profitTargetPct: this.settings.profitTargetPct,
+      timeExitDte: this.settings.timeExitDte,
+      entryBlockDays: this.settings.entryBlockDays,
+      minAtrTrend: this.settings.minAtrTrend,
+      adaptiveLearning: this.settings.adaptiveLearning
+    };
+  }
+
+  updateConfig(patch = {}) {
+    const errors = [];
+    const next = { ...this.overrides };
+    const num = (key, min, max) => {
+      if (patch[key] === undefined) return;
+      const value = Number(patch[key]);
+      if (!Number.isFinite(value) || value < min || value > max) { errors.push(key + ' fuera de rango'); return; }
+      next[key] = value;
+    };
+    if (patch.profile !== undefined) {
+      if (!['prudent', 'aggressive'].includes(String(patch.profile))) errors.push('perfil invalido');
+      else this.profile = String(patch.profile);
+    }
+    if (patch.strategies && typeof patch.strategies === 'object') {
+      next.strategies = {
+        bullPut: Boolean(patch.strategies.bullPut ?? this.settings.strategies.bullPut),
+        bearCall: Boolean(patch.strategies.bearCall ?? this.settings.strategies.bearCall),
+        ironCondor: Boolean(patch.strategies.ironCondor ?? this.settings.strategies.ironCondor)
+      };
+    }
+    if (patch.autoStrategy !== undefined) next.autoStrategy = Boolean(patch.autoStrategy);
+    if (patch.adaptiveLearning !== undefined) next.adaptiveLearning = Boolean(patch.adaptiveLearning);
+    if (patch.requireContango !== undefined) next.requireContango = Boolean(patch.requireContango);
+    if (patch.stopMode !== undefined) {
+      if (!['underlying', 'premium'].includes(String(patch.stopMode))) errors.push('stopMode invalido');
+      else next.stopMode = String(patch.stopMode);
+    }
+    num('minCreditWidth', 0.05, 0.6);
+    num('minCreditUsd', 10, 500);
+    num('minIvRatio', 0.5, 2);
+    num('hardStopMultiple', 1, 6);
+    num('profitTargetPct', 20, 90);
+    num('timeExitDte', 5, 45);
+    num('entryBlockDays', 0, 7);
+    num('minAtrTrend', 0, 2);
+    if (errors.length) return { ok: false, errors };
+    this.overrides = next;
+    this.settings = { ...this.settings, ...next };
+    this.saveConfig();
+    this.save();
+    return { ok: true, config: this.getConfig() };
+  }
+
+  log(type, data = {}) {
+    const entry = { at: this.now().toISOString(), type, ...data };
+    this.state.log = [...(this.state.log || []), entry].slice(-400);
+    return entry;
   }
 
   load() {
@@ -202,6 +293,75 @@ export class CreditBot {
     };
   }
 
+  stats() {
+    const closed = (this.state.history || []).filter((trade) => isNum(trade.realizedUsd));
+    const byStrategy = {};
+    const byReason = {};
+    for (const trade of closed) {
+      const strategy = trade.strategy || 'OTRA';
+      const reason = trade.closeReason || 'OTRA';
+      byStrategy[strategy] = byStrategy[strategy] || { trades: 0, pnl: 0, wins: 0 };
+      byStrategy[strategy].trades += 1;
+      byStrategy[strategy].pnl = roundTick(byStrategy[strategy].pnl + trade.realizedUsd);
+      if (trade.realizedUsd > 0) byStrategy[strategy].wins += 1;
+      byReason[reason] = byReason[reason] || { trades: 0, pnl: 0 };
+      byReason[reason].trades += 1;
+      byReason[reason].pnl = roundTick(byReason[reason].pnl + trade.realizedUsd);
+    }
+    const equity = [];
+    let running = 0;
+    for (const trade of closed.slice().reverse()) {
+      running = roundTick(running + trade.realizedUsd);
+      equity.push({ at: trade.closedAt, pnl: running });
+    }
+    return {
+      summary: this.summary(),
+      byStrategy: Object.entries(byStrategy).map(([strategy, value]) => ({ strategy, ...value, winRate: value.trades ? roundTick((value.wins / value.trades) * 100) : null })),
+      byExitReason: Object.entries(byReason).map(([reason, value]) => ({ reason, ...value })),
+      equity,
+      lessons: (this.state.lessons || []).slice(-10),
+      riskMultiplier: this.riskMultiplier(),
+      totals: { log: (this.state.log || []).length, lessons: (this.state.lessons || []).length }
+    };
+  }
+
+  riskMultiplier() {
+    if (!this.settings.adaptiveLearning) return 1;
+    const closed = (this.state.history || []).filter((trade) => isNum(trade.realizedUsd)).slice(-8);
+    if (closed.length < 4) return 1;
+    let consecutiveLosses = 0;
+    for (const trade of closed.slice().reverse()) {
+      if (trade.realizedUsd <= 0) consecutiveLosses += 1;
+      else break;
+    }
+    const wins = closed.filter((trade) => trade.realizedUsd > 0).length;
+    if (consecutiveLosses >= 2) return 0.5;
+    if (wins / closed.length < 0.4) return 0.6;
+    return 1;
+  }
+
+  async postMortem(trade) {
+    if (this.aiReview === 'off' || !trade) return null;
+    try {
+      const result = await analyzeTask({ task: 'journal', provider: 'auto', payload: {
+        mode: this.mode, symbol: trade.symbol, strategy: trade.strategy, expiration: trade.expiration,
+        entryCredit: trade.credit, contracts: trade.contracts, exit: trade.closePrice,
+        pnlUsd: trade.realizedUsd, capturePct: trade.premiumCapturePct, maePct: trade.maePctOfCredit,
+        closeReason: trade.closeReason
+      } });
+      const lesson = { at: this.now().toISOString(), tradeKey: trade.openedAt, provider: result.provider, text: String(result.text || '').slice(0, 600) };
+      this.state.lessons = [...(this.state.lessons || []), lesson].slice(-30);
+      trade.aiReview = lesson;
+      this.log('AI_LESSON', { provider: result.provider, text: lesson.text.slice(0, 120) });
+      this.save();
+      return lesson;
+    } catch (error) {
+      this.log('AI_ERROR', { error: error.message });
+      this.save();
+      return null;
+    }
+  }
+
   status() {
     return {
       mode: this.mode,
@@ -218,6 +378,9 @@ export class CreditBot {
       autoArm: this.autoArm,
       aiLast: this.state.aiLast || null,
       lastVerify: this.state.lastVerify || null,
+      config: this.getConfig(),
+      stats: this.stats(),
+      log: (this.state.log || []).slice(-40),
       settings: {
         symbol: this.settings.symbol,
         dte: [this.settings.dteMin, this.settings.dteMax],
@@ -280,7 +443,8 @@ export class CreditBot {
     });
     let review = null;
     try {
-      review = await reviewer({ plan, context });
+      const lessons = (this.state.lessons || []).slice(-5).map((lesson) => lesson.text);
+      review = await reviewer({ plan, context: { ...context, recentLessons: lessons } });
     } catch (error) {
       review = { decision: 'WAIT', reasons: ['IA no disponible: ' + error.message] };
     }
@@ -356,9 +520,16 @@ export class CreditBot {
     const { uptrend, downtrend, minutes } = ctx;
     if (minutes < this.settings.entryFromMinutes || minutes > this.settings.entryToMinutes) notes.push('Fuera de la ventana de entrada (10:00–15:00 ET).');
     if (!uptrend && !downtrend) {
-      if (this.settings.allowCondor) return this.condorPlan(snapshot, ctx);
-      notes.push('Sin tendencia clara (EMA50 y EMA200 alineadas requeridas).');
+      if (this.settings.allowCondor && this.settings.strategies.ironCondor) {
+        const result = this.condorPlan(snapshot, ctx);
+        result.strategySelected = 'IRON_CONDOR';
+        return result;
+      }
+      notes.push(this.settings.strategies.ironCondor ? 'Sin tendencia clara (EMA50 y EMA200 alineadas requeridas).' : 'Iron condor deshabilitado.');
+      return { plan: null, notes, warnings, dte: null, strategySelected: null };
     }
+    if (uptrend && !this.settings.strategies.bullPut) return { plan: null, notes: ['Bull put deshabilitado.'], warnings, dte: null, strategySelected: null };
+    if (downtrend && !this.settings.strategies.bearCall) return { plan: null, notes: ['Bear call deshabilitado.'], warnings, dte: null, strategySelected: null };
     if (isNum(ctx.distanceAtr) && ctx.distanceAtr < this.settings.minAtrTrend) notes.push('Precio pegado a la EMA50 (' + round2(ctx.distanceAtr) + ' ATR): riesgo de lateral.');
     if (isNum(ctx.slope) && ((uptrend && ctx.slope <= 0) || (downtrend && ctx.slope >= 0))) notes.push('Pendiente EMA50 no acompaña la tendencia.');
     if (uptrend && isNum(ctx.rsi14) && ctx.rsi14 > 78) notes.push('RSI en sobrecompra extrema.');
@@ -501,7 +672,8 @@ export class CreditBot {
     if (!shortPut || !shortCall) notes.push('Sin strikes en la banda de delta para el condor.');
     const maxRisk = Number(this.env.CREDIT_BOT_MAX_RISK_USD || 500);
     const equity = Number(this.env.CREDIT_BOT_EQUITY || 0);
-    const riskBudget = equity > 0 ? Math.min(maxRisk, equity * (this.settings.riskPct / 100)) : maxRisk;
+    const baseBudget = equity > 0 ? Math.min(maxRisk, equity * (this.settings.riskPct / 100)) : maxRisk;
+    const riskBudget = roundTick(Math.max(25, baseBudget * this.riskMultiplier()));
     const spreadPct = (option) => ((option.ask - option.bid) / ((option.ask + option.bid) / 2)) * 100;
     let best = null;
     if (shortPut && shortCall) {
@@ -659,7 +831,9 @@ export class CreditBot {
         maePctOfCredit: position.maePctOfCredit ?? null
       }].slice(-100);
       this.state.position = null;
-      this.state.cycle = { state: 'CERRADO', note: 'Cierre ' + reason + ': P/L $' + realized + ' · captura ' + (capture ?? 0) + '%.' };
+      this.state.cycle = { state: 'CERRADO', note: 'Cierre ' + reason + ': P/L USD ' + realized + ' · captura ' + (capture ?? 0) + '%.' };
+      this.log('EXIT', { reason, pnlUsd: realized, capturePct: capture, maePct: position.maePctOfCredit ?? null });
+      void this.postMortem(this.state.history[this.state.history.length - 1]);
     } catch (error) {
       this.state.cycle = { state: 'ERROR', note: 'No se pudo cerrar: ' + error.message };
     }
@@ -732,7 +906,8 @@ export class CreditBot {
       }
       const snapshot = await getSnapshot(this.settings.symbol, { tradier: config.tradier.token ? this.market : undefined });
       const result = this.playbook(snapshot);
-      this.state.lastDecision = { at: this.now().toISOString(), plan: result.plan, notes: result.notes, warnings: result.warnings, dte: result.dte ?? null };
+      this.state.lastDecision = { at: this.now().toISOString(), plan: result.plan, notes: result.notes, warnings: result.warnings, dte: result.dte ?? null, strategySelected: result.strategySelected || null };
+      this.log('EVAL', { strategy: result.strategySelected || null, note: result.notes[0] || (result.plan ? 'plan valido' : 'sin plan'), plan: result.plan ? { strategy: result.plan.strategy, credit: result.plan.credit, riskUsd: result.plan.riskUsd } : null });
       if (!result.plan) {
         this.state.cycle = { state: 'ESPERANDO', note: result.notes[0] || 'Sin plan válido.' };
         this.save();
@@ -760,6 +935,7 @@ export class CreditBot {
         }
       }
       await this.openPlan(result.plan);
+      this.log('ENTRY', { strategy: result.plan.strategy, credit: result.plan.credit, contracts: result.plan.contracts, riskUsd: result.plan.riskUsd });
       return this.status();
     } catch (error) {
       this.state.cycle = { state: 'ERROR', note: error.message };

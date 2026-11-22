@@ -309,6 +309,22 @@ for (const [botName, instance] of Object.entries(bots)) {
     try { return response.json({ ok: true, bot: botName, verify: await instance.verifyLiveToken() }); }
     catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
   });
+  app.get('/api/bots/' + botName + '/config', requireAccess, (_request, response) => response.json({ ok: true, bot: botName, config: instance.getConfig() }));
+  app.put('/api/bots/' + botName + '/config', requireAccess, (request, response) => {
+    const result = instance.updateConfig(request.body || {});
+    return response.status(result.ok ? 200 : 400).json({ ok: result.ok, bot: botName, ...result });
+  });
+  app.get('/api/bots/' + botName + '/stats', requireAccess, (_request, response) => response.json({ ok: true, bot: botName, ...instance.stats() }));
+  app.get('/api/bots/' + botName + '/log', requireAccess, (request, response) => {
+    const limit = Math.min(200, Math.max(1, Number(request.query.limit) || 50));
+    return response.json({ ok: true, bot: botName, log: (instance.state.log || []).slice(-limit) });
+  });
+  app.post('/api/bots/' + botName + '/review', requireAccess, async (_request, response) => {
+    const last = (instance.state.history || []).slice(-1)[0];
+    if (!last) return response.status(409).json({ error: 'Sin operaciones cerradas todavía.' });
+    const lesson = await instance.postMortem(last);
+    return response.json({ ok: Boolean(lesson), lesson, stats: instance.stats() });
+  });
   app.post('/api/bots/' + botName + '/tick', async (request, response) => {
     if (!hasCronAccess(request)) return response.status(401).json({ error: 'Token inválido.' });
     instance.maybeAutoArm();
