@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dailyGreeting, analyzeContract, marketGate, isNitoAuthorized, conditionalM5Plan } from '../server/lib/nito.js';
+import { dailyGreeting, analyzeContract, marketGate, isNitoAuthorized, conditionalM5Plan, publicNitoSnapshot } from '../server/lib/nito.js';
 const now = new Date('2026-11-23T15:30:00Z');
 test('daily greeting is stable within the same New York trading date', () => {
   assert.equal(dailyGreeting(now), dailyGreeting(new Date('2026-11-23T20:00:00Z')));
@@ -47,3 +47,14 @@ test('M5 research scenario has directionally correct levels',()=> {
   assert.deepEqual([put.trigger,put.invalidation,put.target1,put.target2],[95,97,93,91]);
   assert.equal(conditionalM5Plan('put',1,5,2),null);
 });
+
+ test('public NiTo requires no credentials and never returns restricted market or account data',()=>{
+ const result=publicNitoSnapshot('AMD',now);
+ assert.equal(result.status,'NO_TRADE');
+ assert.equal(result.mode,'public');
+ assert.equal(result.symbol,'AMD');
+ assert.match(result.greeting,/NiTo/);
+ assert.deepEqual(result.candidates,[]);
+ assert.equal(Object.hasOwn(result,'price'),false);
+ assert.equal(Object.hasOwn(result,'account'),false);
+ });
