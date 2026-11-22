@@ -39,6 +39,8 @@ test('ordena oportunidades por accionabilidad y respeta el límite', () => {
   }];
   const scan = buildQuickScan({ items, limit: 3 });
   assert.equal(scan.opportunities.length, 3);
+  assert.equal(scan.counts.shown, 3);
+  assert.ok(scan.counts.calls >= 1 && scan.counts.spreads >= 1, 'el resumen cuenta todas las oportunidades');
   assert.ok(scan.opportunities[0].score >= scan.opportunities[1].score - 12, 'el ranking prioriza score y contexto');
   assert.equal(scan.counts.total, 4);
   assert.ok(scan.summary.includes('SPY'));

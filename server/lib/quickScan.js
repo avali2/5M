@@ -5,8 +5,9 @@
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value);
 const round2 = (value) => (isNum(value) ? Math.round(value * 100) / 100 : null);
 
-function urgencyOf(score, dte) {
+function urgencyOf(score, dte, marketOpen) {
   if (!isNum(score)) return 'VIGILAR';
+  if (!marketOpen) return score >= 70 ? 'HOY' : 'VIGILAR';
   if (score >= 74) return 'AHORA';
   if (score >= 62) return 'HOY';
   if (isNum(dte) && dte <= 10) return 'HOY';
@@ -60,7 +61,7 @@ export function buildQuickScan({ items = [], limit = 5, now = new Date() } = {})
         action: 'COMPRAR',
         score: signal.score,
         grade: signal.grade,
-        urgency: urgencyOf(signal.score, signal.contract?.dte),
+        urgency: urgencyOf(signal.score, signal.contract?.dte, snapshot?.marketOpen === true),
         spot: round2(price),
         contract: signal.contract,
         entry: signal.plan?.entryLimit,
@@ -92,7 +93,7 @@ export function buildQuickScan({ items = [], limit = 5, now = new Date() } = {})
         action: debit ? 'ABRIR DÉBITO' : 'ABRIR CRÉDITO',
         score: idea.score,
         grade: idea.grade,
-        urgency: urgencyOf(idea.score, idea.dte),
+        urgency: urgencyOf(idea.score, idea.dte, snapshot?.marketOpen === true),
         spot: idea.meta?.spot ?? round2(price),
         credit: idea.pricing?.credit ?? null,
         width: idea.pricing?.width ?? null,
@@ -111,7 +112,24 @@ export function buildQuickScan({ items = [], limit = 5, now = new Date() } = {})
   }
 
   opportunities.sort((left, right) => ranking(right) - ranking(left));
-  const top = opportunities.slice(0, Math.max(1, limit));
+  // Diversifica: primero la mejor CALL, la mejor PUT y el mejor SPREAD, luego el resto por ranking.
+  const limitValue = Math.max(1, limit);
+  const picks = [];
+  for (const kind of ['CALL', 'PUT', 'SPREAD']) {
+    const best = opportunities.find((item) => item.kind === kind && !picks.includes(item));
+    if (best) picks.push(best);
+  }
+  for (const item of opportunities) {
+    if (picks.length >= limitValue) break;
+    if (!picks.includes(item)) picks.push(item);
+  }
+  const top = picks.slice(0, limitValue);
+  const totalCounts = {
+    total: opportunities.length,
+    calls: opportunities.filter((item) => item.kind === 'CALL').length,
+    puts: opportunities.filter((item) => item.kind === 'PUT').length,
+    spreads: opportunities.filter((item) => item.kind === 'SPREAD').length
+  };
   const marketOpen = items.some((item) => item.snapshot?.marketOpen === true);
   const simulated = items.some((item) => item.snapshot?.simulated);
   const eventsToday = [];
@@ -121,9 +139,7 @@ export function buildQuickScan({ items = [], limit = 5, now = new Date() } = {})
     }
   }
   const best = top[0] || null;
-  const calls = top.filter((item) => item.kind === 'CALL').length;
-  const puts = top.filter((item) => item.kind === 'PUT').length;
-  const spreads = top.filter((item) => item.kind === 'SPREAD').length;
+
   const alerts = [];
   if (simulated) alerts.push({ tone: 'warn', text: 'Datos simulados: no operar.' });
   if (!marketOpen) alerts.push({ tone: 'info', text: 'Mercado cerrado: dejá las órdenes preparadas para la apertura.' });
@@ -137,7 +153,7 @@ export function buildQuickScan({ items = [], limit = 5, now = new Date() } = {})
     marketOpen,
     simulated,
     opportunities: top,
-    counts: { total: opportunities.length, calls, puts, spreads },
+    counts: { ...totalCounts, shown: top.length },
     bySymbol,
     alerts,
     summary,
