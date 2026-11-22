@@ -9,6 +9,7 @@ import { TradierClient, isTradierConfigured } from './lib/tradier.js';
 import { GeminiReviewer, isGeminiConfigured } from './lib/gemini.js';
 import { scanMarket } from './lib/scanner.js';
 import { getLatestScan, getLearningSummary, getPortfolioState, getScanHistory, getStoreStatus, savePortfolioState, saveScan, saveSignalFeedback } from './lib/store.js';
+import { buildNito, dailyGreeting, NITO_SYMBOLS, isNitoAuthorized } from './lib/nito.js';
 import { TradingDesk } from './trading/desk.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
 
@@ -51,7 +52,7 @@ app.use(cors({
     if (!origin || config.nodeEnv !== 'production' || config.clientOrigins.includes(origin)) return callback(null, true);
     return callback(new Error('Origen no autorizado por CORS.'));
   },
-  allowedHeaders: ['Content-Type', 'X-5M-Key'],
+  allowedHeaders: ['Content-Type', 'X-5M-Key', 'X-NiTo-Key'],
   methods: ['GET', 'POST', 'OPTIONS']
 }));
 app.use(express.json({ limit: '256kb' }));
@@ -81,6 +82,38 @@ app.get('/api/health', async (_request, response) => {
     marketData: { realtimeEntitled: config.tradier.realtimeEntitled, mode: publicConfig().integrations.tradierMode },
     security: { requiresKey: config.security.requireAccessKey }
   });
+});
+
+
+// NiTo is deliberately separate from the owner's account and order endpoints.
+const nitoCache = new Map();
+const nitoInFlight = new Map();
+function requireNito(request,response,next) {
+  const expected = process.env.NITO_ACCESS_KEY || '';
+  const supplied = request.get('X-NiTo-Key') || '';
+  const owner = config.security.accessKey;
+  if (!config.security.requireAccessKey || !owner) return response.status(503).json({error:'NiTo requiere protección de la cuenta habilitada.'});
+  if (!isNitoAuthorized({supplied,owner,guest:expected,shareAuthorized:process.env.NITO_SHARE_AUTHORIZED==='true'})) return response.status(401).json({error:'Acceso privado NiTo. Utiliza la clave del administrador para uso personal. Invitaciones deshabilitadas sin autorización del proveedor.'});
+  return next();
+}
+app.get('/api/nito', requireNito, async (request,response) => {
+  response.set('Cache-Control','no-store');
+  const symbol=String(request.query.symbol||'AMD').toUpperCase();
+  if (!NITO_SYMBOLS.includes(symbol)) return response.status(400).json({error:'Símbolo no admitido.'});
+  const cached=nitoCache.get(symbol);
+  if (cached && Date.now()-cached.at<30000) return response.json(cached.value);
+  try {
+    if (!nitoInFlight.has(symbol)) {
+      const job=buildNito({tradier,entitled:config.tradier.realtimeEntitled&&!config.tradier.sandbox,symbol,newsRisk:latestScan?.marketRisk})
+        .then(value=>{nitoCache.set(symbol,{at:Date.now(),value});return value;})
+        .finally(()=>nitoInFlight.delete(symbol));
+      nitoInFlight.set(symbol,job);
+    }
+    return response.json(await nitoInFlight.get(symbol));
+  } catch(error) {
+    console.warn('[NiTo] Error de datos:',error.name);
+    return response.status(503).json({status:'NO_TRADE',greeting:dailyGreeting(),candidates:[],error:'Fuente de mercado no disponible. No utilices cotizaciones anteriores para operar.'});
+  }
 });
 
 app.get('/api/config', requireAccess, (_request, response) => response.json(publicConfig()));
@@ -237,7 +270,7 @@ const distPath = path.join(config.root, 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.use((request, response, next) => {
-    if (request.path.startsWith('/api/')) return next();
+    if (request.path.startsWith('/api/')) return response.status(404).json({error:'Ruta de API no encontrada.'});
     return response.sendFile(path.join(distPath, 'index.html'));
   });
 }

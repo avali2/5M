@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import TradingPanel from './TradingPanel.jsx';
+import NitoPanel from './NitoPanel.jsx';
 
 const KEY_STORAGE = 'five-millions-access-key';
 
@@ -10,10 +11,18 @@ async function request(path, options = {}) {
   const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) };
   const key = getKey();
   if (key) headers['X-5M-Key'] = key;
-  const response = await fetch(path, { ...options, headers });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-  return payload;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  try {
+    const response = await fetch(path, { ...options, headers, signal: controller.signal, cache: 'no-store' });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload) throw new Error(payload?.error || `API no disponible (HTTP ${response.status})`);
+    return payload;
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('El servidor no respondió a tiempo. Datos anteriores no válidos para operar.');
+    if (error instanceof TypeError) throw new Error('No hay conexión con la API de 5M. Revisa internet o el arranque de Render. No operes con una lectura anterior.');
+    throw error;
+  } finally { clearTimeout(timeout); }
 }
 
 function money(value, digits = 2) {
@@ -235,7 +244,7 @@ function IndexContext({ quotes = [] }) {
 
 function formatError(error) { return error?.message || String(error || 'Error desconocido'); }
 
-function App() {
+function OwnerApp() {
   const [publicCfg, setPublicCfg] = useState(null);
   const [scan, setScan] = useState(null);
   const [status, setStatus] = useState(null);
@@ -285,7 +294,7 @@ function App() {
         const nextStatus = await request('/api/status');
         setStatus(nextStatus);
         if (nextStatus.latestScan?.id && nextStatus.latestScan.id !== scan?.id) setScan(await request('/api/scan'));
-      } catch { /* the next manual refresh will surface an error */ }
+      } catch (pollError) { setScan(null); setError(formatError(pollError)); }
     }, 60000);
     return () => clearInterval(timer);
   }, [publicCfg, scan?.id]);
@@ -296,9 +305,9 @@ function App() {
   }
 
   async function scanNow() {
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setScan(null);
     try { const nextScan = await request('/api/scan', { method: 'POST' }); setScan(nextScan); setStatus(await request('/api/status')); }
-    catch (scanError) { setError(formatError(scanError)); }
+    catch (scanError) { setScan(null); setError(formatError(scanError)); }
     finally { setLoading(false); }
   }
 
@@ -369,7 +378,7 @@ function App() {
       : tradierMode === 'real-time-configured-unverified' ? 'Entitlement configurado · validar timestamp'
         : 'Entitlement no confirmado · READY bloqueado';
   return <div className="app-shell">
-    <header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">5M</div><div><p className="eyebrow">OPCIONES FINANCIERAS</p><h1>5 MILLIONS</h1></div></div><div className="top-actions"><Pill tone={scan?.market?.marketOpen ? 'green' : 'slate'}>{scan?.market?.marketOpen ? 'MERCADO ABIERTO' : 'MERCADO CERRADO'}</Pill><button className="primary-btn" onClick={scanNow} disabled={loading}>{loading ? 'Analizando…' : 'Revisar mercado'}</button></div></div></header>
+    <header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">5M</div><div><p className="eyebrow">OPCIONES FINANCIERAS</p><h1>5 MILLIONS</h1></div></div><div className="top-actions"><a className="quiet-btn" href="/nito">NiTo</a><Pill tone={scan?.market?.marketOpen ? 'green' : 'slate'}>{scan?.market?.marketOpen ? 'MERCADO ABIERTO' : 'MERCADO CERRADO'}</Pill><button className="primary-btn" onClick={scanNow} disabled={loading}>{loading ? 'Analizando…' : 'Revisar mercado'}</button></div></div></header>
     <main className="main-content">
       {error && <div className="error-banner" role="alert">⚠ {error}</div>}
       <TradingPanel status={status?.trading} onPause={pauseBot} pending={botPending} />
@@ -397,4 +406,4 @@ function decodeKey(value) {
   return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)));
 }
 
-export default App;
+export default function App() { return /^\/nito\/?$/i.test(window.location.pathname) ? <NitoPanel /> : <OwnerApp />; }
