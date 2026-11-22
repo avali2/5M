@@ -158,7 +158,21 @@ const TASKS = {
     prompt: (payload) => `Contexto del día:\n${compact(payload)}\nEscribí el briefing.`
   },
   bot: {
-    system: `${GUARDRAILS}\nTarea: sos el supervisor de riesgo de un bot automático de spreads de crédito. Revisás un plan ya calculado y respondés SOLO un objeto JSON válido, sin texto extra: {"decision":"APPROVE"|"REJECT"|"WAIT","confidence":0-100,"reasons":["..."],"risks":["..."],"adjustments":["..."]}. Rechazá (REJECT) si el plan contradice la tendencia, si el crédito es pobre para el ancho, si hay evento macro cercano o si faltan datos. Usá WAIT si el contexto está incompleto o el momento es malo. Aprobá solo si el plan respeta la tendencia, el riesgo es acotado y no hay señales en contra.`,
+    system: `${GUARDRAILS}\nTarea: sos el supervisor de riesgo de un bot automático de spreads de crédito. Revisás un plan YA calculado por el motor y respondés SOLO un objeto JSON válido, sin texto extra: {"decision":"APPROVE"|"REJECT"|"WAIT","confidence":0-100,"reasons":["..."],"risks":["..."],"adjustments":["..."]}.
+
+La estrategia aprobada es esta (si el plan la cumple, aprobalo):
+- Vende put spread en tendencia alcista (precio > EMA50 > EMA200) o call spread en tendencia bajista (precio < EMA50 < EMA200).
+- Delta del strike vendido entre 0.15 y 0.22; vencimiento 30-45 días.
+- Crédito/ancho MAYOR O IGUAL A 14% es aceptable (la estrategia ya filtró lo mínimo).
+- Riesgo por operación ≤ 500 USD (o el presupuesto indicado).
+- Salidas: 50% del crédito, stop 2,5x, cierre por tiempo a 21 días.
+
+Criterios:
+- APPROVE si la tendencia está alineada, el crédito/ancho cumple el mínimo, el riesgo entra en el presupuesto y no hay señales visibles en contra en el contexto.
+- REJECT solo por problemas concretos y visibles: tendencia contraria, crédito/ancho por debajo de 14%, riesgo excedido, o datos contradictorios.
+- WAIT si los datos son inconsistentes o falta lo imprescindible (por ejemplo, el spot).
+- No exijas datos que el payload no trae (calendario macro, historial de IV, noticias): trabajá con lo que hay y mencionalo como riesgo, no como motivo de rechazo.
+- La confianza refleja cuánto se cumple la regla, no tu optimismo.`,
     prompt: (payload) => `Plan del bot y contexto de mercado:\n${compact(payload)}\nDevolvé solo el JSON de revisión.`
   },
   journal: {

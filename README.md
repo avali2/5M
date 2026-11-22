@@ -10,7 +10,9 @@ crédito, corta en 2,5x y cierra por tiempo a 21 DTE. Máximo una posición y ri
 `CREDIT_BOT_MAX_RISK_USD`. Arranca en **paper**; para live hace falta `TRADIER_TOKEN` de producción,
 `BOT_ACCOUNT_ID`, `BOT_DURABLE_STORAGE=true` y `LIVE_CONFIRM=I_ACCEPT_REAL_MONEY`.
 
-Endpoints: `GET /api/credit-bot` · `POST /api/credit-bot/arm|pause|disarm|run|close`.
+El bot se **auto-arma** al arrancar (`CREDIT_BOT_AUTO_ARM=true`) y **DeepSeek supervisa cada plan** (`CREDIT_BOT_AI_REVIEW=required`): si no aprueba, no opera. También manda un **briefing diario 9:10 ET** y expone un tick para cron externo.
+
+Endpoints: `GET /api/credit-bot` · `POST /api/credit-bot/arm|pause|disarm|run|close|tick|briefing`.
 Panel: pestaña **Rápido** → “Bot de crédito”.
 
 ## Arranque rápido
