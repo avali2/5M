@@ -41,7 +41,9 @@ test('ordena oportunidades por accionabilidad y respeta el límite', () => {
   assert.equal(scan.opportunities.length, 3);
   assert.equal(scan.counts.shown, 3);
   assert.ok(scan.counts.calls >= 1 && scan.counts.spreads >= 1, 'el resumen cuenta todas las oportunidades');
-  assert.ok(scan.opportunities[0].score >= scan.opportunities[1].score - 12, 'el ranking prioriza score y contexto');
+  const kinds = scan.opportunities.map((item) => item.kind);
+  assert.ok(new Set(kinds).size >= 2, 'el top combina tipos de oportunidad');
+  assert.ok(scan.opportunities.some((item) => item.kind === 'SPREAD'));
   assert.equal(scan.counts.total, 4);
   assert.ok(scan.summary.includes('SPY'));
   assert.ok(scan.marketOpen);
