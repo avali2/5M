@@ -22,6 +22,19 @@ const TABS = [
   { id: 'system', label: 'Sistema', icon: 'settings', title: 'Sistema' }
 ];
 
+// Guarda la clave que venga por URL antes de montar cualquier panel (?k=CLAVE o ?key=CLAVE).
+try {
+  const bootParams = new URLSearchParams(window.location.search);
+  const bootKey = bootParams.get('k') || bootParams.get('key');
+  if (bootKey) {
+    setKey(bootKey);
+    bootParams.delete('k');
+    bootParams.delete('key');
+    const bootSearch = bootParams.toString();
+    window.history.replaceState({}, '', window.location.pathname + (bootSearch ? '?' + bootSearch : '') + window.location.hash);
+  }
+} catch { /* sin window */ }
+
 function tabFromLocation() {
   const hash = window.location.hash.replace('#', '').toLowerCase();
   if (hash === 'quick' || hash === 'rapido' || hash === 'rápido') return 'alertas';
@@ -44,15 +57,6 @@ export default function App() {
   useEffect(() => {
     const onUnauthorized = () => setLocked(true);
     window.addEventListener('5m:unauthorized', onUnauthorized);
-    // Clave por URL (?k=...), se guarda y se limpia la barra.
-    const params = new URLSearchParams(window.location.search);
-    const urlKey = params.get('k') || params.get('key');
-    if (urlKey) {
-      setKey(urlKey);
-      params.delete('k'); params.delete('key');
-      const search = params.toString();
-      window.history.replaceState({}, '', window.location.pathname + (search ? '?' + search : '') + window.location.hash);
-    }
     if (!getKey()) setLocked(true);
     return () => window.removeEventListener('5m:unauthorized', onUnauthorized);
   }, []);
