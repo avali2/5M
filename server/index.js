@@ -377,7 +377,7 @@ app.get('/api/crypto/paper/log', requireAccess, (request, response) => {
   response.json({ ok: true, log: (cryptoPaper.status().log || []).slice(-limit) });
 });
 app.post('/api/crypto/paper/tick', async (request, response) => {
-  if (request.query.token !== config.security.cronToken) return response.status(403).json({ error: 'token inválido' });
+  if (!hasCronAccess(request)) return response.status(401).json({ error: 'Token de cron inválido.' });
   const status = await cryptoPaper.runCycle();
   return response.json({ ok: true, ...status });
 });
