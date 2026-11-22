@@ -91,7 +91,7 @@ const nitoInFlight = new Map();
 function requireNito(request,response,next) {
   const expected = process.env.NITO_ACCESS_KEY || '';
   const supplied = request.get('X-NiTo-Key') || '';
-  if (!expected) return response.status(503).json({error:'NiTo todavía no está habilitado por el administrador.'});
+  if (!expected || expected===config.security.accessKey || !config.security.requireAccessKey || !config.security.accessKey) return response.status(503).json({error:'NiTo requiere claves separadas y protección de la cuenta habilitada.'});
   if (!supplied || Buffer.byteLength(supplied)!==Buffer.byteLength(expected) || !crypto.timingSafeEqual(Buffer.from(supplied),Buffer.from(expected))) return response.status(401).json({error:'Acceso privado NiTo.'});
   return next();
 }
