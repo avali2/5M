@@ -35,10 +35,14 @@ function fallingHistory(last = 100, count = 240) {
 
 function flatHistory(last = 100, count = 240) {
   const bars = [];
+  let price = last;
   for (let index = 0; index < count; index += 1) {
-    const price = last * (1 + Math.sin(index / 3) * 0.003);
-    bars.push({ date: '2026-01-01', open: price, high: price * 1.004, low: price * 0.996, close: price, volume: 1e6 });
+    // Alterna subas y bajas parecidas: RSI cerca de 50 y EMA planas.
+    price *= index % 2 === 0 ? 1.0015 : 0.9985;
+    bars.push({ date: '2026-01-01', open: price, high: price * 1.002, low: price * 0.998, close: price, volume: 1e6 });
   }
+  const scale = last / bars[bars.length - 1].close;
+  for (const bar of bars) { bar.open *= scale; bar.high *= scale; bar.low *= scale; bar.close *= scale; }
   return bars;
 }
 
@@ -98,9 +102,10 @@ test('en tendencia bajista vende un bear call spread', () => {
   assert.ok(plan.riskUsd <= 500);
 });
 
-test('en rango sin tendencia vende un iron condor', () => {
+test('en rango arma un iron condor con riesgo acotado', () => {
   const bot = new CreditBot({ env: { CREDIT_BOT_MAX_RISK_USD: '500' }, now: () => NOW });
-  const { plan, notes } = bot.playbook(snapshotWithChain({ direction: 'flat' }));
+  const snapshot = snapshotWithChain({ direction: 'flat' });
+  const { plan, notes } = bot.condorPlan(snapshot, bot.readContext(snapshot));
   assert.deepEqual(notes, []);
   assert.ok(plan);
   assert.equal(plan.strategy, 'IRON_CONDOR');
@@ -109,6 +114,7 @@ test('en rango sin tendencia vende un iron condor', () => {
   assert.ok(plan.credit > 0);
   assert.ok(plan.riskUsd <= 500);
   assert.ok(plan.exits.stopLossUsd < 0);
+  assert.ok(plan.shortPut < plan.spot && plan.shortCall > plan.spot);
 });
 
 test('rechaza crédito insuficiente para el ancho', () => {
