@@ -13,7 +13,9 @@
     "start": "node server/index.js",
     "worker": "node server/worker/scannerWorker.js",
     "test": "node --env-file=.env.test --test tests/*.test.js",
-    "smoke:live": "node scripts/live-smoke.js"
+    "smoke:live": "node scripts/live-smoke.js",
+    "smoke:engines": "node scripts/smoke-engines.mjs",
+    "check:api": "node scripts/api-check.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

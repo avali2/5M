@@ -1,5 +1,44 @@
 # 5 MILLIONS
 
+> **Mejora integral (rama `mejora-dsh`)**: mesa direccional **NiTo CALL/PUT**, **spreads agresivos**, **posicionamiento institucional** (GEX/DEX/muros/max pain), **analista IA DeepSeek + Gemini** y rediseño completo con tema claro/oscuro, iconos y gráficos propios. Ver [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md).
+
+## Arranque rápido
+
+```bash
+npm install
+npm run dev          # Vite + API en 127.0.0.1:8787 (proxy /api)
+npm test             # 77 tests
+npm run smoke:engines  # señales, spreads y posicionamiento contra el mercado demo
+```
+
+Sin `TRADIER_TOKEN` la app arranca en **modo demo** (mercado simulado, marcado como "NO OPERAR").
+Con `TRADIER_TOKEN` usa datos reales. Para IA: `GEMINI_API_KEY` y/o `DEEPSEEK_API_KEY`.
+
+### Pantallas
+
+| Pestaña | Qué hace |
+| --- | --- |
+| **NiTo** | Señales de compra de CALL y PUT con contrato, entrada, breakeven, objetivos, stop, POP de modelo, escenarios, tamaño por riesgo y texto para copiar. Radar por símbolo y motivos de descarte. |
+| **Spreads** | Bull put, bear call, iron condor, iron fly, jade lizard, broken wing y débito direccional con perfiles estándar/agresivo/máximo, patas con precio real, POP, EV, stress y plan de ajustes. |
+| **Institucional** | GEX/DEX por strike, muros de calls/puts, gamma flip, max pain, movimiento esperado, IV por vencimiento, skew 25Δ y lectura en español. |
+| **IA** | Chat en streaming y tareas: explicar señal, explicar spread, leer posicionamiento, briefing y auditoría de riesgo. Router DeepSeek/Gemini con fallback. |
+| **Rueda** | Mesa original de Cash-Secured Puts y Covered Calls (Tradier + Gemini), con la nueva estética. |
+| **Sistema** | Estado de integraciones, claves (solo servidor), capital para dimensionar, tema y referencia de variables de entorno. |
+
+### API nueva
+
+`GET /api/market/:symbol` · `GET /api/nito/directional?symbols=SPY,QQQ&side=both&account=10000` · `GET /api/spreads?profile=aggressive` · `GET /api/positioning?symbol=SPY` · `GET /api/ai/status` · `POST /api/ai/analyze` · `POST /api/ai/chat` (SSE).
+
+### Seguridad y límites
+
+- Las claves de IA y Tradier viven **solo en el servidor**; el navegador nunca las recibe.
+- Las probabilidades son de modelo (Black-Scholes + lognormal neutral al riesgo): comparan escenarios, **no garantizan** resultados.
+- En modo demo todas las señales quedan marcadas `operable: false` y la UI muestra el banner de datos simulados.
+- La rueda conserva sus guardas: `READY` exige datos frescos, noticias verificadas y colateral declarado.
+
+
+## Mesa original del dueño (rueda)
+
 Mesa privada de spreads y señales de opciones. El motor autónomo usa Tradier para spreads de crédito y el escáner de la rueda genera ideas de Cash-Secured Put y Covered Call para revisión manual.
 
 ## Motor autónomo de Tradier

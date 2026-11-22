@@ -128,6 +128,73 @@ export const config = {
   dataDir: path.resolve(ROOT, process.env.DATA_DIR || './data')
 };
 
+const nitoSymbols = asList(process.env.NITO_SYMBOLS, ['AMD', 'SPY', 'QQQ', 'NVDA', 'MSFT', 'TSLA', 'AAPL', 'META', 'AMZN', 'GOOGL', 'PLTR', 'IWM']);
+
+const spreadProfiles = {
+  standard: {
+    id: 'STANDARD', label: 'Estándar',
+    dteMin: 21, dteMax: 45, shortDeltaMin: 0.16, shortDeltaMax: 0.30,
+    minCreditWidth: 0.18, maxWidthPct: 0.05, minOpenInterest: 150, maxSpreadPct: 0.22
+  },
+  aggressive: {
+    id: 'AGGRESSIVE', label: 'Agresivo',
+    dteMin: 9, dteMax: 28, shortDeltaMin: 0.26, shortDeltaMax: 0.42,
+    minCreditWidth: 0.24, maxWidthPct: 0.065, minOpenInterest: 100, maxSpreadPct: 0.3
+  },
+  max: {
+    id: 'MAX', label: 'Máximo',
+    dteMin: 5, dteMax: 16, shortDeltaMin: 0.36, shortDeltaMax: 0.55,
+    minCreditWidth: 0.3, maxWidthPct: 0.08, minOpenInterest: 60, maxSpreadPct: 0.4
+  }
+};
+const spreadProfileId = String(process.env.SPREAD_PROFILE || 'aggressive').toLowerCase();
+const activeSpreadProfile = spreadProfiles[spreadProfileId] || spreadProfiles.aggressive;
+
+Object.assign(config, {
+  tradier: { ...config.tradier, rate: asNumber(process.env.OPTIONS_RATE, 0.043) },
+  deepseek: {
+    apiKey: process.env.DEEPSEEK_API_KEY || '',
+    baseUrl: (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, ''),
+    model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+    reasonerModel: process.env.DEEPSEEK_REASONER_MODEL || 'deepseek-reasoner',
+    timeoutMs: Math.min(120000, Math.max(5000, asNumber(process.env.DEEPSEEK_TIMEOUT_MS, 45000))),
+    maxTokens: Math.min(8192, Math.max(256, asNumber(process.env.DEEPSEEK_MAX_TOKENS, 1600))),
+    temperature: Math.min(1.5, Math.max(0, asNumber(process.env.DEEPSEEK_TEMPERATURE, 0.4)))
+  },
+  ai: {
+    preferred: ['auto', 'gemini', 'deepseek'].includes(String(process.env.AI_PROVIDER || 'auto').toLowerCase())
+      ? String(process.env.AI_PROVIDER || 'auto').toLowerCase() : 'auto',
+    cacheMinutes: Math.min(120, Math.max(1, asNumber(process.env.AI_CACHE_MINUTES, 10))),
+    maxTokens: Math.min(8192, Math.max(256, asNumber(process.env.AI_MAX_TOKENS, 1400))),
+    temperature: Math.min(1.2, Math.max(0, asNumber(process.env.AI_TEMPERATURE, 0.35))),
+    language: process.env.AI_LANGUAGE || 'es'
+  },
+  demo: {
+    enabled: asBool(process.env.DEMO_MODE, !Boolean(process.env.TRADIER_TOKEN)),
+    label: process.env.DEMO_LABEL || 'Datos simulados'
+  },
+  nito: {
+    symbols: nitoSymbols,
+    dteMin: Math.max(2, asNumber(process.env.NITO_DTE_MIN, 7)),
+    dteMax: Math.max(10, asNumber(process.env.NITO_DTE_MAX, 35)),
+    deltaMin: Math.min(0.45, Math.max(0.2, asNumber(process.env.NITO_DELTA_MIN, 0.33))),
+    deltaMax: Math.max(0.55, Math.min(0.9, asNumber(process.env.NITO_DELTA_MAX, 0.72))),
+    maxSignals: Math.min(6, Math.max(1, asNumber(process.env.NITO_MAX_SIGNALS, 3))),
+    minOpenInterest: Math.max(20, asNumber(process.env.NITO_MIN_OI, 100)),
+    minVolume: Math.max(0, asNumber(process.env.NITO_MIN_VOLUME, 10)),
+    maxSpreadPct: Math.min(0.6, Math.max(0.05, asNumber(process.env.NITO_MAX_SPREAD_PCT, 0.18))),
+    riskPct: Math.min(10, Math.max(0.25, asNumber(process.env.NITO_RISK_PCT, 1.5))),
+    timeStopDays: Math.max(1, asNumber(process.env.NITO_TIME_STOP_DAYS, 5))
+  },
+  spreads: {
+    profiles: spreadProfiles,
+    activeProfile: activeSpreadProfile.id.toLowerCase(),
+    maxIdeasPerSymbol: Math.min(8, Math.max(1, asNumber(process.env.SPREAD_MAX_IDEAS, 3))),
+    minCredit: Math.max(0.02, asNumber(process.env.SPREAD_MIN_CREDIT, 0.15)),
+    commissionPerContract: Math.max(0, asNumber(process.env.COMMISSION_PER_CONTRACT, 0.65))
+  }
+});
+
 export function publicConfig() {
   return {
     appName: '5 MILLIONS',
@@ -135,6 +202,9 @@ export function publicConfig() {
     policy: config.policy,
     scanner: config.scanner,
     learning: config.learning,
+    nito: { symbols: config.nito.symbols, dteMin: config.nito.dteMin, dteMax: config.nito.dteMax },
+    spreads: { activeProfile: config.spreads.activeProfile, profiles: Object.keys(config.spreads.profiles), maxIdeasPerSymbol: config.spreads.maxIdeasPerSymbol },
+    ai: { preferred: config.ai.preferred, language: config.ai.language },
     security: { requiresKey: config.security.requireAccessKey },
     integrations: {
       tradier: Boolean(config.tradier.token),
@@ -143,6 +213,10 @@ export function publicConfig() {
           : 'entitlement-unconfirmed',
       gemini: Boolean(config.gemini.apiKey),
       groundedNews: Boolean(config.gemini.apiKey),
+      deepseek: Boolean(config.deepseek.apiKey),
+      aiProvider: config.ai.preferred,
+      demo: config.demo.enabled,
+      allowDemo: config.demo.enabled,
       push: Boolean(config.push.enabled && config.push.publicKey && config.push.privateKey)
     }
   };

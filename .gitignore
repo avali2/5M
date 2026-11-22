@@ -12,3 +12,4 @@ data/*.sqlite-shm
 project_sources/
 *.log
 .DS_Store
+screenshots/

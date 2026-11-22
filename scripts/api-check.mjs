@@ -1,0 +1,14 @@
+const base = 'http://127.0.0.1:8787';
+const get = async (path) => { const r = await fetch(base + path); const j = await r.json().catch(() => null); return { status: r.status, j }; };
+const nito = await get('/api/nito/directional?symbols=SPY,QQQ,AMD&side=both&account=10000');
+console.log('NITO', nito.status, JSON.stringify({ ok: nito.j?.ok, n: nito.j?.signals?.length, signals: nito.j?.signals?.map((s) => [s.symbol, s.side, s.score, s.contract.strike, s.contract.expiration]), gate: nito.j?.gate?.status, demo: nito.j?.demo, err: nito.j?.error }).slice(0, 600));
+const spreads = await get('/api/spreads?symbols=SPY,QQQ&profile=aggressive');
+console.log('SPREADS', spreads.status, JSON.stringify({ ok: spreads.j?.ok, n: spreads.j?.ideas?.length, first: spreads.j?.ideas?.[0] && [spreads.j.ideas[0].strategy, spreads.j.ideas[0].score, spreads.j.ideas[0].pricing.credit, spreads.j.ideas[0].legs.length], err: spreads.j?.error }).slice(0, 600));
+const market = await get('/api/market/SPY');
+console.log('MARKET', market.status, JSON.stringify({ ok: market.j?.ok, price: market.j?.snapshot?.quote?.price, atmIv: market.j?.derived?.atmIv, emPct: market.j?.derived?.expectedMove?.pct, strikes: market.j?.positioning?.byStrike?.length, err: market.j?.error }).slice(0, 400));
+const pos = await get('/api/positioning?symbol=QQQ');
+console.log('POSITIONING', pos.status, JSON.stringify({ ok: pos.j?.ok, walls: pos.j?.positioning?.walls, regime: pos.j?.positioning?.regime?.behavior, narrative: pos.j?.positioning?.narrative?.length, err: pos.j?.error }).slice(0, 500));
+const ai = await get('/api/ai/status');
+console.log('AI', ai.status, JSON.stringify(ai.j).slice(0, 300));
+const analyze = await fetch(base + '/api/ai/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task: 'signal', payload: {} }) });
+console.log('AI analyze sin claves ->', analyze.status, (await analyze.text()).slice(0, 160));

@@ -13,6 +13,12 @@ import { getLatestScan, getLearningSummary, getPortfolioState, getScanHistory, g
 import { buildNito, dailyGreeting, NITO_SYMBOLS, isNitoAuthorized, publicNitoSnapshot } from './lib/nito.js';
 import { TradingDesk } from './trading/desk.js';
 import { notifyReadySignal, pushStatus, savePushSubscription, sendTestPush } from './lib/push.js';
+import { getSnapshot, isDemoActive, dataSourceLabel } from './lib/marketData.js';
+import { buildDirectionalSignals } from './lib/nitoDirectional.js';
+import { buildSpreadIdeas } from './lib/aggressiveSpreads.js';
+import { buildPositioning } from './lib/positioning.js';
+import { aiStatus, analyzeTask, streamChat } from './lib/aiAnalyst.js';
+import { isDeepSeekConfigured } from './lib/deepseek.js';
 
 export const app = express();
 const tradier = new TradierClient();
@@ -90,7 +96,8 @@ app.get('/api/health', async (_request, response) => {
     deployedCommit: process.env.RENDER_GIT_COMMIT || null,
     execution: { mode: tradingDesk.mode, profile: tradingDesk.profile?.id ?? null, blocked: Boolean(tradingDesk.blocked) },
     timestamp: new Date().toISOString(),
-    configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), push: pushStatus().configured },
+    configured: { tradier: isTradierConfigured(), gemini: isGeminiConfigured(), deepseek: isDeepSeekConfigured(), push: pushStatus().configured },
+    demo: { active: isDemoActive(), dataSource: dataSourceLabel() },
     signalReadiness: { configured: isTradierConfigured() && isGeminiConfigured(), missing: [!isTradierConfigured()?'Tradier':null,!isGeminiConfigured()?'Gemini':null].filter(Boolean) },
     marketData: { realtimeEntitled: config.tradier.realtimeEntitled, mode: publicConfig().integrations.tradierMode },
     security: { requiresKey: config.security.requireAccessKey }
@@ -121,6 +128,192 @@ app.get('/api/nito', async (request,response) => {
   } catch(error) {
     console.warn('[NiTo] Error de datos:',error.name);
     return response.status(503).json({status:'NO_TRADE',greeting:dailyGreeting(),candidates:[],error:'Fuente de mercado no disponible. No utilices cotizaciones anteriores para operar.'});
+  }
+});
+
+
+/* ================================================================== */
+/* Capa de señales: mercado, NiTo direccional, spreads y posicionamiento */
+/* ================================================================== */
+
+function readSymbols(raw, fallback, max = 8) {
+  const list = String(raw || '').toUpperCase().split(',').map((item) => item.trim()).filter((item) => /^[A-Z.^]{1,12}$/.test(item));
+  const base = list.length ? list : fallback;
+  return [...new Set(base)].slice(0, max);
+}
+
+async function snapshotsFor(symbols) {
+  const results = [];
+  for (const symbol of symbols) {
+    try {
+      results.push({ symbol, snapshot: await getSnapshot(symbol, { tradier }) });
+    } catch (error) {
+      results.push({ symbol, error: error.message });
+    }
+  }
+  return results;
+}
+
+function snapshotSummary(snapshot) {
+  const { chains, history, intraday, ...rest } = snapshot;
+  return {
+    ...rest,
+    history: (history || []).slice(-160),
+    intraday: (intraday || []).slice(-120),
+    chains: Object.fromEntries(Object.entries(chains || {}).map(([expiration, chain]) => {
+      const spot = snapshot.quote?.price ?? 0;
+      const filtered = chain.filter((option) => spot > 0 && option.strike >= spot * 0.75 && option.strike <= spot * 1.25);
+      return [expiration, filtered.length ? filtered : chain.slice(0, 80)];
+    }))
+  };
+}
+
+app.get('/api/market/:symbol', requireAccess, async (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  try {
+    const symbol = String(request.params.symbol || '').toUpperCase();
+    const snapshot = await getSnapshot(symbol, { tradier, force: request.query.force === '1' });
+    const expiration = request.query.expiration || snapshot.expirations?.[0] || null;
+    const positioning = buildPositioning({ snapshot, expiration });
+    const derived = {
+      atmIv: positioning?.iv?.atm ?? null,
+      ivVerdict: positioning?.iv?.verdict ?? null,
+      ivLabel: positioning?.iv?.label ?? null,
+      rvRatio: positioning?.iv?.rvRatio ?? null,
+      expectedMove: positioning?.expectedMove ?? null,
+      walls: positioning?.walls ?? null,
+      regime: positioning?.regime ?? null
+    };
+    return response.json({ ok: true, dataSource: dataSourceLabel(), demo: isDemoActive(), snapshot: snapshotSummary(snapshot), positioning, derived });
+  } catch (error) {
+    return response.status(503).json({ ok: false, error: error.message, demo: isDemoActive() });
+  }
+});
+
+app.get('/api/nito/directional', requireAccess, async (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  const symbols = readSymbols(request.query.symbols, config.nito.symbols.slice(0, 6), 8);
+  const side = ['call', 'put', 'both'].includes(String(request.query.side || 'both').toLowerCase())
+    ? String(request.query.side || 'both').toLowerCase() : 'both';
+  const accountUsd = Math.max(0, Number(request.query.account) || 0);
+  const started = Date.now();
+  try {
+    const batches = await snapshotsFor(symbols);
+    const signals = [];
+    const gates = [];
+    const errors = [];
+    for (const batch of batches) {
+      if (batch.error) { errors.push({ symbol: batch.symbol, error: batch.error }); continue; }
+      const built = buildDirectionalSignals({
+        snapshot: batch.snapshot,
+        settings: { ...config.nito, side },
+        account: { sizeUsd: accountUsd, riskPct: config.nito.riskPct }
+      });
+      gates.push({ symbol: batch.symbol, ...built.gate });
+      signals.push(...(built.signals || []).map((signal) => ({ ...signal, symbol: batch.symbol })));
+    }
+    signals.sort((left, right) => (right.score ?? 0) - (left.score ?? 0));
+    return response.json({
+      ok: true,
+      demo: isDemoActive(),
+      dataSource: dataSourceLabel(),
+      generatedAt: new Date().toISOString(),
+      durationMs: Date.now() - started,
+      side,
+      gate: gates[0] || { tradeable: false, status: 'NO_DATA', reasons: ['Sin datos.'], warnings: [] },
+      gates,
+      signals: signals.slice(0, Math.max(config.nito.maxSignals, signals.length)),
+      errors
+    });
+  } catch (error) {
+    return response.status(503).json({ ok: false, error: error.message, demo: isDemoActive() });
+  }
+});
+
+app.get('/api/spreads', requireAccess, async (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  const symbols = readSymbols(request.query.symbols, config.nito.symbols.slice(0, 4), 6);
+  const profileKey = String(request.query.profile || config.spreads.activeProfile).toLowerCase();
+  const profile = config.spreads.profiles[profileKey] ? profileKey : config.spreads.activeProfile;
+  const strategies = request.query.strategy && request.query.strategy !== 'all'
+    ? String(request.query.strategy).toUpperCase().split(',') : null;
+  const started = Date.now();
+  try {
+    const batches = await snapshotsFor(symbols);
+    const ideas = [];
+    const errors = [];
+    for (const batch of batches) {
+      if (batch.error) { errors.push({ symbol: batch.symbol, error: batch.error }); continue; }
+      const built = buildSpreadIdeas({ snapshot: batch.snapshot, profile, strategies, settings: config.spreads });
+      ideas.push(...(built.ideas || []));
+    }
+    ideas.sort((left, right) => (right.score ?? 0) - (left.score ?? 0));
+    return response.json({
+      ok: true, demo: isDemoActive(), dataSource: dataSourceLabel(),
+      generatedAt: new Date().toISOString(), durationMs: Date.now() - started,
+      profile, ideas: ideas.slice(0, 12), errors
+    });
+  } catch (error) {
+    return response.status(503).json({ ok: false, error: error.message, demo: isDemoActive() });
+  }
+});
+
+app.get('/api/positioning', requireAccess, async (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  const symbol = String(request.query.symbol || 'SPY').toUpperCase();
+  try {
+    const snapshot = await getSnapshot(symbol, { tradier });
+    const expiration = request.query.expiration || snapshot.expirations?.[0] || null;
+    return response.json({
+      ok: true, demo: isDemoActive(), dataSource: dataSourceLabel(),
+      positioning: buildPositioning({ snapshot, expiration }),
+      quote: snapshot.quote,
+      expirations: snapshot.expirations,
+      technical: snapshot.technical,
+      flow: snapshot.flow
+    });
+  } catch (error) {
+    return response.status(503).json({ ok: false, error: error.message, demo: isDemoActive() });
+  }
+});
+
+app.get('/api/ai/status', requireAccess, (_request, response) => response.json({ ok: true, ...aiStatus() }));
+
+app.post('/api/ai/analyze', requireAccess, async (request, response) => {
+  const task = String(request.body?.task || 'signal');
+  try {
+    const result = await analyzeTask({
+      task,
+      provider: request.body?.provider,
+      payload: request.body?.payload || {},
+      question: request.body?.question || ''
+    });
+    return response.json({ ok: true, ...result });
+  } catch (error) {
+    return response.status(error.status || 503).json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/api/ai/chat', requireAccess, async (request, response) => {
+  const messages = Array.isArray(request.body?.messages) ? request.body.messages.slice(-12) : [];
+  if (!messages.length) return response.status(400).json({ ok: false, error: 'Falta el mensaje del usuario.' });
+  response.set('Content-Type', 'text/event-stream');
+  response.set('Cache-Control', 'no-store');
+  response.set('Connection', 'keep-alive');
+  response.flushHeaders?.();
+  const send = (payload) => response.write(`data: ${JSON.stringify(payload)}\n\n`);
+  try {
+    const result = await streamChat({
+      messages,
+      provider: request.body?.provider,
+      context: request.body?.context || {},
+      onDelta: (delta) => send({ delta })
+    });
+    send({ done: true, provider: result.provider, model: result.model, usage: result.usage ?? null });
+  } catch (error) {
+    send({ error: error.message });
+  } finally {
+    response.end();
   }
 });
 
@@ -288,7 +481,11 @@ function startScannerScheduler() {
   scheduleNextScan(5000);
 }
 
-app.get(['/nito','/nito/'],(_request,response)=>response.redirect(302,'https://valido-1m.onrender.com/nito'));
+app.get(['/nito','/nito/'], (_request, response, next) => {
+  const indexFile = path.join(config.root, 'dist', 'index.html');
+  if (fs.existsSync(indexFile)) return response.sendFile(indexFile);
+  return next();
+});
 const distPath = path.join(config.root, 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
