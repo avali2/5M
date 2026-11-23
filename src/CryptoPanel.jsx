@@ -79,7 +79,7 @@ export default function CryptoPanel() {
               ))}
             </div>
             <div className="row wrap" style={{ gap: 6 }}>
-              <button className="btn primary sm" onClick={() => act('arm')} disabled={data.armed}><Icon name="play" size={13} />Armar</button>
+              <button className="btn primary sm" onClick={() => act('arm')} disabled={data.armed && !data.paused}><Icon name="play" size={13} />{data.paused ? 'Reanudar' : 'Armar'}</button>
               <button className="btn sm" onClick={() => act('pause')} disabled={!data.armed || data.paused}><Icon name="pause" size={13} />Pausar</button>
               <button className="btn sm" onClick={() => act('disarm')}><Icon name="square" size={13} />Desarmar</button>
               <button className="btn sm" onClick={() => act('tick')}><Icon name="refresh" size={13} />Revisar ahora</button>
