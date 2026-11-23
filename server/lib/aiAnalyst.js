@@ -23,7 +23,7 @@ export function aiStatus() {
     gemini: { configured: isGeminiConfigured(), model: config.gemini.model },
     deepseek: { configured: isDeepSeekConfigured(), model: config.deepseek.model },
     preferred: config.ai.preferred,
-    tasks: ['signal', 'spread', 'positioning', 'briefing', 'risk', 'chat', 'bot', 'journal']
+    tasks: ['signal', 'spread', 'positioning', 'briefing', 'risk', 'chat', 'bot', 'journal', 'capitulation']
   };
 }
 
@@ -178,6 +178,10 @@ Criterios:
   journal: {
     system: `${GUARDRAILS}\nTarea: resumen diario del bot para el trader. Devolvé 4 viñetas cortas: estado del bot, operaciones del día, riesgo abierto y una recomendación concreta. Máximo 120 palabras.`,
     prompt: (payload) => `Estado y journal del bot:\n${compact(payload)}\nEscribí el resumen diario.`
+  },
+  capitulation: {
+    system: `${GUARDRAILS}\nTarea: explicar por qué un activo está cayendo fuerte y si es capitulación o continuación. Devolvé estas viñetas: POR QUÉ CAE, ¿ES REBOTE?, HASTA DÓNDE, MEJOR ESTRATEGIA, CUÁNDO ACTUAR. Usá solo los datos y titulares del payload; si falta algo, decilo. Máximo 160 palabras, español, sin promesas.`,
+    prompt: (payload) => `Activo en caída y contexto:\n${compact(payload)}\nExplicá qué está pasando y la mejor estrategia.`
   },
   risk: {
     system: `${GUARDRAILS}\nTarea: auditoría de riesgo de una señal o spread. Devolvé: RIESGOS (3-5 viñetas ordenadas por gravedad), CHECKS PREVIOS (lista), QUÉ CANCELARÍA LA OPERACIÓN. Sé directo y escéptico. Máximo 170 palabras.`,

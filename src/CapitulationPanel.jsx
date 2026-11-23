@@ -46,6 +46,12 @@ export default function CapitulationPanel() {
                   {candidate.research.levels && (candidate.research.levels.levels || []).length > 0 && (
                     <p className="tiny muted">Pisos: {(candidate.research.levels.levels || []).slice(0, 3).map((level) => level.label + ' ' + level.value + ' (' + level.distancePct + '%)').join(' · ')}</p>
                   )}
+                  {candidate.research.aiText && (
+                    <div className="banner ai" style={{ marginTop: 4 }}>
+                      <Icon name="sparkles" />
+                      <div><b>Lectura IA</b><p className="tiny" style={{ whiteSpace: 'pre-wrap', marginTop: 2 }}>{candidate.research.aiText}</p></div>
+                    </div>
+                  )}
                   {(candidate.research.news || []).length > 0 && (
                     <div>
                       <p className="tiny" style={{ fontWeight: 700 }}>Por qué cayó</p>

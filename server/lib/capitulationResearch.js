@@ -2,7 +2,10 @@
  * 5M · Investigación profunda para capitulación: noticias, niveles, estadística
  * condicional de rebotes y veredicto de estrategia.
  */
+import { analyzeTask } from './aiAnalyst.js';
+
 const newsCache = new Map();
+const aiCache = new Map();
 
 function isNum(value) { return typeof value === 'number' && Number.isFinite(value); }
 function round2(value) { return Math.round(value * 100) / 100; }
@@ -85,6 +88,18 @@ export function priceLevels(snapshot) {
   return { spot: round2(spot), atr: isNum(atr) ? round2(atr) : null, sma20: round2(sma(closes, 20)), sma50: round2(sma(closes, 50)), sma200: round2(sma(closes, 200)), high52: bars.slice(-252).length ? round2(Math.max(...bars.slice(-252).map((bar) => bar.high))) : null, levels };
 }
 
+async function aiExplain(payload) {
+  const key = 'ai:' + payload.symbol + ':' + payload.twoDayDrop;
+  const hit = aiCache.get(key);
+  if (hit && Date.now() - hit.at < 30 * 60000) return hit.value;
+  try {
+    const result = await analyzeTask({ task: 'capitulation', provider: 'auto', payload });
+    const text = String(result?.text || '').slice(0, 1200);
+    aiCache.set(key, { at: Date.now(), value: text });
+    return text;
+  } catch { return null; }
+}
+
 export async function researchCandidate(snapshot, candidate) {
   const [news] = await Promise.all([getNews(candidate.symbol)]);
   const stats = conditionalStats(snapshot?.history);
@@ -96,5 +111,12 @@ export async function researchCandidate(snapshot, candidate) {
   else if (isNum(stats?.probabilityUp5) && stats.probabilityUp5 < 55) { verdict = 'Esperar: el rebote histórico es débil'; tradeable = false; }
   else if (isNum(candidate.rsi14) && candidate.rsi14 > 35) { verdict = 'Esperar a que el RSI baje de 35'; tradeable = false; }
   if (isNum(levels?.atr) && isNum(candidate.spot) && candidate.shortStrike > candidate.spot - levels.atr) { verdict = 'Strike corto demasiado cerca del dinero'; tradeable = false; }
-  return { news: news.slice(0, 4), stats, levels, verdict, tradeable, expectedMovePct: isNum(candidate.atmIv) && candidate.dte ? round2(candidate.atmIv * Math.sqrt(candidate.dte / 365) * 100) : null };
+  const expectedMovePct = isNum(candidate.atmIv) && candidate.dte ? round2(candidate.atmIv * Math.sqrt(candidate.dte / 365) * 100) : null;
+  const aiText = await aiExplain({
+    symbol: candidate.symbol, dayDrop: candidate.dayDrop, twoDayDrop: candidate.twoDayDrop,
+    rsi14: candidate.rsi14, ivRatio, atmIv: candidate.atmIv, expectedMovePct,
+    shortStrike: candidate.shortStrike, longStrike: candidate.longStrike, credit: candidate.credit, maxLoss: candidate.maxLoss,
+    stats, levels: levels?.levels?.slice(0, 4), news: news.slice(0, 4).map((item) => item.title), verdict, tradeable
+  });
+  return { news: news.slice(0, 4), stats, levels, verdict, tradeable, expectedMovePct, aiText };
 }
