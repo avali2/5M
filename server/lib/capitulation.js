@@ -8,7 +8,7 @@ import { config } from '../config.js';
 import { TradierClient } from './tradier.js';
 import { researchCandidate } from './capitulationResearch.js';
 
-export const CAPITULATION_UNIVERSE = ['AMD', 'NVDA', 'TSLA', 'META', 'AMZN', 'PLTR', 'COIN', 'SOFI'];
+export const CAPITULATION_UNIVERSE = ['AMD', 'MU', 'NVDA', 'TSLA', 'META', 'AMZN', 'PLTR', 'COIN', 'SOFI'];
 
 function isNum(value) { return typeof value === 'number' && Number.isFinite(value); }
 function round2(value) { return Math.round(value * 100) / 100; }
