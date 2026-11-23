@@ -7,6 +7,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { getForexSnapshot } from '../lib/forexData.js';
 import { analyzeTask } from '../lib/aiAnalyst.js';
+import { highImpactEvents } from '../lib/calendar.js';
 
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value);
 const round5 = (value) => Math.round(value * 100000) / 100000;
@@ -21,6 +22,8 @@ const DEFAULTS = {
   minRsi: 35,
   maxRsi: 75,
   allowShort: true,
+  sessionOnly: true,
+  newsBlackoutMinutes: 15,
   feePct: 0
 };
 
@@ -77,7 +80,7 @@ export class ForexPaper {
     };
     if (patch.symbol !== undefined) {
       const symbol = String(patch.symbol).toUpperCase();
-      if (!['EURUSD', 'GBPUSD', 'AUDUSD', 'XAUUSD'].includes(symbol)) errors.push('par no soportado');
+      if (!['EURUSD', 'GBPUSD', 'AUDUSD', 'XAUUSD', 'USDJPY', 'USDCAD'].includes(symbol)) errors.push('par no soportado');
       else next.symbol = symbol;
     }
     if (patch.allowShort !== undefined) next.allowShort = Boolean(patch.allowShort);
@@ -136,6 +139,17 @@ export class ForexPaper {
     const price = snapshot.price;
     const atr = snapshot.atr14;
     if (snapshot.marketOpen === false) notes.push('Mercado forex cerrado (viernes 17:00 a domingo 17:00 ET).');
+    if (this.settings.sessionOnly && snapshot.session && snapshot.session !== 'LONDON_NY') notes.push('Fuera de sesión Londres/NY (UTC ' + String(new Date().getUTCHours()).padStart(2, '0') + ':00).');
+    try {
+      const now = this.now();
+      const upcoming = highImpactEvents({ from: now, months: 1 });
+      const blackoutMs = Number(this.settings.newsBlackoutMinutes || 15) * 60000;
+      const eventNear = upcoming.find((event) => {
+        const diff = Date.parse(event.scheduled_at_utc) - now.getTime();
+        return diff >= -5 * 60000 && diff <= blackoutMs;
+      });
+      if (eventNear) notes.push('Noticia de alto impacto cerca (' + eventNear.event_type + ' ' + eventNear.scheduled_at_et + '): no operar.');
+    } catch { /* calendario no disponible */ }
     const snapshotAt = Date.parse(snapshot.updatedAt || '');
     if (Number.isFinite(snapshotAt) && (this.now() - snapshotAt) > 60 * 60000) notes.push('dataQuality: datos de ' + Math.round((this.now() - snapshotAt) / 60000) + ' min (max 60) (NO_TRADE)');
     if (!isNum(price) || !isNum(atr) || atr <= 0) notes.push('Sin precio o ATR válido.');
@@ -149,17 +163,19 @@ export class ForexPaper {
       if (side === 'SHORT' && (rsi < 25 || rsi > 65)) notes.push('RSI fuera de rango para short.');
     }
     const stopDistance = atr * this.settings.atrStopMult;
+    const quoteToUsd = Number(snapshot.quoteToUsd || 1);
+    const spreadMultiplier = snapshot.session && snapshot.session !== 'LONDON_NY' ? 1.6 : 1;
     const pipSize = Number(snapshot.pipSize || 0.0001);
-    const halfSpread = (Number.isFinite(snapshot.spreadPrice) ? Number(snapshot.spreadPrice) : Number(snapshot.spreadPips || 1) * pipSize) / 2;
+    const halfSpread = ((Number.isFinite(snapshot.spreadPrice) ? Number(snapshot.spreadPrice) : Number(snapshot.spreadPips || 1) * pipSize) * spreadMultiplier) / 2;
     const entry = side === 'SHORT' ? round5(snapshot.bid ?? price - halfSpread) : round5(snapshot.ask ?? price + halfSpread);
     const stop = side === 'SHORT' ? round5(entry + stopDistance) : round5(entry - stopDistance);
     const target = side === 'SHORT' ? round5(entry - stopDistance * this.settings.targetR) : round5(entry + stopDistance * this.settings.targetR);
-    const units = stopDistance > 0 ? this.settings.riskUsd / stopDistance : 0;
+    const units = stopDistance > 0 ? this.settings.riskUsd / (stopDistance * quoteToUsd) : 0;
     if (!(units > 0)) notes.push('Tamaño de posición inválido.');
     if (notes.length) { this.state.cycle = { state: 'ESPERANDO', note: notes[0] }; this.log('EVAL', { decision: 'SKIP', notes, price: round5(price) }); this.save(); return; }
     this.state.position = {
       symbol: this.settings.symbol, side, entry, stop, target,
-      units: Math.round(units), notional: round2(units * entry), riskUsd: round2(units * stopDistance),
+      units: Math.round(units), notional: round2(units * entry), riskUsd: round2(units * stopDistance * quoteToUsd),
       spreadPips: snapshot.spreadPips, openedAt: this.now().toISOString(), mae: entry
     };
     this.state.cycle = { state: 'ABIERTO', note: side + ' ' + this.settings.symbol + ' en ' + entry + ' · stop ' + stop + ' · objetivo ' + target + '.' };
@@ -172,10 +188,12 @@ export class ForexPaper {
     const price = snapshot.price;
     if (!isNum(price)) return;
     const pipSize = Number(snapshot.pipSize || 0.0001);
-    const halfSpread = (Number.isFinite(snapshot.spreadPrice) ? Number(snapshot.spreadPrice) : Number(snapshot.spreadPips || 1) * pipSize) / 2;
+    const quoteToUsd = Number(snapshot.quoteToUsd || 1);
+    const spreadMultiplier = snapshot.session && snapshot.session !== 'LONDON_NY' ? 1.6 : 1;
+    const halfSpread = ((Number.isFinite(snapshot.spreadPrice) ? Number(snapshot.spreadPrice) : Number(snapshot.spreadPips || 1) * pipSize) * spreadMultiplier) / 2;
     const exit = position.side === 'LONG' ? (snapshot.bid ?? price - halfSpread) : (snapshot.ask ?? price + halfSpread);
     const direction = position.side === 'LONG' ? 1 : -1;
-    const pnlUsd = round2((exit - position.entry) * position.units * direction);
+    const pnlUsd = round2((exit - position.entry) * position.units * direction * quoteToUsd);
     const pips = round2(((exit - position.entry) / Number(snapshot.pipSize || 0.0001)) * direction);
     const mae = position.side === 'LONG' ? Math.min(position.mae ?? position.entry, price) : Math.max(position.mae ?? position.entry, price);
     this.state.position = { ...position, price: round5(price), pnlUsd, pips, mae: round5(mae), updatedAt: this.now().toISOString() };

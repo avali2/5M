@@ -68,3 +68,16 @@ test('opera XAUUSD con pip y spread propios', async () => {
   assert.ok(status.position.riskUsd <= 250 + 0.01);
   assert.ok(status.position.units > 0);
 });
+test('no opera fuera de la sesión Londres/NY', async () => {
+  const bot = makeBot(async () => snapshot({ session: 'ASIA' }));
+  const status = await bot.runCycle();
+  assert.equal(status.position, null);
+  assert.equal(status.cycle.state, 'ESPERANDO');
+});
+
+test('USDJPY convierte PnL a USD con quoteToUsd', async () => {
+  const bot = makeBot(async () => snapshot({ symbol: 'USDJPY', price: 159, bid: 158.996, ask: 159.004, spreadPips: 0.8, spreadPrice: 0.008, pipSize: 0.01, ema50: 158, ema200: 155, rsi14: 55, atr14: 0.15, quoteToUsd: 1 / 159 }));
+  const status = await bot.runCycle();
+  assert.equal(status.position.side, 'LONG');
+  assert.ok(status.position.riskUsd <= 250 + 0.5);
+});

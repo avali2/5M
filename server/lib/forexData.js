@@ -105,7 +105,9 @@ const PAIRS = {
   EURUSD: { yahoo: 'EURUSD=X', spread: 0.00008, pip: 0.0001 },
   GBPUSD: { yahoo: 'GBPUSD=X', spread: 0.00012, pip: 0.0001 },
   AUDUSD: { yahoo: 'AUDUSD=X', spread: 0.00010, pip: 0.0001 },
-  XAUUSD: { yahoo: 'GC=F', spread: 0.35, pip: 0.01 }
+  XAUUSD: { yahoo: 'GC=F', spread: 0.35, pip: 0.01 },
+  USDJPY: { yahoo: 'JPY=X', spread: 0.008, pip: 0.01 },
+  USDCAD: { yahoo: 'CAD=X', spread: 0.00012, pip: 0.0001 }
 };
 
 export async function getForexSnapshot(options = {}) {
@@ -119,12 +121,15 @@ export async function getForexSnapshot(options = {}) {
   catch { bars = await cached('fx:stooq:' + symbol, 600000, () => getStooqBars(symbol)); source = 'stooq'; }
   const closes = bars.map((bar) => bar.close);
   const price = closes[closes.length - 1];
+  const quoteToUsd = ['USDJPY', 'USDCAD'].includes(symbol) ? 1 / price : 1;
+  const utcHour = new Date().getUTCHours();
+  const session = utcHour >= 7 && utcHour < 17 ? 'LONDON_NY' : (utcHour < 7 ? 'ASIA' : 'OTHER');
   return {
     symbol, source, price,
     bid: price - spreadPrice / 2,
     ask: price + spreadPrice / 2,
     spreadPips: Math.round((spreadPrice / pipSize) * 10) / 10,
-    spreadPrice, pipSize,
+    spreadPrice, pipSize, quoteToUsd, session,
     bars, ema50: ema(closes, 50), ema200: ema(closes, 200), rsi14: rsi(closes, 14),
     atr14: (() => {
       const raw = atr(bars, 14);
