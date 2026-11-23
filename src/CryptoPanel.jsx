@@ -34,7 +34,8 @@ export default function CryptoPanel() {
     setMessage('Ejecutando…');
     try {
       const result = await apiPost('/api/crypto/paper/' + path + '?book=' + book, {});
-      setMessage(result.cycle?.note || 'Listo.');
+      const symbol = String(result.position?.symbol || data?.settings?.symbol || '').replace('USDT', '');
+      setMessage(result.position ? result.position.side + ' ' + symbol + ' paper en ' + fmtPrice(result.position.entry) + ' · stop ' + fmtPrice(result.position.stop) + ' · objetivo ' + fmtPrice(result.position.target) + '.' : (result.cycle?.note || 'Listo.'));
       setTick((value) => value + 1);
     } catch (error) { setMessage(error.message); }
   }

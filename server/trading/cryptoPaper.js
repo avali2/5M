@@ -257,6 +257,7 @@ export class CryptoPaper {
     const mae = short ? Math.max(position.mae ?? position.entry, price) : Math.min(position.mae ?? position.entry, price);
     const pnlUsd = round2((short ? position.entry - price : price - position.entry) * position.units);
     this.state.position = { ...position, price: roundPrice(price), pnlUsd, mae: roundPrice(mae), updatedAt: this.now().toISOString() };
+    this.state.cycle = { state: 'ABIERTO', note: position.side + ' ' + String(this.settings.symbol).replace('USDT', '') + ' paper en ' + roundPrice(position.entry) + ' · stop ' + roundPrice(position.stop) + ' · objetivo ' + roundPrice(position.target) + '.' };
     const heldHours = (this.now() - Date.parse(position.openedAt)) / 3600000;
     let reason = null;
     if (short ? price >= position.stop : price <= position.stop) reason = 'STOP';
