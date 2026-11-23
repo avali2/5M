@@ -51,8 +51,8 @@ export default function CryptoPanel() {
 
   return (
     <div className="stack">
-      <Card title="Crypto SOL · paper" icon="flame" tone="warn"
-        subtitle={data ? (data.source + ' · ' + data.settings.symbol + (data.stats ? ' · ' + data.stats.trades + ' trades' : '')) : ''}
+      <Card title={'Crypto ' + ({ pepe: 'PEPE', near: 'NEAR', inj: 'INJ' }[book] || book.toUpperCase()) + ' · paper'} icon="flame" tone="warn"
+        subtitle={data ? (data.source + ' · ' + (data.config?.strategy === 'meanrev' ? 'media reversión' : 'momentum') + (data.stats ? ' · ' + data.stats.trades + ' trades' : '')) : ''}
         actions={<Badge tone={data?.armed ? 'up' : 'neutral'}>{data?.armed ? 'ARMADO' : 'INACTIVO'}</Badge>}>
         {api.loading && !data && <p className="tiny muted">Cargando…</p>}
         {api.error && <Banner tone="danger" icon="alert-circle">{api.error}</Banner>}
@@ -60,7 +60,7 @@ export default function CryptoPanel() {
           <div className="stack xs">
             <div className="grid-4">
               <Stat label="Precio" value={data.lastRound ? fmtPrice(data.lastRound.price) : '—'} sub={data.lastRound ? 'RSI ' + data.lastRound.rsi14 : ''} />
-              <Stat label="Tendencia" value={data.lastRound ? (data.lastRound.price > data.lastRound.ema200 ? 'ALCISTA' : 'BAJISTA') : '—'} sub={data.lastRound ? 'EMA200 ' + fmtPrice(data.lastRound.ema200) : ''} />
+              <Stat label="EMA50" value={data.lastRound ? (data.lastRound.price > data.lastRound.ema50 ? 'ALCISTA' : 'BAJISTA') : '—'} tone={data.lastRound && data.lastRound.price > data.lastRound.ema50 ? 'up' : 'down'} sub={data.lastRound ? 'EMA200 ' + fmtPrice(data.lastRound.ema200) : ''} />
               <Stat label="ATR" value={data.lastRound ? fmtPrice(data.lastRound.atr14) : '—'} sub="volatilidad 1h" />
               <Stat label="P/L paper" value={money(data.stats?.totalPnlUsd || 0)} tone={(data.stats?.totalPnlUsd || 0) >= 0 ? 'up' : 'down'} sub={(data.stats?.winRate ?? 0) + '% win'} />
             </div>
