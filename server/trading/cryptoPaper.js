@@ -25,6 +25,7 @@ const DEFAULTS = {
   minRsi: 30,
   maxRsi: 82,
   sideMode: 'both',
+  strategy: 'momentum',
   strictTrend: false,
   feePct: 0.001
 };
@@ -75,6 +76,7 @@ export class CryptoPaper {
     return {
       symbol: this.settings.symbol,
       interval: this.settings.interval,
+      strategy: this.settings.strategy || 'momentum',
       riskUsd: this.settings.riskUsd,
       maxNotional: this.settings.maxNotional,
       atrStopMult: this.settings.atrStopMult,
@@ -200,10 +202,16 @@ export class CryptoPaper {
     const trendDown = this.settings.strictTrend
       ? (isNum(snapshot.ema50) && isNum(snapshot.ema200) && price < snapshot.ema50 && snapshot.ema50 < snapshot.ema200)
       : (isNum(snapshot.ema50) && price < snapshot.ema50);
-    const side = trendUp ? 'LONG' : (trendDown && this.settings.sideMode === 'both' && this.env.CRYPTO_ALLOW_SHORT === 'true' ? 'SHORT' : null);
-    if (!side) notes.push('Sin tendencia clara para operar.');
     const rsi = snapshot.rsi14;
-    if (isNum(rsi)) {
+    let side = null;
+    if (this.settings.strategy === 'meanrev') {
+      if (isNum(rsi) && rsi < 30) side = 'LONG';
+      if (!side) notes.push('Media reversión: RSI no está bajo 30.');
+    } else {
+      side = trendUp ? 'LONG' : (trendDown && this.settings.sideMode === 'both' && this.env.CRYPTO_ALLOW_SHORT === 'true' ? 'SHORT' : null);
+      if (!side) notes.push('Sin tendencia clara para operar.');
+    }
+    if (this.settings.strategy !== 'meanrev' && isNum(rsi)) {
       if (side === 'LONG' && (rsi < this.settings.minRsi || rsi > this.settings.maxRsi)) notes.push('RSI fuera de rango para long.');
       if (side === 'SHORT' && (rsi < 20 || rsi > 65)) notes.push('RSI fuera de rango para short.');
     }

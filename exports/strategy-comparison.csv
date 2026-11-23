@@ -1,0 +1,16 @@
+coin,variant,trades,winRate,avgR,totalR,maxDD,pf
+PEPEUSDT,trend_ema50,81,19.8,-0.4,-32.68,-36.67,0.58
+PEPEUSDT,trend_ema50_2R,81,29.6,-0.3,-24.69,-26.44,0.64
+PEPEUSDT,cross_ema20_50,64,25,-0.19,-12.15,-28.17,0.79
+PEPEUSDT,breakout20,56,28.6,-0.06,-3.45,-13.94,0.93
+PEPEUSDT,meanrev_rsi30,39,38.5,0.35,13.53,-5.88,1.48
+NEARUSDT,trend_ema50,81,29.6,0.05,4.4,-11.53,1.07
+NEARUSDT,trend_ema50_2R,81,34.6,-0.09,-7.58,-13.37,0.87
+NEARUSDT,cross_ema20_50,71,25.4,-0.09,-6.61,-18.08,0.89
+NEARUSDT,breakout20,70,21.4,-0.28,-19.3,-19.3,0.69
+NEARUSDT,meanrev_rsi30,24,37.5,0.34,8.04,-4.68,1.49
+INJUSDT,trend_ema50,75,30.7,0.07,5.39,-12.83,1.09
+INJUSDT,trend_ema50_2R,75,34.7,-0.11,-8.6,-13.28,0.85
+INJUSDT,cross_ema20_50,66,25.8,-0.11,-7.43,-17.85,0.87
+INJUSDT,breakout20,61,21.3,-0.3,-18.48,-24.69,0.67
+INJUSDT,meanrev_rsi30,39,41,0.43,16.95,-4.38,1.61
