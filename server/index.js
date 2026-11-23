@@ -619,6 +619,11 @@ app.get('/api/capitulation', requireAccess, async (_request, response) => {
   try {
     const scan = await scanCapitulation();
     openCapitulationPaper(scan.candidates);
+    for (const candidate of scan.candidates || []) {
+      if (candidate.research?.tradeable) {
+        notifyImportant('📉 Capitulación: ' + candidate.symbol, ['Caída ' + candidate.dayDrop + '% día / ' + candidate.twoDayDrop + '% 2d', 'RSI ' + candidate.rsi14 + ' · IV/RV ' + candidate.ivRatio, 'Put spread ' + candidate.shortStrike + '/' + candidate.longStrike + ' · crédito ' + candidate.credit + ' · riesgo ' + candidate.maxLoss, candidate.research.verdict], 'cap:' + candidate.symbol + ':' + candidate.expiration).catch(() => {});
+      }
+    }
     return response.json({ ok: true, ...scan, paper: capitulationPaperStatus() });
   } catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
 });
@@ -656,6 +661,12 @@ app.post('/api/bots/:mode/briefing', requireAccess, async (request, response) =>
     } });
     return response.json({ ok: true, text: result.text, provider: result.provider });
   } catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
+app.get('/api/telegram/status', requireAccess, async (_request, response) => response.json({ ok: true, ...(await telegramStatus()) }));
+app.post('/api/telegram/test', requireAccess, async (_request, response) => {
+  const result = await sendTelegram('✅ <b>5M conectado</b>\nLos avisos importantes del bot van a llegar acá.');
+  return response.status(result.ok ? 200 : 503).json({ ok: result.ok, ...result });
 });
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
