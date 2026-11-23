@@ -20,6 +20,7 @@ import { CryptoPaper } from './trading/cryptoPaper.js';
 import { binanceAccount } from './lib/binanceUS.js';
 import { syncCryptoHistory, historyStatus } from './lib/cryptoHistory.js';
 import { syncStockHistory, stockStatus } from './lib/stockHistory.js';
+import { Orchestrator } from './lib/orchestrator.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { CreditBot } from './trading/creditBot.js';
 import { newsStatus, resetNewsCache } from './lib/news.js';
@@ -422,6 +423,14 @@ app.post('/api/stocks/history/sync', requireAccess, async (_request, response) =
   const result = await syncStockHistory({ days: 1825 });
   return response.json({ ok: true, ...result });
 });
+
+
+// Orquestador de roles: riesgo, datos y aprendizaje (sin costo de IA)
+const orchestrator = new Orchestrator({ bots, cryptoPaper });
+const orchestrationTimer = setInterval(() => { orchestrator.runOnce().catch(() => {}); }, 10 * 60 * 1000);
+orchestrationTimer.unref?.();
+setTimeout(() => { orchestrator.runOnce().catch(() => {}); }, 25000).unref?.();
+app.get('/api/orchestrator', requireAccess, (_request, response) => response.json({ ok: true, ...orchestrator.status() }));
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
