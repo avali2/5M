@@ -370,7 +370,16 @@ app.post('/api/credit-bot/close', requireAccess, async (_request, response) => {
 
 
 // Crypto SOL (paper, libro separado del bot de opciones)
-const cryptoPaper = new CryptoPaper({});
+const cryptoBooks = {
+  sol: new CryptoPaper({}),
+  near: new CryptoPaper({ stateFile: 'crypto-paper-near.json', configFile: 'crypto-config-near.json', symbol: 'NEARUSDT' }),
+  inj: new CryptoPaper({ stateFile: 'crypto-paper-inj.json', configFile: 'crypto-config-inj.json', symbol: 'INJUSDT' })
+};
+const cryptoPaper = cryptoBooks.sol;
+function cryptoBook(request) {
+  const key = String(request?.query?.book || 'sol').toLowerCase();
+  return cryptoBooks[key] || cryptoBooks.sol;
+}
 const forexPaper = new ForexPaper({});
 // Tick interno de los bots de opciones (plan pago, siempre encendido).
 const botTickTimer = setInterval(async () => {
@@ -383,27 +392,29 @@ const botTickTimer = setInterval(async () => {
 botTickTimer.unref?.();
 
 const cryptoTickTimer = setInterval(() => {
-  if (cryptoPaper.status().armed && !cryptoPaper.status().paused) cryptoPaper.runCycle().catch(() => {});
+  for (const book of Object.values(cryptoBooks)) {
+    if (book.status().armed && !book.status().paused) book.runCycle().catch(() => {});
+  }
 }, 15 * 60 * 1000);
 cryptoTickTimer.unref?.();
-app.get('/api/crypto/paper', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.status() }));
-app.get('/api/crypto/paper/config', requireAccess, (_request, response) => response.json({ ok: true, config: cryptoPaper.getConfig() }));
+app.get('/api/crypto/paper', requireAccess, (request, response) => response.json({ ok: true, ...cryptoBook(request).status() }));
+app.get('/api/crypto/paper/config', requireAccess, (request, response) => response.json({ ok: true, config: cryptoBook(request).getConfig() }));
 app.put('/api/crypto/paper/config', requireAccess, (request, response) => {
-  const result = cryptoPaper.updateConfig(request.body || {});
+  const result = cryptoBook(request).updateConfig(request.body || {});
   return response.status(result.ok ? 200 : 400).json({ ok: result.ok, ...result });
 });
 app.get('/api/crypto/paper/log', requireAccess, (request, response) => {
   const limit = Math.min(200, Math.max(1, Number(request.query.limit) || 50));
-  response.json({ ok: true, log: (cryptoPaper.status().log || []).slice(-limit) });
+  response.json({ ok: true, log: (cryptoBook(request).status().log || []).slice(-limit) });
 });
 app.post('/api/crypto/paper/tick', async (request, response) => {
   if (!hasCronAccess(request)) return response.status(401).json({ error: 'Token de cron inválido.' });
-  const status = await cryptoPaper.runCycle();
+  const status = await cryptoBook(request).runCycle();
   return response.json({ ok: true, ...status });
 });
-app.post('/api/crypto/paper/arm', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.arm() }));
-app.post('/api/crypto/paper/pause', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.pause(true) }));
-app.post('/api/crypto/paper/disarm', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.disarm() }));
+app.post('/api/crypto/paper/arm', requireAccess, (request, response) => response.json({ ok: true, ...cryptoBook(request).arm() }));
+app.post('/api/crypto/paper/pause', requireAccess, (request, response) => response.json({ ok: true, ...cryptoBook(request).pause(true) }));
+app.post('/api/crypto/paper/disarm', requireAccess, (request, response) => response.json({ ok: true, ...cryptoBook(request).disarm() }));
 
 
 // Históricos crypto (SQLite en disco persistente) + estado de claves Binance.US

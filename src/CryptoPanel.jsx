@@ -16,8 +16,9 @@ const FIELDS = [
 
 export default function CryptoPanel() {
   const [tick, setTick] = useState(0);
+  const [book, setBook] = useState('sol');
   const [message, setMessage] = useState('');
-  const api = useApi(() => apiGet('/api/crypto/paper'), [tick]);
+  const api = useApi(() => apiGet('/api/crypto/paper?book=' + book), [tick, book]);
   const [draft, setDraft] = useState(null);
   const data = api.data;
   const config = draft || data?.config || {};
@@ -26,7 +27,7 @@ export default function CryptoPanel() {
   async function act(path) {
     setMessage('Ejecutando…');
     try {
-      const result = await apiPost('/api/crypto/paper/' + path, {});
+      const result = await apiPost('/api/crypto/paper/' + path + '?book=' + book, {});
       setMessage(result.cycle?.note || 'Listo.');
       setTick((value) => value + 1);
     } catch (error) { setMessage(error.message); }
@@ -35,7 +36,7 @@ export default function CryptoPanel() {
   async function save() {
     setMessage('Guardando…');
     try {
-      const result = await apiPut('/api/crypto/paper/config', config);
+      const result = await apiPut('/api/crypto/paper/config?book=' + book, config);
       setMessage(result.ok ? 'Configuración guardada.' : (result.errors || []).join(' · '));
       setDraft(null);
       setTick((value) => value + 1);
@@ -66,6 +67,11 @@ export default function CryptoPanel() {
                 <p className="tiny muted">Unidades {position.units} · riesgo {money(position.riskUsd)} · P/L {money(position.pnlUsd || 0)}</p>
               </div>
             ) : <p className="tiny muted">{data.cycle?.note || 'Sin posición.'}</p>}
+            <div className="chip-row" style={{ marginBottom: 6 }}>
+              {[['sol', 'SOL'], ['near', 'NEAR'], ['inj', 'INJ']].map(([key, label]) => (
+                <button key={key} type="button" className="chip" aria-pressed={book === key} onClick={() => { setBook(key); setDraft(null); }}>{label}</button>
+              ))}
+            </div>
             <div className="row wrap" style={{ gap: 6 }}>
               <button className="btn primary sm" onClick={() => act('arm')} disabled={data.armed}><Icon name="play" size={13} />Armar</button>
               <button className="btn sm" onClick={() => act('pause')} disabled={!data.armed || data.paused}><Icon name="pause" size={13} />Pausar</button>

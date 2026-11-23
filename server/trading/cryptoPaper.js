@@ -29,15 +29,16 @@ const DEFAULTS = {
 
 export class CryptoPaper {
   constructor(options = {}) {
-    const { env = process.env, now = () => new Date(), fetcher = null, stateFile = 'crypto-paper.json', dataDir = null } = options;
+    const { env = process.env, now = () => new Date(), fetcher = null, stateFile = 'crypto-paper.json', dataDir = null, configFile = 'crypto-config.json', symbol = null } = options;
     this.env = env;
     this.now = now;
     this.fetcher = fetcher || ((settings) => getCryptoSnapshot({ symbol: settings.symbol, interval: settings.interval }));
     this.stateFile = stateFile;
     this.dataDir = dataDir || config.dataDir;
-    this.configFile = 'crypto-config.json';
+    this.configFile = configFile;
     this.overrides = this.loadConfig();
     this.settings = { ...DEFAULTS, ...(config.crypto || {}), ...this.overrides };
+    if (symbol) this.settings.symbol = String(symbol).toUpperCase();
     this.aiReview = this.env.CRYPTO_AI_REVIEW === 'off' ? 'off' : 'on';
     this.state = this.load();
   }
