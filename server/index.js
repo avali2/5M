@@ -628,6 +628,19 @@ app.post('/api/capitulation/paper/sync', requireAccess, async (_request, respons
   return response.json({ ok: true, ...capitulationPaperStatus() });
 });
 
+const WATCHLIST_SYMBOLS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'AMD', 'SOFI', 'PLTR', 'COIN', 'MARA', 'SPY', 'QQQ', 'IWM', 'DIA'];
+let watchlistCache = { at: 0, value: null };
+app.get('/api/watchlist', requireAccess, async (_request, response) => {
+  if (watchlistCache.value && Date.now() - watchlistCache.at < 30000) return response.json(watchlistCache.value);
+  if (!config.tradier.token) return response.json({ ok: false, error: 'Sin TRADIER_TOKEN.' });
+  try {
+    const quotes = await new TradierClient(config.tradier).getQuotes(WATCHLIST_SYMBOLS);
+    const payload = { ok: true, updatedAt: new Date().toISOString(), quotes: quotes.map((quote) => ({ symbol: quote.symbol, price: quote.price, changePct: quote.changePct })) };
+    watchlistCache = { at: Date.now(), value: payload };
+    return response.json(payload);
+  } catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
   enabled: config.alerts.enabled,

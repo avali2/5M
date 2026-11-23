@@ -12,6 +12,7 @@ import CryptoPanel from './CryptoPanel.jsx';
 import TelemetryPanel from './TelemetryPanel.jsx';
 import ForexPanel from './ForexPanel.jsx';
 import CapitulationPanel from './CapitulationPanel.jsx';
+import WatchlistStrip from './WatchlistStrip.jsx';
 
 const SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', 'AMD', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'PLTR', 'COIN', 'SOFI', 'MARA'];
 const RADAR_DEFAULTS = ['SPY', 'QQQ', 'AMD', 'NVDA', 'TSLA', 'META', 'PLTR'];
@@ -146,6 +147,7 @@ export default function App() {
       )}
 
       <main className="main">
+        {tab === 'alertas' && <WatchlistStrip />}
         {tab === 'alertas' && (
           <div className="module-grid" aria-label="Ir a un módulo">
             {TABS.filter((item) => item.id !== 'alertas').map((item) => (
