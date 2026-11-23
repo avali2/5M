@@ -362,6 +362,16 @@ app.post('/api/credit-bot/close', requireAccess, async (_request, response) => {
 
 // Crypto SOL (paper, libro separado del bot de opciones)
 const cryptoPaper = new CryptoPaper({});
+// Tick interno de los bots de opciones (plan pago, siempre encendido).
+const botTickTimer = setInterval(async () => {
+  if (process.env.BOT_INTERNAL_TICK !== 'true') return;
+  for (const instance of Object.values(bots)) {
+    try { const status = instance.status(); if (status.armed && !status.paused) await instance.runCycle(); }
+    catch { /* el ciclo tiene su propio manejo de errores */ }
+  }
+}, 10 * 60 * 1000);
+botTickTimer.unref?.();
+
 const cryptoTickTimer = setInterval(() => {
   if (cryptoPaper.status().armed && !cryptoPaper.status().paused) cryptoPaper.runCycle().catch(() => {});
 }, 15 * 60 * 1000);
