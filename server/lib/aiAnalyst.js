@@ -226,7 +226,7 @@ export async function analyzeTask({ task = 'signal', provider, payload = {}, que
   const cached = readCache(key);
   if (cached) return { ...cached, cached: true };
 
-  const attempts = [chosen, otherProvider(chosen)].filter(Boolean);
+  const attempts = [chosen, otherProvider(chosen), chosen].filter((value, index, list) => value && list.indexOf(value) === index || (value === chosen && list.indexOf(value) === 0));
   let lastError = null;
   for (const attempt of attempts) {
     try {
@@ -247,7 +247,8 @@ export async function analyzeTask({ task = 'signal', provider, payload = {}, que
       if (error.status === 401 || error.status === 402) break;
     }
   }
-  throw new AIError(lastError?.message || 'La IA no respondió.', lastError?.status || 503, 'AI_FAIL');
+  const status = lastError?.status || 503;
+  throw new AIError(status >= 500 ? 'La IA está ocupada en este momento. Probá de nuevo en unos segundos.' : (lastError?.message || 'La IA no respondió.'), status, status >= 500 ? 'AI_BUSY' : 'AI_FAIL');
 }
 
 function safeStructured(text) {

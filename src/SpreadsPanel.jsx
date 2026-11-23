@@ -25,7 +25,14 @@ export default function SpreadsPanel({ symbols = [], symbol, setSymbol }) {
   async function explain(idea) {
     setAi({ loading: true, text: '', error: '', provider: '' });
     try {
-      const result = await apiPost('/api/ai/analyze', { task: 'spread', payload: idea, provider: 'auto' });
+      let result;
+      try { result = await apiPost('/api/ai/analyze', { task: 'spread', payload: idea, provider: 'auto' }); }
+      catch (first) {
+        if (/HTTP 5|502|503|ocupada/i.test(first.message)) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          result = await apiPost('/api/ai/analyze', { task: 'spread', payload: idea, provider: 'auto' });
+        } else throw first;
+      }
       setAi({ loading: false, text: result.text || '', error: '', provider: result.provider || '' });
     } catch (error) { setAi({ loading: false, text: '', error: error.message, provider: '' }); }
   }
