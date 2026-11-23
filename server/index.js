@@ -19,6 +19,8 @@ import { buildQuickScan } from './lib/quickScan.js';
 import { CryptoPaper } from './trading/cryptoPaper.js';
 import { ForexPaper } from './trading/forexPaper.js';
 import { binanceAccount } from './lib/binanceUS.js';
+import { getCryptoSnapshot } from './lib/cryptoData.js';
+import { getForexSnapshot } from './lib/forexData.js';
 import { syncCryptoHistory, historyStatus } from './lib/cryptoHistory.js';
 import { syncStockHistory, stockStatus } from './lib/stockHistory.js';
 import { Orchestrator } from './lib/orchestrator.js';
@@ -581,6 +583,34 @@ app.get('/api/mt5/status', requireAccess, (_request, response) => response.json(
 app.post('/api/mt5/command', requireAccess, (request, response) => {
   const command = enqueueCommand(request.body || {});
   return response.json({ ok: true, command });
+});
+
+
+// Gráficos en tiempo real (crypto y forex)
+const chartCache = new Map();
+function chartCached(key, ttl, loader) {
+  const hit = chartCache.get(key);
+  if (hit && Date.now() - hit.at < ttl) return hit.value;
+  const value = loader();
+  chartCache.set(key, { at: Date.now(), value });
+  return value;
+}
+app.get('/api/crypto/chart', requireAccess, async (request, response) => {
+  try {
+    const book = cryptoBook(request);
+    const config = book.status().config || {};
+    const snapshot = await chartCached('crypto:' + config.symbol, 30000, () => getCryptoSnapshot({ symbol: config.symbol, interval: config.interval || '1h' }));
+    return response.json({ ok: true, symbol: config.symbol, price: snapshot.price, ema50: snapshot.ema50, ema200: snapshot.ema200, rsi14: snapshot.rsi14, source: snapshot.source, updatedAt: snapshot.updatedAt, bars: (snapshot.bars || []).slice(-120).map((bar) => ({ t: bar.time, c: bar.close })), position: book.status().position || null });
+  } catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+app.get('/api/forex/chart', requireAccess, async (request, response) => {
+  try {
+    const config = forexPaper.status().config || {};
+    const symbol = String(request.query.symbol || config.symbol || 'EURUSD').toUpperCase();
+    const snapshot = await chartCached('forex:' + symbol, 30000, () => getForexSnapshot({ symbol }));
+    const forexStatus = forexPaper.status();
+    return response.json({ ok: true, symbol, price: snapshot.price, ema50: snapshot.ema50, ema200: snapshot.ema200, rsi14: snapshot.rsi14, source: snapshot.source, updatedAt: snapshot.updatedAt, session: snapshot.session, bars: (snapshot.bars || []).slice(-120).map((bar) => ({ t: bar.time, c: bar.close })), position: forexStatus.position && forexStatus.position.symbol === symbol ? forexStatus.position : null });
+  } catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
 });
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({

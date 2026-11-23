@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiGet, apiPost, apiPut } from './lib/api.js';
 import { useApi } from './lib/hooks.js';
 import { Icon, Card, Badge, Stat, EmptyState, SectionTitle } from './components/ui.jsx';
+import LiveChart from './components/LiveChart.jsx';
 import { money } from './lib/format.js';
 
 const FIELDS = [
@@ -13,9 +14,12 @@ const FIELDS = [
 
 export default function ForexPanel() {
   const [tick, setTick] = useState(0);
+  const [live, setLive] = useState(0);
+  useEffect(() => { const id = setInterval(() => setLive((value) => value + 1), 15000); return () => clearInterval(id); }, []);
   const [message, setMessage] = useState('');
   const [draft, setDraft] = useState(null);
   const api = useApi(() => apiGet('/api/forex/paper'), [tick]);
+  const chart = useApi(() => apiGet('/api/forex/chart?symbol=' + encodeURIComponent((draft || draft)?.symbol || api.data?.config?.symbol || 'EURUSD')), [live, api.data?.config?.symbol]);
   const data = api.data;
   const config = draft || data?.config || {};
   const position = data?.position;
@@ -64,6 +68,10 @@ export default function ForexPanel() {
             </div>
           </div>
         )}
+      </Card>
+
+      <Card title={'Precio en vivo · ' + (data?.config?.symbol || '')} icon="line-chart" actions={<Badge tone="up">EN VIVO</Badge>}>
+        {chart.data ? <LiveChart bars={chart.data.bars} ema50={chart.data.ema50} ema200={chart.data.ema200} position={chart.data.position} price={chart.data.price} symbol={chart.data.symbol} /> : <p className="tiny muted">Cargando gráfico…</p>}
       </Card>
 
       <Card title="Configuración" icon="settings">

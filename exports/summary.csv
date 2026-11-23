@@ -1,0 +1,5 @@
+module,trades,winRate,pnlUsd,expectancy
+"options:paper","0","","0",""
+"options:live","0","","0",""
+"crypto:pepe","1","0","-18.47","-18.47"
+"forex","0","","0",""
