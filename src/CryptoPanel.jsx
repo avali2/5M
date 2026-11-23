@@ -110,12 +110,19 @@ export default function CryptoPanel() {
       <Card title="Últimas operaciones crypto" icon="bar-chart">
         {(data?.history || []).length === 0 ? <EmptyState icon="bar-chart" title="Sin trades todavía">El módulo opera solo cuando la tendencia y el RSI acompañan.</EmptyState> : (
           <div className="stack xs">
-            {data.history.slice().reverse().map((trade) => (
-              <div key={trade.openedAt} className="row between wrap" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
-                <span className="tiny mono">{trade.side} {fmtPrice(trade.entry)} → {fmtPrice(trade.exit)}</span>
-                <span className="tiny" style={{ color: trade.realizedUsd >= 0 ? 'var(--up)' : 'var(--down)' }}>{money(trade.realizedUsd)} · {trade.closeReason}</span>
-              </div>
-            ))}
+            {data.history.slice().reverse().map((trade) => {
+              const pctChange = trade.entry > 0 ? ((trade.exit - trade.entry) / trade.entry) * 100 * (trade.side === 'SHORT' ? -1 : 1) : 0;
+              const hours = trade.openedAt && trade.closedAt ? Math.max(0, Math.round((new Date(trade.closedAt) - new Date(trade.openedAt)) / 3600000)) : null;
+              return (
+                <div key={trade.openedAt} className="stack xs" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+                  <div className="row between wrap">
+                    <span className="tiny mono">{String(trade.symbol || data.settings?.symbol || '').replace('USDT', '')} {trade.side} {fmtPrice(trade.entry)} → {fmtPrice(trade.exit)}</span>
+                    <span className="tiny" style={{ color: trade.realizedUsd >= 0 ? 'var(--up)' : 'var(--down)', fontWeight: 700 }}>{money(trade.realizedUsd)} · {trade.closeReason}</span>
+                  </div>
+                  <p className="tiny muted">{trade.closedAt ? new Date(trade.closedAt).toLocaleString('es-US', { timeZone: 'America/New_York', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}{hours != null ? ' · ' + hours + 'h' : ''} · {pctChange >= 0 ? '+' : ''}{pctChange.toFixed(1)}% · riesgo {money(trade.riskUsd)}</p>
+                </div>
+              );
+            })}
           </div>
         )}
       </Card>
@@ -124,7 +131,7 @@ export default function CryptoPanel() {
         {(data?.log || []).length === 0 ? <p className="tiny muted">Sin registros.</p> : data.log.slice().reverse().slice(0, 12).map((entry, index) => (
           <p key={(entry.at || '') + index} className="tiny" style={{ margin: '4px 0', color: 'var(--text-2)' }}>
             <Badge tone={entry.type === 'ENTRY' ? 'up' : entry.type === 'EXIT' ? 'brand' : 'neutral'}>{entry.type}</Badge>{' '}
-            {entry.note || (entry.side ? entry.side + ' ' + fmtPrice(entry.price ?? entry.entry) : '')} {entry.pnlUsd !== undefined ? '· ' + money(entry.pnlUsd) : ''}
+            <span className="tiny muted">{(entry.at ? new Date(entry.at).toLocaleTimeString('es-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) : '')} </span>{entry.note || (entry.side ? entry.side + ' ' + fmtPrice(entry.price ?? entry.entry) : '')}{entry.text ? ' · ' + entry.text : ''} {entry.pnlUsd !== undefined ? '· ' + money(entry.pnlUsd) : ''}
           </p>
         ))}
       </Card>
