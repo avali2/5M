@@ -68,11 +68,11 @@ export async function syncStockHistory(options = {}) {
       }
     }
     syncState.finishedAt = new Date().toISOString();
-    return { ...coverage(), errors };
+    return { ...stockCoverage(), errors };
   } catch (error) {
     syncState.error = error.message;
     syncState.finishedAt = new Date().toISOString();
-    return { ...coverage(), errors };
+    return { ...stockCoverage(), errors };
   } finally {
     syncState.running = false;
   }
