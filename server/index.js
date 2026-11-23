@@ -38,6 +38,7 @@ import { buildDirectionalSignals } from './lib/nitoDirectional.js';
 import { buildSpreadIdeas } from './lib/aggressiveSpreads.js';
 import { buildPositioning } from './lib/positioning.js';
 import { aiStatus, analyzeTask, streamChat } from './lib/aiAnalyst.js';
+import { telegramStatus, sendTelegram, notifyImportant } from './lib/telegram.js';
 import { isDeepSeekConfigured } from './lib/deepseek.js';
 
 export const app = express();
