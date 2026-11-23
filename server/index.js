@@ -22,6 +22,7 @@ import { syncCryptoHistory, historyStatus } from './lib/cryptoHistory.js';
 import { syncStockHistory, stockStatus } from './lib/stockHistory.js';
 import { Orchestrator } from './lib/orchestrator.js';
 import { record, queryEvents, telemetryStats, collect } from './lib/telemetry.js';
+import { refreshCalendar, calendarStatus } from './lib/calendar.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { CreditBot } from './trading/creditBot.js';
 import { newsStatus, resetNewsCache } from './lib/news.js';
@@ -486,6 +487,23 @@ app.get('/api/telemetry/stats', requireAccess, (_request, response) => {
     orchestrator: orchestrator.status()
   });
 });
+
+
+// Calendario oficial: BLS (CPI/NFP), BEA (PCE), Fed (FOMC), OCC (OPEX)
+async function refreshCalendarSafe() {
+  try {
+    const data = await refreshCalendar();
+    record({ module: 'data', type: 'calendar', message: 'Calendario actualizado: ' + data.events.length + ' eventos · BLS ' + (data.sources.bls?.ok ? 'OK' : 'falló') + ' · BEA ' + (data.sources.bea?.ok ? 'OK' : 'falló') });
+    return data;
+  } catch (error) {
+    record({ module: 'data', level: 'warn', type: 'calendar', message: 'Calendario no actualizado: ' + error.message });
+    return null;
+  }
+}
+setTimeout(refreshCalendarSafe, 5000).unref?.();
+const calendarTimer = setInterval(refreshCalendarSafe, 6 * 60 * 60 * 1000);
+calendarTimer.unref?.();
+app.get('/api/calendar', requireAccess, (_request, response) => response.json({ ok: true, ...calendarStatus() }));
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
