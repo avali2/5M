@@ -99,7 +99,7 @@ export default function App() {
     return [...new Set(list)].slice(0, 8);
   }, [symbol]);
 
-  const panelProps = { symbols: radarSymbols, symbol, setSymbol, accountUsd };
+  const panelProps = { symbols: radarSymbols, symbol, setSymbol, accountUsd, onAnalyze: (next) => { setSymbol(next); go('institucional'); } };
 
   return (
     <div className="shell">

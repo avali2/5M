@@ -7,7 +7,7 @@ import { Sparkline } from './components/charts.jsx';
 
 const URGENCY_TONE = { AHORA: 'up', HOY: 'warn', VIGILAR: 'neutral' };
 
-function fmtPrice(value) { if (!Number.isFinite(Number(value))) return '—'; const abs = Math.abs(Number(value)); return abs >= 100 ? Number(value).toFixed(2) : abs >= 1 ? Number(value).toFixed(2) : Number(value).toFixed(4); }
+function fmtPrice(value) { if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—'; const abs = Math.abs(Number(value)); return abs >= 100 ? Number(value).toFixed(2) : abs >= 1 ? Number(value).toFixed(2) : Number(value).toFixed(4); }
 
 function SignalContext({ symbol }) {
   const api = useApi(() => apiGet('/api/positioning?symbol=' + symbol), [symbol]);
@@ -33,7 +33,7 @@ function SignalContext({ symbol }) {
   );
 }
 
-export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd }) {
+export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd, onAnalyze }) {
   const [tick, setTick] = useState(0);
   const [expanded, setExpanded] = useState(null);
   const [pushState, setPushState] = useState(() => {
@@ -192,7 +192,7 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
           )}
           <div className="row wrap" style={{ marginTop: 10, gap: 8 }}>
             <CopyButton text={item.copy} label="Copiar orden" />
-            <button className="btn sm" onClick={() => setSymbol(item.symbol)}><Icon name="crosshair" size={14} />Analizar {item.symbol}</button>
+            <button className="btn sm" onClick={() => (onAnalyze ? onAnalyze(item.symbol) : setSymbol(item.symbol))}><Icon name="crosshair" size={14} />Analizar {item.symbol}</button>
             <span className="tiny muted" style={{ marginLeft: 'auto' }}>{item.tags?.join(' · ')}</span>
           </div>
         </section>
