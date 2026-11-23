@@ -64,6 +64,7 @@ let lastBriefing = null;
 let lastOpenSummaryDay = null;
 let lastRecapDay = null;
 let briefingTimer = null;
+let summaryTimer = null;
 const CRON_TOKEN = process.env.CRON_TOKEN || '';
 let lastScanError = null;
 let scanInFlight = null;
