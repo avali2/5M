@@ -641,6 +641,23 @@ app.get('/api/watchlist', requireAccess, async (_request, response) => {
   } catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
 });
 
+app.post('/api/bots/:mode/briefing', requireAccess, async (request, response) => {
+  const mode = String(request.params.mode || 'paper').toLowerCase();
+  const bot = bots[mode];
+  if (!bot) return response.status(404).json({ ok: false, error: 'Bot no encontrado.' });
+  try {
+    const status = bot.status();
+    const result = await analyzeTask({ task: 'briefing', provider: 'auto', payload: {
+      mode, cycle: status.cycle, armed: status.armed, paused: status.paused,
+      gates: (status.gates?.checks || []).map((check) => check.name + ':' + (check.ok ? 'ok' : 'falta')),
+      position: status.position ? { strategy: status.position.strategy, dte: status.position.dte, pnlUsd: status.position.pnlUsd } : null,
+      summary: status.summary, lastDecision: status.lastDecision ? { notes: status.lastDecision.notes, strategy: status.lastDecision.strategySelected } : null,
+      market: { symbol: status.settings?.symbol, vix: status.vixRegime, ivr: status.ivr }
+    } });
+    return response.json({ ok: true, text: result.text, provider: result.provider });
+  } catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
   enabled: config.alerts.enabled,
