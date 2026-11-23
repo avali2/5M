@@ -11,12 +11,14 @@ import SystemPanel from './SystemPanel.jsx';
 import CryptoPanel from './CryptoPanel.jsx';
 import TelemetryPanel from './TelemetryPanel.jsx';
 import ForexPanel from './ForexPanel.jsx';
+import CapitulationPanel from './CapitulationPanel.jsx';
 
 const SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', 'AMD', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'PLTR', 'COIN', 'SOFI', 'MARA'];
 const RADAR_DEFAULTS = ['SPY', 'QQQ', 'AMD', 'NVDA', 'TSLA', 'META', 'PLTR'];
 
 const TABS = [
   { id: 'alertas', label: 'Alertas', icon: 'flame', title: 'Alertas agresivas' },
+  { id: 'capitulacion', label: 'Capitulación', icon: 'trending-down', title: 'Capitulación: caídas fuertes' },
   { id: 'spreads', label: 'Spreads', icon: 'layers', title: 'Spreads agresivos' },
   { id: 'positioning', label: 'Institucional', icon: 'bar-chart', title: 'Posicionamiento institucional' },
   { id: 'ai', label: 'IA', icon: 'sparkles', title: 'Analista IA' },
@@ -156,6 +158,7 @@ export default function App() {
         {tab === 'alertas' && <QuickPanel {...panelProps} />}
         {tab === 'botreal' && <BotPanel mode="live" accountUsd={accountUsd} />}
         {tab === 'botpaper' && <BotPanel mode="paper" accountUsd={accountUsd} />}
+        {tab === 'capitulacion' && <CapitulationPanel />}
         {tab === 'spreads' && <SpreadsPanel symbols={radarSymbols.slice(0, 6)} symbol={symbol} setSymbol={setSymbol} />}
         {tab === 'positioning' && <PositioningPanel {...panelProps} />}
         {tab === 'ai' && <AiPanel {...panelProps} />}

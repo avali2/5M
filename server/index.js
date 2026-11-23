@@ -21,6 +21,7 @@ import { ForexPaper } from './trading/forexPaper.js';
 import { binanceAccount } from './lib/binanceUS.js';
 import { getCryptoSnapshot } from './lib/cryptoData.js';
 import { getForexSnapshot } from './lib/forexData.js';
+import { scanCapitulation } from './lib/capitulation.js';
 import { syncCryptoHistory, historyStatus } from './lib/cryptoHistory.js';
 import { syncStockHistory, stockStatus } from './lib/stockHistory.js';
 import { Orchestrator } from './lib/orchestrator.js';
@@ -611,6 +612,11 @@ app.get('/api/forex/chart', requireAccess, async (request, response) => {
     const forexStatus = forexPaper.status();
     return response.json({ ok: true, symbol, price: snapshot.price, ema50: snapshot.ema50, ema200: snapshot.ema200, rsi14: snapshot.rsi14, source: snapshot.source, updatedAt: snapshot.updatedAt, session: snapshot.session, bars: (snapshot.bars || []).slice(-120).map((bar) => ({ t: bar.time, c: bar.close })), position: forexStatus.position && forexStatus.position.symbol === symbol ? forexStatus.position : null });
   } catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+
+app.get('/api/capitulation', requireAccess, async (_request, response) => {
+  try { return response.json({ ok: true, ...(await scanCapitulation()) }); }
+  catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
 });
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
