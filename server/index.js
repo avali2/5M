@@ -21,6 +21,7 @@ import { binanceAccount } from './lib/binanceUS.js';
 import { syncCryptoHistory, historyStatus } from './lib/cryptoHistory.js';
 import { syncStockHistory, stockStatus } from './lib/stockHistory.js';
 import { Orchestrator } from './lib/orchestrator.js';
+import { record, queryEvents, telemetryStats, collect } from './lib/telemetry.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { CreditBot } from './trading/creditBot.js';
 import { newsStatus, resetNewsCache } from './lib/news.js';
@@ -431,6 +432,60 @@ const orchestrationTimer = setInterval(() => { orchestrator.runOnce().catch(() =
 orchestrationTimer.unref?.();
 setTimeout(() => { orchestrator.runOnce().catch(() => {}); }, 25000).unref?.();
 app.get('/api/orchestrator', requireAccess, (_request, response) => response.json({ ok: true, ...orchestrator.status() }));
+
+
+// Telemetría central: registra todo lo que hacen los bots cada 5 min
+function tradeStatsFor(instance) {
+  const history = instance && instance.state && Array.isArray(instance.state.history) ? instance.state.history : [];
+  const closed = history.filter((trade) => Number.isFinite(trade.realizedUsd));
+  const wins = closed.filter((trade) => trade.realizedUsd > 0).length;
+  const total = closed.reduce((sum, trade) => sum + trade.realizedUsd, 0);
+  const captures = closed.map((trade) => trade.premiumCapturePct).filter((value) => Number.isFinite(value));
+  const maes = closed.map((trade) => trade.maePctOfCredit).filter((value) => Number.isFinite(value));
+  const strategies = {};
+  for (const trade of closed) {
+    const key = trade.strategy || 'OTRA';
+    strategies[key] = strategies[key] || { trades: 0, wins: 0, pnl: 0 };
+    strategies[key].trades += 1;
+    strategies[key].pnl = Math.round((strategies[key].pnl + trade.realizedUsd) * 100) / 100;
+    if (trade.realizedUsd > 0) strategies[key].wins += 1;
+  }
+  return {
+    trades: closed.length, wins, losses: closed.length - wins,
+    winRate: closed.length ? Math.round((wins / closed.length) * 1000) / 10 : null,
+    totalPnlUsd: Math.round(total * 100) / 100,
+    expectancyUsd: closed.length ? Math.round((total / closed.length) * 100) / 100 : null,
+    avgCapturePct: captures.length ? Math.round((captures.reduce((sum, value) => sum + value, 0) / captures.length) * 100) / 100 : null,
+    avgMaePct: maes.length ? Math.round((maes.reduce((sum, value) => sum + value, 0) / maes.length) * 100) / 100 : null,
+    strategies
+  };
+}
+function telemetryCollection() {
+  try { collect({ bots, cryptoPaper, orchestrator }); } catch { /* aislado */ }
+}
+const telemetryTimer = setInterval(telemetryCollection, 5 * 60 * 1000);
+telemetryTimer.unref?.();
+setTimeout(telemetryCollection, 20000).unref?.();
+record({ module: 'system', type: 'deploy', message: 'Servidor iniciado · commit ' + String(process.env.RENDER_GIT_COMMIT || 'local').slice(0, 7) });
+app.get('/api/telemetry', requireAccess, (request, response) => {
+  response.json({ ok: true, events: queryEvents({ limit: request.query.limit, module: request.query.module, level: request.query.level, since: request.query.since }) });
+});
+app.get('/api/telemetry/stats', requireAccess, (_request, response) => {
+  const botsSummary = {};
+  for (const [mode, instance] of Object.entries(bots)) {
+    const status = instance.status();
+    botsSummary[mode] = { armed: Boolean(status.armed), paused: Boolean(status.paused), cycle: status.cycle, position: status.position ? { strategy: status.position.strategy, pnlUsd: status.position.pnlUsd, dte: status.position.dte } : null, ...tradeStatsFor(instance) };
+  }
+  const cryptoStatus = cryptoPaper.status();
+  response.json({
+    ok: true,
+    telemetry: telemetryStats(),
+    bots: botsSummary,
+    crypto: { armed: Boolean(cryptoStatus.armed), cycle: cryptoStatus.cycle, position: cryptoStatus.position ? { side: cryptoStatus.position.side, entry: cryptoStatus.position.entry, pnlUsd: cryptoStatus.position.pnlUsd } : null, ...tradeStatsFor(cryptoPaper) },
+    data: { crypto: historyStatus(), stocks: (stockStatus().coverage || {}) },
+    orchestrator: orchestrator.status()
+  });
+});
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,

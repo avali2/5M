@@ -9,6 +9,7 @@ import PositioningPanel from './PositioningPanel.jsx';
 import AiPanel from './AiPanel.jsx';
 import SystemPanel from './SystemPanel.jsx';
 import CryptoPanel from './CryptoPanel.jsx';
+import TelemetryPanel from './TelemetryPanel.jsx';
 
 const SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', 'AMD', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'PLTR', 'COIN', 'SOFI', 'MARA'];
 const RADAR_DEFAULTS = ['SPY', 'QQQ', 'AMD', 'NVDA', 'TSLA', 'META', 'PLTR'];
@@ -21,6 +22,7 @@ const TABS = [
   { id: 'botreal', label: 'Bot Real', icon: 'cpu', title: 'Bot de trading real' },
   { id: 'botpaper', label: 'Bot Paper', icon: 'database', title: 'Bot de paper' },
   { id: 'crypto', label: 'Crypto SOL', icon: 'flame', title: 'Crypto SOL turbo (paper)' },
+  { id: 'telemetry', label: 'Telemetría', icon: 'terminal', title: 'Telemetría y estadísticas' },
   { id: 'system', label: 'Sistema', icon: 'settings', title: 'Sistema' }
 ];
 
@@ -145,6 +147,7 @@ export default function App() {
         {tab === 'positioning' && <PositioningPanel {...panelProps} />}
         {tab === 'ai' && <AiPanel {...panelProps} />}
         {tab === 'crypto' && <CryptoPanel />}
+        {tab === 'telemetry' && <TelemetryPanel />}
         {tab === 'system' && <SystemPanel theme={theme} toggleTheme={toggleTheme} accountUsd={accountUsd} setAccountUsd={setAccountUsd} />}
       </main>
 
