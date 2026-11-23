@@ -113,6 +113,7 @@ const DEFAULTS = {
   minAtrTrend: 0.25,
   maxSpreadPct: 0.08,
   minOpenInterest: 100,
+  minVolume: 10,
   riskPct: 1,
   contractsCap: 10,
   profitTargetPct: 50,
@@ -663,7 +664,8 @@ export class CreditBot {
     const legOptions = chain.filter((option) => option.type === type && isNum(option.delta) && isNum(option.bid) && option.bid > 0)
       .map((option) => ({ ...option, absDelta: Math.abs(option.delta) }))
       .filter((option) => option.absDelta >= this.settings.shortDeltaMin && option.absDelta <= this.settings.shortDeltaMax)
-      .sort((left, right) => Math.abs(left.absDelta - this.settings.targetDelta) - Math.abs(right.absDelta - this.settings.targetDelta));
+      .map((option) => ({ ...option, skewRatio: isNum(option.iv) && isNum(atmIv) && atmIv > 0 ? option.iv / atmIv : 1 }))
+      .sort((left, right) => (right.skewRatio - 0.6 * Math.abs(right.absDelta - this.settings.targetDelta)) - (left.skewRatio - 0.6 * Math.abs(left.absDelta - this.settings.targetDelta)));
     const shortOption = legOptions[0] || null;
     if (!shortOption) notes.push('Sin contrato en la banda de delta ' + this.settings.shortDeltaMin + '–' + this.settings.shortDeltaMax + '.');
     const maxRisk = Number(this.env.CREDIT_BOT_MAX_RISK_USD || 500);
@@ -686,6 +688,7 @@ export class CreditBot {
         if (candidateCredit * 100 < this.settings.minCreditUsd) continue;
         if (spreadPct(shortOption) > this.settings.maxSpreadPct * 100 || spreadPct(longCandidate) > this.settings.maxSpreadPct * 100) continue;
         if ((shortOption.openInterest || 0) < this.settings.minOpenInterest || (longCandidate.openInterest || 0) < this.settings.minOpenInterest) continue;
+        if ((shortOption.volume || 0) < this.settings.minVolume || (longCandidate.volume || 0) < this.settings.minVolume) continue;
         const candidateMaxLoss = roundTick((realWidth - candidateCredit) * 100);
         const candidateContracts = Math.max(0, Math.min(this.settings.contractsCap, Math.floor(riskBudget / candidateMaxLoss)));
         if (candidateContracts < 1) continue;
@@ -802,6 +805,7 @@ export class CreditBot {
         if (credit * 100 < this.settings.minCreditUsd) continue;
         if ([shortPut, longPut, shortCall, longCall].some((option) => spreadPct(option) > this.settings.maxSpreadPct * 100)) continue;
         if ([shortPut, longPut, shortCall, longCall].some((option) => (option.openInterest || 0) < this.settings.minOpenInterest)) continue;
+        if ([shortPut, longPut, shortCall, longCall].some((option) => (option.volume || 0) < this.settings.minVolume)) continue;
         const maxLoss = roundTick((width - credit) * 100);
         const contracts = Math.max(0, Math.min(this.settings.contractsCap, Math.floor(riskBudget / maxLoss)));
         if (contracts < 1) continue;
@@ -885,7 +889,8 @@ export class CreditBot {
     const premiumStopUsd = position.credit * 100 * position.contracts * this.settings.stopMultiple;
     const hardStopUsd = position.credit * 100 * position.contracts * this.settings.hardStopMultiple;
     let reason = null;
-    if (pnlUsd >= targetUsd) reason = 'OBJETIVO';
+    if (dte <= 0) reason = 'EXPIRACION';
+    else if (pnlUsd >= targetUsd) reason = 'OBJETIVO';
     else if (this.settings.stopMode !== 'underlying' && pnlUsd <= -premiumStopUsd) reason = 'STOP_2X';
     else if (pnlUsd <= -hardStopUsd) reason = 'STOP_DURO';
     else if (dte <= this.settings.timeExitDte) reason = 'TIEMPO';
@@ -988,7 +993,8 @@ export class CreditBot {
         shortPut: plan.shortPut ?? null,
         shortCall: plan.shortCall ?? null,
         longStrike: plan.longStrike ?? null,
-        legs: plan.legs.map((leg) => ({ symbol: leg.symbol, strike: leg.strike, type: leg.type, action: leg.action })),
+        legs: plan.legs.map((leg) => ({ symbol: leg.symbol, strike: leg.strike, type: leg.type, action: leg.action, iv: leg.iv, delta: leg.delta })),
+        spotAtEntry: plan.spot,
         openedAt: this.now().toISOString(),
         orderId,
         feesEstimated: preview.fees,
