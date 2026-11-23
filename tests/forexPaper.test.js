@@ -61,3 +61,10 @@ test('no opera con mercado cerrado', async () => {
   assert.equal(status.position, null);
   assert.equal(status.cycle.state, 'ESPERANDO');
 });
+test('opera XAUUSD con pip y spread propios', async () => {
+  const bot = makeBot(async () => snapshot({ symbol: 'XAUUSD', price: 3608.7, bid: 3608.525, ask: 3608.875, spreadPips: 35, spreadPrice: 0.35, pipSize: 0.01, ema50: 3600, ema200: 3500, rsi14: 55, atr14: 10 }));
+  const status = await bot.runCycle();
+  assert.equal(status.position.side, 'LONG');
+  assert.ok(status.position.riskUsd <= 250 + 0.01);
+  assert.ok(status.position.units > 0);
+});

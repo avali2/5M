@@ -63,7 +63,8 @@ export function isForexOpen(now = new Date()) {
 }
 
 export async function getYahooBars(symbol, interval = '1h', range = '1mo') {
-  const url = YAHOO + encodeURIComponent(symbol + '=X') + '?interval=' + interval + '&range=' + range;
+  const yahooSymbol = (PAIRS[symbol] && PAIRS[symbol].yahoo) || (symbol + '=X');
+  const url = YAHOO + encodeURIComponent(yahooSymbol) + '?interval=' + interval + '&range=' + range;
   const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 5M/1.0' }, signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error('Yahoo HTTP ' + res.status);
   const json = await res.json();
@@ -100,11 +101,18 @@ export async function getStooqBars(pair) {
   return bars;
 }
 
-const SPREADS = { EURUSD: 0.00008, GBPUSD: 0.00012, AUDUSD: 0.00010 };
+const PAIRS = {
+  EURUSD: { yahoo: 'EURUSD=X', spread: 0.00008, pip: 0.0001 },
+  GBPUSD: { yahoo: 'GBPUSD=X', spread: 0.00012, pip: 0.0001 },
+  AUDUSD: { yahoo: 'AUDUSD=X', spread: 0.00010, pip: 0.0001 },
+  XAUUSD: { yahoo: 'GC=F', spread: 0.35, pip: 0.01 }
+};
 
 export async function getForexSnapshot(options = {}) {
   const symbol = String(options.symbol || 'EURUSD').toUpperCase();
-  const spreadPips = SPREADS[symbol] ?? 0.0001;
+  const pair = PAIRS[symbol] || PAIRS.EURUSD;
+  const spreadPrice = pair.spread;
+  const pipSize = pair.pip;
   let bars = null;
   let source = 'yahoo';
   try { bars = await cached('fx:yahoo:' + symbol, 60000, () => getYahooBars(symbol)); }
@@ -113,9 +121,10 @@ export async function getForexSnapshot(options = {}) {
   const price = closes[closes.length - 1];
   return {
     symbol, source, price,
-    bid: Math.round((price - spreadPips / 2) * 100000) / 100000,
-    ask: Math.round((price + spreadPips / 2) * 100000) / 100000,
-    spreadPips: Math.round((spreadPips / 0.0001) * 10) / 10,
+    bid: price - spreadPrice / 2,
+    ask: price + spreadPrice / 2,
+    spreadPips: Math.round((spreadPrice / pipSize) * 10) / 10,
+    spreadPrice, pipSize,
     bars, ema50: ema(closes, 50), ema200: ema(closes, 200), rsi14: rsi(closes, 14),
     atr14: (() => {
       const raw = atr(bars, 14);

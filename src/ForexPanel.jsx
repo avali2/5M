@@ -34,7 +34,7 @@ export default function ForexPanel() {
 
   return (
     <div className="stack">
-      <SectionTitle eyebrow="Forex" title="Bot forex paper" note="EUR/USD y GBP/USD con datos gratuitos, spread simulado y riesgo fijo. Sin dinero real." />
+      <SectionTitle eyebrow="Forex" title="Bot forex paper" note="EUR/USD, GBP/USD, AUD/USD y XAU/USD (oro vía futuros GC=F como proxy) con datos gratuitos, spread simulado y riesgo fijo. Sin dinero real." />
       <Card title="Forex paper" icon="line-chart" subtitle={data ? (data.symbol + ' · ' + (round ? round.source : '—')) : ''}
         actions={<Badge tone={data?.armed ? 'up' : 'neutral'}>{data?.armed ? 'ARMADO' : 'INACTIVO'}</Badge>}>
         {api.loading && !data && <p className="tiny muted">Cargando…</p>}
@@ -73,6 +73,7 @@ export default function ForexPanel() {
               <option value="EURUSD">EUR/USD</option>
               <option value="GBPUSD">GBP/USD</option>
               <option value="AUDUSD">AUD/USD</option>
+              <option value="XAUUSD">XAU/USD (oro)</option>
             </select>
           </label>
           {FIELDS.map(([key, label]) => (

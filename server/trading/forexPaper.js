@@ -77,7 +77,7 @@ export class ForexPaper {
     };
     if (patch.symbol !== undefined) {
       const symbol = String(patch.symbol).toUpperCase();
-      if (!['EURUSD', 'GBPUSD', 'AUDUSD'].includes(symbol)) errors.push('par no soportado');
+      if (!['EURUSD', 'GBPUSD', 'AUDUSD', 'XAUUSD'].includes(symbol)) errors.push('par no soportado');
       else next.symbol = symbol;
     }
     if (patch.allowShort !== undefined) next.allowShort = Boolean(patch.allowShort);
@@ -120,7 +120,13 @@ export class ForexPaper {
     try { snapshot = await this.fetcher(this.settings); }
     catch (error) { this.state.cycle = { state: 'ERROR', note: 'Sin datos: ' + error.message }; this.log('ERROR', { error: error.message }); this.save(); return this.status(); }
     this.state.lastRound = { at: this.now().toISOString(), price: round5(snapshot.price), source: snapshot.source, ema50: round5(snapshot.ema50), ema200: round5(snapshot.ema200), rsi14: round2(snapshot.rsi14), atr14: round5(snapshot.atr14), spreadPips: snapshot.spreadPips, marketOpen: snapshot.marketOpen };
-    if (this.state.position) { await this.manage(snapshot); return this.status(); }
+    if (this.state.position) {
+      if (this.state.position.symbol !== this.settings.symbol) {
+        try { snapshot = await this.fetcher({ ...this.settings, symbol: this.state.position.symbol }); } catch { /* mantiene snapshot */ }
+      }
+      await this.manage(snapshot);
+      return this.status();
+    }
     this.evaluate(snapshot);
     return this.status();
   }
@@ -143,7 +149,8 @@ export class ForexPaper {
       if (side === 'SHORT' && (rsi < 25 || rsi > 65)) notes.push('RSI fuera de rango para short.');
     }
     const stopDistance = atr * this.settings.atrStopMult;
-    const halfSpread = (Number(snapshot.spreadPips || 1) * 0.0001) / 2;
+    const pipSize = Number(snapshot.pipSize || 0.0001);
+    const halfSpread = (Number.isFinite(snapshot.spreadPrice) ? Number(snapshot.spreadPrice) : Number(snapshot.spreadPips || 1) * pipSize) / 2;
     const entry = side === 'SHORT' ? round5(snapshot.bid ?? price - halfSpread) : round5(snapshot.ask ?? price + halfSpread);
     const stop = side === 'SHORT' ? round5(entry + stopDistance) : round5(entry - stopDistance);
     const target = side === 'SHORT' ? round5(entry - stopDistance * this.settings.targetR) : round5(entry + stopDistance * this.settings.targetR);
@@ -164,11 +171,12 @@ export class ForexPaper {
     const position = this.state.position;
     const price = snapshot.price;
     if (!isNum(price)) return;
-    const halfSpread = (Number(snapshot.spreadPips || 1) * 0.0001) / 2;
+    const pipSize = Number(snapshot.pipSize || 0.0001);
+    const halfSpread = (Number.isFinite(snapshot.spreadPrice) ? Number(snapshot.spreadPrice) : Number(snapshot.spreadPips || 1) * pipSize) / 2;
     const exit = position.side === 'LONG' ? (snapshot.bid ?? price - halfSpread) : (snapshot.ask ?? price + halfSpread);
     const direction = position.side === 'LONG' ? 1 : -1;
     const pnlUsd = round2((exit - position.entry) * position.units * direction);
-    const pips = round2(((exit - position.entry) / 0.0001) * direction);
+    const pips = round2(((exit - position.entry) / Number(snapshot.pipSize || 0.0001)) * direction);
     const mae = position.side === 'LONG' ? Math.min(position.mae ?? position.entry, price) : Math.max(position.mae ?? position.entry, price);
     this.state.position = { ...position, price: round5(price), pnlUsd, pips, mae: round5(mae), updatedAt: this.now().toISOString() };
     const heldHours = (this.now() - Date.parse(position.openedAt)) / 3600000;
