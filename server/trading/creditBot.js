@@ -11,10 +11,11 @@ import { config } from '../config.js';
 import { TradierClient } from '../lib/tradier.js';
 import { getSnapshot, optionChainFor, dteFor } from '../lib/marketData.js';
 import { round2 } from '../lib/optionsMath.js';
-import { TradingBroker, LIVE_URL } from './broker.js';
+import { TradingBroker, LIVE_URL, reconcileFill } from './broker.js';
 import { analyzeTask } from '../lib/aiAnalyst.js';
 import { eventRisk } from '../lib/calendar.js';
 import { validateArtifact } from '../lib/validation.js';
+import { isKillActive } from '../lib/killSwitch.js';
 
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value);
 const DAY = 86400000;
@@ -943,6 +944,10 @@ export class CreditBot {
       const preview = await broker.preview(trade, 'CLOSE', price, tag);
       if (!preview) throw new Error('La previsualización de salida no fue aceptada.');
       const orderId = await broker.submit(trade, 'CLOSE', price, tag);
+      const confirmed = await broker.confirm(orderId);
+      if (String(confirmed?.status || '').toLowerCase() !== 'filled') throw new Error('Cierre no confirmado por Tradier (estado ' + (confirmed?.status || 'desconocido') + ').');
+      const fill = reconcileFill(confirmed, trade, 'CLOSE');
+      if (fill?.filled) price = fill.price;
       const fees = preview.fees || 0;
       const realized = roundTick((position.credit - price) * 100 * position.contracts - fees);
       const capture = position.credit > 0 ? roundTick(((position.credit - price) / position.credit) * 100) : null;
@@ -980,6 +985,11 @@ export class CreditBot {
       const preview = await broker.preview(trade, 'OPEN', price, tag);
       if (!preview) throw new Error('La previsualización de entrada no fue aceptada.');
       const orderId = await broker.submit(trade, 'OPEN', price, tag);
+      const confirmed = await broker.confirm(orderId);
+      const confirmedStatus = String(confirmed?.status || '').toLowerCase();
+      if (confirmedStatus !== 'filled') throw new Error('Orden no confirmada por Tradier (estado ' + (confirmedStatus || 'desconocido') + '): revisar manualmente.');
+      const fill = reconcileFill(confirmed, trade, 'OPEN');
+      if (fill?.filled) price = fill.price;
       this.state.position = {
         symbol: plan.symbol,
         strategy: plan.strategy,

@@ -23,6 +23,7 @@ import { syncStockHistory, stockStatus } from './lib/stockHistory.js';
 import { Orchestrator } from './lib/orchestrator.js';
 import { record, queryEvents, telemetryStats, collect } from './lib/telemetry.js';
 import { refreshCalendar, calendarStatus } from './lib/calendar.js';
+import { killSwitchStatus, setKillActive } from './lib/killSwitch.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { CreditBot } from './trading/creditBot.js';
 import { newsStatus, resetNewsCache } from './lib/news.js';
@@ -506,6 +507,18 @@ calendarTimer.unref?.();
 app.get('/api/calendar', requireAccess, (_request, response) => response.json({ ok: true, ...calendarStatus() }));
 
 app.get('/api/validation', requireAccess, (_request, response) => response.json({ ok: true, liveTrading: process.env.LIVE_TRADING === 'true', live: bots.live.validationStatus() }));
+app.get('/api/kill-switch', requireAccess, (_request, response) => response.json({ ok: true, ...killSwitchStatus() }));
+app.post('/api/kill-switch', requireAccess, (request, response) => {
+  const active = Boolean(request.body && request.body.active);
+  const state = setKillActive(active, String((request.body && request.body.reason) || 'manual'));
+  if (active) {
+    for (const instance of Object.values(bots)) { try { instance.pause(true); } catch { /* aislado */ } }
+    try { cryptoPaper.pause(true); } catch { /* aislado */ }
+  }
+  try { record({ module: 'system', level: active ? 'warn' : 'info', type: 'kill-switch', message: active ? 'Kill switch ACTIVADO' : 'Kill switch desactivado' }); } catch { /* aislado */ }
+  return response.json({ ok: true, ...state });
+});
+
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
   enabled: config.alerts.enabled,

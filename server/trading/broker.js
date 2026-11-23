@@ -126,6 +126,18 @@ export class TradingBroker extends TradierClient {
     return String(order.id);
   }
 
+  async confirm(id, { timeoutMs = 20000, intervalMs = 2500 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    let last = null;
+    while (Date.now() < deadline) {
+      try { last = await this.getOrder(id); } catch { last = last || null; }
+      const status = String(last?.status || '').toLowerCase();
+      if (terminal.has(status)) return last;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    return last;
+  }
+
   async cancel(id) {
     await this.accountCall(`/orders/${Number(id)}`, { method: 'DELETE' });
   }
