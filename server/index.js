@@ -371,14 +371,14 @@ app.post('/api/credit-bot/close', requireAccess, async (_request, response) => {
 
 // Crypto SOL (paper, libro separado del bot de opciones)
 const cryptoBooks = {
-  sol: new CryptoPaper({}),
+  pepe: new CryptoPaper({ stateFile: 'crypto-paper-pepe.json', configFile: 'crypto-config-pepe.json', symbol: 'PEPEUSDT' }),
   near: new CryptoPaper({ stateFile: 'crypto-paper-near.json', configFile: 'crypto-config-near.json', symbol: 'NEARUSDT' }),
   inj: new CryptoPaper({ stateFile: 'crypto-paper-inj.json', configFile: 'crypto-config-inj.json', symbol: 'INJUSDT' })
 };
-const cryptoPaper = cryptoBooks.sol;
+const cryptoPaper = cryptoBooks.pepe;
 function cryptoBook(request) {
-  const key = String(request?.query?.book || 'sol').toLowerCase();
-  return cryptoBooks[key] || cryptoBooks.sol;
+  const key = String(request?.query?.book || 'pepe').toLowerCase();
+  return cryptoBooks[key] || cryptoBooks.pepe;
 }
 const forexPaper = new ForexPaper({});
 // Tick interno de los bots de opciones (plan pago, siempre encendido).

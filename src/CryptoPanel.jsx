@@ -16,7 +16,7 @@ const FIELDS = [
 
 export default function CryptoPanel() {
   const [tick, setTick] = useState(0);
-  const [book, setBook] = useState('sol');
+  const [book, setBook] = useState('pepe');
   const [message, setMessage] = useState('');
   const api = useApi(() => apiGet('/api/crypto/paper?book=' + book), [tick, book]);
   const [draft, setDraft] = useState(null);
@@ -68,7 +68,7 @@ export default function CryptoPanel() {
               </div>
             ) : <p className="tiny muted">{data.cycle?.note || 'Sin posición.'}</p>}
             <div className="chip-row" style={{ marginBottom: 6 }}>
-              {[['sol', 'SOL'], ['near', 'NEAR'], ['inj', 'INJ']].map(([key, label]) => (
+              {[['pepe', 'PEPE'], ['near', 'NEAR'], ['inj', 'INJ']].map(([key, label]) => (
                 <button key={key} type="button" className="chip" aria-pressed={book === key} onClick={() => { setBook(key); setDraft(null); }}>{label}</button>
               ))}
             </div>
