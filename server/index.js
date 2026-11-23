@@ -22,6 +22,7 @@ import { binanceAccount } from './lib/binanceUS.js';
 import { getCryptoSnapshot } from './lib/cryptoData.js';
 import { getForexSnapshot } from './lib/forexData.js';
 import { scanCapitulation } from './lib/capitulation.js';
+import { openCandidates as openCapitulationPaper, markAll as markCapitulationPaper, status as capitulationPaperStatus } from './lib/capitulationPaper.js';
 import { syncCryptoHistory, historyStatus } from './lib/cryptoHistory.js';
 import { syncStockHistory, stockStatus } from './lib/stockHistory.js';
 import { Orchestrator } from './lib/orchestrator.js';
@@ -615,8 +616,16 @@ app.get('/api/forex/chart', requireAccess, async (request, response) => {
 });
 
 app.get('/api/capitulation', requireAccess, async (_request, response) => {
-  try { return response.json({ ok: true, ...(await scanCapitulation()) }); }
-  catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+  try {
+    const scan = await scanCapitulation();
+    openCapitulationPaper(scan.candidates);
+    return response.json({ ok: true, ...scan, paper: capitulationPaperStatus() });
+  } catch (error) { return response.status(503).json({ ok: false, error: error.message }); }
+});
+app.get('/api/capitulation/paper', requireAccess, (_request, response) => response.json({ ok: true, ...capitulationPaperStatus() }));
+app.post('/api/capitulation/paper/sync', requireAccess, async (_request, response) => {
+  await markCapitulationPaper();
+  return response.json({ ok: true, ...capitulationPaperStatus() });
 });
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({

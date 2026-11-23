@@ -10,7 +10,7 @@ import { config } from '../config.js';
 import { TradierClient } from './tradier.js';
 import { ema, rsi } from './cryptoData.js';
 
-export const STOCK_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'AMD', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'VIX'];
+export const STOCK_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', 'VIX', 'AMD', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'SOFI', 'PLTR', 'COIN', 'MARA', 'XLK', 'XLF', 'XLE', 'SMH'];
 
 let db = null;
 let syncState = { running: false, startedAt: null, finishedAt: null, error: null, added: 0, symbols: 0 };

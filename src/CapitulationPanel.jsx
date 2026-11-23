@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { apiGet } from './lib/api.js';
+import { apiGet, apiPost } from './lib/api.js';
 import { useApi } from './lib/hooks.js';
 import { Icon, Card, Badge, Stat, EmptyState, SectionTitle, CopyButton, Disclaimer } from './components/ui.jsx';
 import { money } from './lib/format.js';
@@ -7,6 +7,8 @@ import { money } from './lib/format.js';
 export default function CapitulationPanel() {
   const [tick, setTick] = useState(0);
   const api = useApi(() => apiGet('/api/capitulation'), [tick], { auto: true });
+  const paper = useApi(() => apiGet('/api/capitulation/paper'), [tick]);
+  async function syncPaper() { try { await apiPost('/api/capitulation/paper/sync', {}); setTick((value) => value + 1); } catch { /* sin red */ } }
   const data = api.data || {};
   const candidates = data.candidates || [];
   return (
@@ -36,6 +38,26 @@ export default function CapitulationPanel() {
           ))}
         </div>
       </Card>
+      <Card title="Seguimiento paper" icon="bar-chart" subtitle={paper.data?.lastUpdate ? 'actualizado ' + new Date(paper.data.lastUpdate).toLocaleTimeString('es-US', { timeZone: 'America/New_York' }) + ' ET' : 'sin marcar aún'} actions={<button className="btn sm" onClick={syncPaper}><Icon name="refresh" size={13} />Marcar</button>}>
+        <div className="grid-4">
+          <Stat label="Cerradas" value={paper.data?.stats?.trades ?? 0} sub={'win ' + (paper.data?.stats?.winRate ?? 0) + '%'} />
+          <Stat label="P/L paper" value={money(paper.data?.stats?.totalPnlUsd || 0)} tone={(paper.data?.stats?.totalPnlUsd || 0) >= 0 ? 'up' : 'down'} />
+          <Stat label="Abiertas" value={paper.data?.stats?.openCount ?? 0} sub="1 contrato c/u" />
+          <Stat label="Riesgo abierto" value={money((paper.data?.open || []).reduce((sum, trade) => sum + (trade.maxLoss || 0), 0))} sub="suma máx." />
+        </div>
+        {(paper.data?.open || []).length > 0 && (
+          <div className="stack xs" style={{ marginTop: 8 }}>
+            {(paper.data.open).map((trade) => (
+              <div key={trade.key} className="row between wrap" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
+                <span className="tiny mono">{trade.symbol} {trade.shortStrike}/{trade.longStrike} · {trade.expiration}</span>
+                <span className="tiny" style={{ color: (trade.pnlUsd || 0) >= 0 ? 'var(--up)' : 'var(--down)' }}>{money(trade.pnlUsd || 0)} · mark {money(trade.lastMark ?? trade.entryMark)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {(paper.data?.closed || []).length > 0 && <p className="tiny muted" style={{ marginTop: 6 }}>Últimas cerradas: {(paper.data.closed).slice(-3).map((trade) => trade.symbol + ' ' + money(trade.realizedUsd) + ' (' + trade.closeReason + ')').join(' · ')}</p>}
+      </Card>
+
       {(data.skipped || []).length > 0 && <Card title="Por qué no hay más ideas" icon="info"><div className="stack xs">{(data.skipped || []).map((row) => <p key={row.symbol} className="tiny muted">· {row.symbol}: {row.reason}</p>)}</div></Card>}
       <Disclaimer />
     </div>
