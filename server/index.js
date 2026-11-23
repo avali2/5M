@@ -961,3 +961,179 @@ app.post('/api/scan', requireAccess, async (_request, response) => {
     return response.status(503).json({ error: error.message, integrations: publicConfig().integrations });
   }
 });
+
+app.get('/api/notifications/public-key', requireAccess, (_request, response) => response.json({ configured: pushStatus().configured, publicKey: pushStatus().publicKey }));
+
+app.post('/api/notifications/subscribe', requireAccess, async (request, response) => {
+  try {
+    const count = await savePushSubscription(request.body);
+    return response.json({ ok: true, subscriptions: count });
+  } catch (error) {
+    return response.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/notifications/test', requireAccess, async (_request, response) => {
+  try { return response.json({ ok: true, ...(await sendTestPush()) }); }
+  catch (error) { return response.status(400).json({ error: error.message }); }
+});
+
+async function runScan(reason = 'timer') {
+  if (scanInFlight) return scanInFlight;
+  scanInFlight = (async () => {
+    try {
+      if (!isTradierConfigured()) throw new Error('TRADIER_TOKEN no está configurado. Añádelo en el servicio o en .env.');
+      if (reason === 'timer' && config.scanner.marketOpenOnly) {
+        const clock = await tradier.getMarketClock();
+        if (String(clock?.state || '').toLowerCase() !== 'open') {
+          schedulerState.lastSkippedAt = new Date().toISOString();
+          console.info(`[5M] Scan timer omitido: mercado ${clock?.state || 'unknown'}.`);
+          return latestScan;
+        }
+      }
+      const learning = await getLearningSummary();
+      const portfolioState = await getPortfolioState();
+      const scan = await scanMarket({ tradier, gemini, learningContext: learning.advisory, portfolioState });
+      const checked = currentScan(scan,false);
+      await saveScan(checked);
+      latestScan = checked;
+      lastScanError = null;
+      for (const signal of checked.signals.filter((item) => item.status === 'READY')) {
+        lastPushResult = await notifyReadySignal(signal, config.publicBaseUrl);
+      }
+      console.info(`[5M] Scan ${reason}: ${scan.summary.ready} READY, ${scan.summary.watch} WATCH, ${scan.durationMs}ms`);
+      return checked;
+    } catch (error) {
+      lastScanError = { message: error.message, at: new Date().toISOString() };
+      console.error(`[5M] Scan ${reason} falló: ${error.message}`);
+      throw error;
+    } finally {
+      scanInFlight = null;
+    }
+  })();
+  return scanInFlight;
+}
+
+export { runScan };
+
+function scheduleNextScan(delayMs) {
+  schedulerState.nextRunAt = new Date(Date.now() + delayMs).toISOString();
+  schedulerTimer = setTimeout(async () => {
+    schedulerState.lastRunAt = new Date().toISOString();
+    try { await runScan('timer'); }
+    catch { /* runScan records and logs the error */ }
+    finally { scheduleNextScan(config.scanner.intervalMinutes * 60000); }
+  }, delayMs);
+  schedulerTimer.unref?.();
+}
+
+async function sendMorningBriefing({ force = false } = {}) {
+  const scan = await runQuickScan({ symbols: config.nito.symbols.slice(0, 6), limit: 3, accountUsd: 0 });
+  const positions = await runPositionsAnalysis();
+  let text = '';
+  try {
+    const result = await analyzeTask({ task: 'journal', provider: 'auto', payload: { mode: creditBot.mode, armed: creditBot.state.armed, cycle: creditBot.state.cycle, aiLast: creditBot.state.aiLast, opportunities: (scan.opportunities || []).slice(0, 3), positions: positions.positions, summary: positions.summary } });
+    text = result.text || '';
+    lastBriefing = { at: new Date().toISOString(), provider: result.provider, text, sent: 0 };
+  } catch (error) {
+    text = scan.summary;
+    lastBriefing = { at: new Date().toISOString(), error: error.message, text };
+  }
+  if (text) {
+    const push = await sendPushAll({ title: '5M · Briefing del bot', body: text.slice(0, 240), tag: '5m-briefing', url: '/#quick' });
+    lastBriefing.sent = push.sent || 0;
+    if (force) lastBriefing.forced = true;
+  }
+  return lastBriefing;
+}
+
+function briefingMinuteET(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(now).reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+  return parts.hour === '09' && parts.minute === '10';
+}
+
+async function alertCycle() {
+  if (!config.alerts.enabled) return;
+  const push = pushStatus();
+  if (!push.configured) { lastAlertResult = { at: new Date().toISOString(), skipped: 'push-no-configurado' }; return; }
+  const started = Date.now();
+  try {
+    const scan = await runQuickScan({ symbols: config.nito.symbols.slice(0, 6), limit: 6, accountUsd: 0 });
+    const positions = await runPositionsAnalysis();
+    const candidates = [
+      ...decideOpportunityAlerts({ scan, minScore: config.alerts.minScore }),
+      ...decidePositionAlerts({ analysis: positions })
+    ];
+    const due = alertCenter.due(candidates);
+    let sent = 0;
+    const titles = [];
+    for (const alert of due) {
+      const result = await sendPushAll({ title: alert.title, body: alert.body, tag: '5m-' + alert.key, url: alert.url });
+      sent += result.sent || 0;
+      titles.push(alert.title);
+    }
+    lastAlertResult = { at: new Date().toISOString(), candidates: candidates.length, due: due.length, sent, titles, durationMs: Date.now() - started };
+  } catch (error) {
+    lastAlertResult = { at: new Date().toISOString(), error: error.message };
+  }
+}
+
+function startAlertScheduler() {
+  if (alertTimer || !config.alerts.enabled) return;
+  alertTimer = setInterval(() => { alertCycle().catch(() => {}); }, config.alerts.intervalMinutes * 60000);
+  alertTimer.unref?.();
+  setTimeout(() => alertCycle().catch(() => {}), 60000).unref?.();
+}
+
+function startScannerScheduler() {
+  if (schedulerTimer || !config.scanner.enabled || !isTradierConfigured()) return;
+  schedulerState.startedAt = new Date().toISOString();
+  scheduleNextScan(5000);
+}
+
+app.get(['/nito','/nito/'], (_request, response, next) => {
+  const indexFile = path.join(config.root, 'dist', 'index.html');
+  if (fs.existsSync(indexFile)) return response.sendFile(indexFile);
+  return next();
+});
+const distPath = path.join(config.root, 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.use((request, response, next) => {
+    if (request.path.startsWith('/api/')) return response.status(404).json({error:'Ruta de API no encontrada.'});
+    return response.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
+async function warmupProviders() {
+  try {
+    const probe = await freeProbe(config.nito.symbols?.[0] || 'SPY');
+    providerHealth = { at: new Date().toISOString(), ...probe };
+    if (!probe.ok) console.warn('[5M] Proveedor gratuito con fallos:', probe.steps.filter((step) => !step.ok).map((step) => step.name).join(', '));
+  } catch (error) {
+    providerHealth = { at: new Date().toISOString(), ok: false, error: error.message };
+  }
+}
+
+if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
+  app.listen(config.port, config.host, () => {
+    console.info(`[5M] http://${config.host}:${config.port} · Tradier ${isTradierConfigured() ? 'configurado' : 'no configurado'} · Gemini ${isGeminiConfigured() ? 'configurado' : 'no configurado'}`);
+  });
+  startScannerScheduler();
+  tradingDesk.start();
+  setTimeout(warmupProviders, 300);
+  startAlertScheduler();
+  for (const instance of Object.values(bots)) instance.maybeAutoArm();
+  briefingTimer = setInterval(() => {
+    if (!briefingMinuteET()) return;
+    const day = new Date().toISOString().slice(0, 10);
+    if (lastBriefing?.day === day) return;
+    sendMorningBriefing().then((result) => { if (result) lastBriefing = { ...result, day }; }).catch(() => {});
+  }, 60000);
+  briefingTimer.unref?.();
+  if (config.creditBot.enabled) {
+    creditBotTimer = setInterval(() => { for (const instance of Object.values(bots)) instance.runCycle().catch(() => {}); }, config.creditBot.intervalMinutes * 60000);
+    creditBotTimer.unref?.();
+  }
+}
