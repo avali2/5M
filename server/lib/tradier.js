@@ -37,6 +37,7 @@ function normalizeQuote(quote) {
     bid: finite(quote.bid),
     ask: finite(quote.ask),
     close: finite(quote.close),
+    open: finite(quote.open, null),
     changePct: finite(quote.change_percentage, 0),
     volume: finite(quote.volume, 0),
     tradeDate: isoTimestamp(quote.trade_date),

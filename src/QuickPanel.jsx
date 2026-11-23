@@ -147,21 +147,28 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
             <Gauge value={item.score} grade={item.grade} size={82} />
           </div>
 
-          <div className="grid-4" style={{ marginTop: 12 }}>
-            <Stat label="Entrada" value={item.kind === 'SPREAD' ? money(item.credit) : money(item.entry)} sub={item.kind === 'SPREAD' ? `ancho ${money(item.width)}` : `máx ${money(item.maxEntry)}`} />
-            <Stat label="Stop" value={item.kind === 'SPREAD' ? money(item.maxLossUsd) : money(item.stop)} tone="down" sub={item.kind === 'SPREAD' ? 'pérdida máx.' : 'salir acá'} />
-            <Stat label="Objetivo" value={item.kind === 'SPREAD' ? money(item.maxProfitUsd) : money(item.target1)} tone="up" sub={item.kind === 'SPREAD' ? 'ganancia máx.' : `subyacente ${money(item.targetUnderlying)}`} />
-            <Stat label="POP" value={pct((item.pop ?? 0) * 100)} sub={item.kind === 'SPREAD' ? 'modelo' : `riesgo ${money(item.riskUsd)}`} />
+          <div className="row between wrap" style={{ marginTop: 8, gap: 8 }}>
+            <span className="tiny muted">Entrada {item.kind === 'SPREAD' ? money(item.credit) : money(item.entry)} · POP {pct((item.pop ?? 0) * 100)} · score {item.score}</span>
+            <button className="btn sm" onClick={() => setExpanded(expanded === item.id ? null : item.id)}><Icon name="eye" size={14} />{expanded === item.id ? 'Ocultar detalle' : 'Ver detalle'}</button>
           </div>
-
-          <p className="small" style={{ marginTop: 10, color: 'var(--text-2)' }}>{item.thesis}</p>
+          {expanded === item.id && (
+            <>
+              <div className="grid-4" style={{ marginTop: 10 }}>
+                <Stat label="Entrada" value={item.kind === 'SPREAD' ? money(item.credit) : money(item.entry)} sub={item.kind === 'SPREAD' ? `ancho ${money(item.width)}` : `máx ${money(item.maxEntry)}`} />
+                <Stat label="Stop" value={item.kind === 'SPREAD' ? money(item.maxLossUsd) : money(item.stop)} tone="down" sub={item.kind === 'SPREAD' ? 'pérdida máx.' : 'salir acá'} />
+                <Stat label="Objetivo" value={item.kind === 'SPREAD' ? money(item.maxProfitUsd) : money(item.target1)} tone="up" sub={item.kind === 'SPREAD' ? 'ganancia máx.' : `subyacente ${money(item.targetUnderlying)}`} />
+                <Stat label="POP" value={pct((item.pop ?? 0) * 100)} sub={item.kind === 'SPREAD' ? 'modelo' : `riesgo ${money(item.riskUsd)}`} />
+              </div>
+              <p className="small" style={{ marginTop: 10, color: 'var(--text-2)' }}>{item.thesis}</p>
+              <SignalContext symbol={item.symbol} />
+              {item.legs?.length > 0 && <div style={{ marginTop: 10 }}><LegsTable legs={item.legs} /></div>}
+            </>
+          )}
           <div className="row wrap" style={{ marginTop: 10, gap: 8 }}>
             <CopyButton text={item.copy} label="Copiar orden" />
-            {item.kind === 'SPREAD' && <button className="btn sm" onClick={() => setExpanded(expanded === item.id ? null : item.id)}><Icon name="eye" size={14} />{expanded === item.id ? 'Ocultar patas' : 'Ver patas'}</button>}
             <button className="btn sm" onClick={() => setSymbol(item.symbol)}><Icon name="crosshair" size={14} />Analizar {item.symbol}</button>
             <span className="tiny muted" style={{ marginLeft: 'auto' }}>{item.tags?.join(' · ')}</span>
           </div>
-          {expanded === item.id && item.legs?.length > 0 && <div style={{ marginTop: 10 }}><LegsTable legs={item.legs} /></div>}
         </section>
       ))}
 
