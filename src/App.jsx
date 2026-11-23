@@ -84,9 +84,10 @@ export default function App() {
 
   useEffect(() => {
     const active = TABS.find((item) => item.id === tab);
-  const go = (id) => { window.location.hash = id; setTab(id); window.scrollTo({ top: 0, behavior: 'smooth' }); };
     document.title = `${active?.title || '5M'} · 5 MILLIONS`;
   }, [tab]);
+
+  const go = (id) => { window.location.hash = id; setTab(id); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
   const radarSymbols = useMemo(() => {
     const list = [symbol, ...RADAR_DEFAULTS.filter((item) => item !== symbol)];
