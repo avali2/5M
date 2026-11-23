@@ -61,6 +61,8 @@ const bots = {
 const creditBot = bots.paper;
 let creditBotTimer = null;
 let lastBriefing = null;
+let lastOpenSummaryDay = null;
+let lastRecapDay = null;
 let briefingTimer = null;
 const CRON_TOKEN = process.env.CRON_TOKEN || '';
 let lastScanError = null;
@@ -1040,6 +1042,34 @@ function scheduleNextScan(delayMs) {
   schedulerTimer.unref?.();
 }
 
+
+function etClock() {
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+}
+
+async function sendMarketOpenSummary() {
+  try {
+    const scan = await runQuickScan({ symbols: ['SPY', 'QQQ', 'IWM'], limit: 3, accountUsd: 0 });
+    const positions = await runPositionsAnalysis();
+    const botStates = Object.entries(bots).map(([mode, instance]) => mode + ': ' + (instance.status().cycle?.state || '—')).join(' · ');
+    const top = (scan.opportunities || []).slice(0, 2).map((item) => item.symbol + ' ' + (item.strategy || item.action || '') + ' POP ' + Math.round(((item.risk?.pop ?? item.pop) || 0) * 100) + '%');
+    const lines = [scan.summary || 'Mercado abriendo.', 'Bots: ' + botStates, 'Posiciones: ' + (positions.positions?.length || 0), top.length ? 'Ideas: ' + top.join(' · ') : null].filter(Boolean);
+    await notifyImportant('☀️ Resumen 9:00', lines, 'open:' + new Date().toISOString().slice(0, 10));
+  } catch {}
+}
+
+async function sendDailyRecap() {
+  try {
+    const positions = await runPositionsAnalysis();
+    const crypto = Object.entries(cryptoBooks || {}).map(([key, book]) => { const status = book.status(); const stats = status.stats || {}; return key.toUpperCase() + ': ' + (stats.totalPnlUsd ?? 0) + ' USD · ' + (stats.trades || 0) + ' trades'; });
+    const forexStatus = forexPaper.status();
+    const forexLines = forexStatus.position ? ['Forex: ' + forexStatus.position.side + ' ' + forexStatus.position.symbol + ' · P/L ' + (forexStatus.position.pnlUsd ?? 0)] : ['Forex: sin posición'];
+    const optionsLines = positions.positions?.length ? positions.positions.slice(0, 4).map((position) => 'Opciones: ' + position.symbol + ' ' + position.strategy + ' · P/L ' + position.pnlUsd) : ['Opciones: sin posiciones'];
+    const lines = [...optionsLines, ...crypto, ...forexLines, 'Resumen: ' + (positions.summary || '—')].slice(0, 12);
+    await notifyImportant('🌙 Cómo fue el día', lines, 'recap:' + new Date().toISOString().slice(0, 10));
+  } catch {}
+}
+
 async function sendMorningBriefing({ force = false } = {}) {
   const scan = await runQuickScan({ symbols: config.nito.symbols.slice(0, 6), limit: 3, accountUsd: 0 });
   const positions = await runPositionsAnalysis();
@@ -1074,6 +1104,16 @@ async function alertCycle() {
   try {
     const scan = await runQuickScan({ symbols: config.nito.symbols.slice(0, 6), limit: 6, accountUsd: 0 });
     const positions = await runPositionsAnalysis();
+    const highPop = (scan.opportunities || []).filter((item) => Number(item?.risk?.pop ?? item?.pop ?? 0) >= 0.8);
+    for (const item of highPop.slice(0, 4)) {
+      const pop = Number(item?.risk?.pop ?? item?.pop ?? 0);
+      notifyImportant('🎯 Señal 80%+ · ' + item.symbol, [item.symbol + ' · ' + (item.strategy || item.action || 'señal'), 'POP modelo ' + Math.round(pop * 100) + '% · score ' + (item.score ?? '—'), item.credit != null ? 'Crédito ' + item.credit : null].filter(Boolean), 'pop:' + item.symbol + ':' + (item.strategy || item.action || '') + ':' + new Date().toISOString().slice(0, 10)).catch(() => {});
+    }
+    for (const position of positions.positions || []) {
+      if (!position?.mode || String(position.mode).toLowerCase() !== 'live') continue;
+      notifyImportant('🟢 Entrada LIVE · ' + position.symbol, [position.strategy + ' · ' + position.action, 'Crédito ' + (position.credit ?? '—') + ' · P/L ' + (position.pnlUsd ?? 0)], 'live-entry:' + (position.id || position.symbol + position.openedAt)).catch(() => {});
+    }
+
     const candidates = [
       ...decideOpportunityAlerts({ scan, minScore: config.alerts.minScore }),
       ...decidePositionAlerts({ analysis: positions })
@@ -1138,6 +1178,13 @@ if (process.env.NODE_ENV !== 'test' && !process.argv.includes('--test')) {
   setTimeout(warmupProviders, 300);
   startAlertScheduler();
   for (const instance of Object.values(bots)) instance.maybeAutoArm();
+  summaryTimer = setInterval(() => {
+    const day = new Date().toISOString().slice(0, 10);
+    const clock = etClock();
+    if (clock === '09:00' && lastOpenSummaryDay !== day) { lastOpenSummaryDay = day; sendMarketOpenSummary(); }
+    if (clock === '20:00' && lastRecapDay !== day) { lastRecapDay = day; sendDailyRecap(); }
+  }, 60000);
+  summaryTimer.unref?.();
   briefingTimer = setInterval(() => {
     if (!briefingMinuteET()) return;
     const day = new Date().toISOString().slice(0, 10);
