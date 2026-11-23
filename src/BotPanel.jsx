@@ -9,6 +9,12 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [configDraft, setConfigDraft] = useState({});
+  const [tick, setTick] = useState(0);
+  const bot = useApi(() => apiGet('/api/bots/' + mode), [mode, tick]);
+  const news = useApi(() => apiGet('/api/news'), [tick]);
+  const data = bot.data || {};
+  const gates = data.gates || { ok: false, checks: [] };
+  const missing = (gates.checks || []).filter((check) => !check.ok);
   React.useEffect(() => { if (bot.data?.config) setConfigDraft(bot.data.config); }, [bot.data?.config]);
   async function saveConfig() {
     setBusy(true); setMessage('');
@@ -19,12 +25,6 @@ export default function BotPanel({ mode = 'paper', accountUsd }) {
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   }
-  const [tick, setTick] = useState(0);
-  const bot = useApi(() => apiGet('/api/bots/' + mode), [mode, tick]);
-  const news = useApi(() => apiGet('/api/news'), [tick]);
-  const data = bot.data || {};
-  const gates = data.gates || { ok: false, checks: [] };
-  const missing = (gates.checks || []).filter((check) => !check.ok);
 
   async function verifyToken() {
     setBusy(true); setMessage('');
