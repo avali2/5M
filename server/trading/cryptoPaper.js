@@ -140,7 +140,7 @@ export class CryptoPaper {
       source: 'binance.us',
       armed: this.state.armed,
       paused: this.state.paused,
-      cycle: this.state.position ? { state: 'ABIERTO', note: this.state.position.side + ' ' + String(this.state.position.symbol || this.settings.symbol).replace('USDT', '') + ' paper en ' + roundPrice(this.state.position.entry) + ' · stop ' + roundPrice(this.state.position.stop) + ' · objetivo ' + roundPrice(this.state.position.target) + '.' } : this.state.cycle,
+      cycle: this.state.position ? { state: 'ABIERTO', note: this.state.position.side + ' ' + String(this.settings.symbol).replace('USDT', '') + ' paper en ' + roundPrice(this.state.position.entry) + ' · stop ' + roundPrice(this.state.position.stop) + ' · objetivo ' + roundPrice(this.state.position.target) + '.' } : this.state.cycle,
       position: this.state.position,
       lastRound: this.state.lastRound,
       history: (this.state.history || []).slice(-10),
