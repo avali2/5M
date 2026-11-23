@@ -161,7 +161,7 @@ export function BarProfile({ rows = [], spot, walls = {}, maxPain, height = 240,
   const x = (index) => 40 + index * step;
   const y = (value) => padTop + innerH / 2 - Math.sign(value) * Math.sqrt(Math.abs(value) / maxAbs) * (innerH / 2);
   const last = data.reduce((best, row, index) => (Math.abs(row.strike - spot) < Math.abs(data[best].strike - spot) ? index : best), 0);
-  const wallMax = data.reduce((best, row) => (Math.abs(row[valueKey] ?? 0) > Math.abs(data[best][valueKey] ?? 0) ? row : best), data[0]);
+  const wallMax = data.reduce((best, row) => (Math.abs(row[valueKey] ?? 0) > Math.abs(best[valueKey] ?? 0) ? row : best), data[0]);
   const wallIndex = data.indexOf(wallMax);
   const fmt = (value) => Math.abs(value) >= 1e6 ? (value / 1e6).toFixed(1) + 'M' : Math.abs(value) >= 1e3 ? (value / 1e3).toFixed(0) + 'k' : value.toFixed(0);
   return (
