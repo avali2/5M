@@ -17,6 +17,7 @@ import { getSnapshot, isDemoActive, dataSourceLabel, providerStatus } from './li
 import { freeProbe } from './lib/freeData.js';
 import { buildQuickScan } from './lib/quickScan.js';
 import { CryptoPaper } from './trading/cryptoPaper.js';
+import { ForexPaper } from './trading/forexPaper.js';
 import { binanceAccount } from './lib/binanceUS.js';
 import { syncCryptoHistory, historyStatus } from './lib/cryptoHistory.js';
 import { syncStockHistory, stockStatus } from './lib/stockHistory.js';
@@ -369,6 +370,7 @@ app.post('/api/credit-bot/close', requireAccess, async (_request, response) => {
 
 // Crypto SOL (paper, libro separado del bot de opciones)
 const cryptoPaper = new CryptoPaper({});
+const forexPaper = new ForexPaper({});
 // Tick interno de los bots de opciones (plan pago, siempre encendido).
 const botTickTimer = setInterval(async () => {
   if (process.env.BOT_INTERNAL_TICK !== 'true') return;
@@ -484,6 +486,7 @@ app.get('/api/telemetry/stats', requireAccess, (_request, response) => {
     telemetry: telemetryStats(),
     bots: botsSummary,
     crypto: { armed: Boolean(cryptoStatus.armed), cycle: cryptoStatus.cycle, position: cryptoStatus.position ? { side: cryptoStatus.position.side, entry: cryptoStatus.position.entry, pnlUsd: cryptoStatus.position.pnlUsd } : null, ...tradeStatsFor(cryptoPaper) },
+    forex: { armed: Boolean(forexPaper.status().armed), cycle: forexPaper.status().cycle, position: forexPaper.status().position ? { side: forexPaper.status().position.side, entry: forexPaper.status().position.entry, pnlUsd: forexPaper.status().position.pnlUsd } : null, ...tradeStatsFor(forexPaper) },
     data: { crypto: historyStatus(), stocks: (stockStatus().coverage || {}) },
     orchestrator: orchestrator.status()
   });
@@ -518,6 +521,32 @@ app.post('/api/kill-switch', requireAccess, (request, response) => {
   try { record({ module: 'system', level: active ? 'warn' : 'info', type: 'kill-switch', message: active ? 'Kill switch ACTIVADO' : 'Kill switch desactivado' }); } catch { /* aislado */ }
   return response.json({ ok: true, ...state });
 });
+
+
+// Forex paper (EUR/USD y GBP/USD)
+const forexTickTimer = setInterval(() => {
+  if (process.env.FOREX_INTERNAL_TICK === 'false') return;
+  if (forexPaper.status().armed && !forexPaper.status().paused) forexPaper.runCycle().catch(() => {});
+}, 15 * 60 * 1000);
+forexTickTimer.unref?.();
+app.get('/api/forex/paper', requireAccess, (_request, response) => response.json({ ok: true, ...forexPaper.status() }));
+app.get('/api/forex/paper/config', requireAccess, (_request, response) => response.json({ ok: true, config: forexPaper.getConfig() }));
+app.put('/api/forex/paper/config', requireAccess, (request, response) => {
+  const result = forexPaper.updateConfig(request.body || {});
+  return response.status(result.ok ? 200 : 400).json({ ok: result.ok, ...result });
+});
+app.get('/api/forex/paper/log', requireAccess, (request, response) => {
+  const limit = Math.min(200, Math.max(1, Number(request.query.limit) || 50));
+  response.json({ ok: true, log: (forexPaper.status().log || []).slice(-limit) });
+});
+app.post('/api/forex/paper/tick', async (request, response) => {
+  if (!hasCronAccess(request)) return response.status(401).json({ error: 'Token de cron inválido.' });
+  const status = await forexPaper.runCycle();
+  return response.json({ ok: true, ...status });
+});
+app.post('/api/forex/paper/arm', requireAccess, (_request, response) => response.json({ ok: true, ...forexPaper.arm() }));
+app.post('/api/forex/paper/pause', requireAccess, (_request, response) => response.json({ ok: true, ...forexPaper.pause(true) }));
+app.post('/api/forex/paper/disarm', requireAccess, (_request, response) => response.json({ ok: true, ...forexPaper.disarm() }));
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
