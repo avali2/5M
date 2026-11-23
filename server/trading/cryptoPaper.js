@@ -11,6 +11,8 @@ import { analyzeTask } from '../lib/aiAnalyst.js';
 
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value);
 const round2 = (value) => Math.round(value * 100) / 100;
+const priceDecimals = (value) => { const abs = Math.abs(value); return abs >= 100 ? 2 : abs >= 1 ? 4 : abs >= 0.01 ? 6 : abs >= 0.0001 ? 8 : 10; };
+const roundPrice = (value) => { if (!Number.isFinite(value)) return value; const factor = 10 ** priceDecimals(value); return Math.round(value * factor) / factor; };
 
 const DEFAULTS = {
   symbol: 'SOLUSDT',
@@ -179,7 +181,7 @@ export class CryptoPaper {
       this.save();
       return this.status();
     }
-    this.state.lastRound = { at: this.now().toISOString(), price: round2(snapshot.price), source: snapshot.source, ema50: round2(snapshot.ema50), ema200: round2(snapshot.ema200), rsi14: round2(snapshot.rsi14), atr14: round2(snapshot.atr14) };
+    this.state.lastRound = { at: this.now().toISOString(), symbol: snapshot.symbol, price: roundPrice(snapshot.price), source: snapshot.source, ema50: roundPrice(snapshot.ema50), ema200: roundPrice(snapshot.ema200), rsi14: round2(snapshot.rsi14), atr14: roundPrice(snapshot.atr14) };
     if (this.state.position) { await this.manage(snapshot); return this.status(); }
     this.evaluate(snapshot);
     return this.status();
@@ -220,8 +222,8 @@ export class CryptoPaper {
       symbol: this.settings.symbol,
       side,
       entry: price,
-      stop: round2(stop),
-      target: round2(target),
+      stop: roundPrice(stop),
+      target: roundPrice(target),
       units: round2(units),
       notional: round2(units * price),
       riskUsd: round2(units * riskPerUnit),
@@ -230,8 +232,8 @@ export class CryptoPaper {
       feesPct: this.settings.feePct
     };
     this.state.position = position;
-    this.state.cycle = { state: 'ABIERTO', note: side + ' SOL paper en ' + round2(price) + ' · stop ' + round2(stop) + ' · objetivo ' + round2(target) + '.' };
-    this.log('ENTRY', { side, price: round2(price), stop: round2(stop), target: round2(target), units: round2(units), riskUsd: position.riskUsd });
+    this.state.cycle = { state: 'ABIERTO', note: side + ' ' + this.settings.symbol.replace('USDT', '') + ' paper en ' + roundPrice(price) + ' · stop ' + roundPrice(stop) + ' · objetivo ' + roundPrice(target) + '.' };
+    this.log('ENTRY', { side, symbol: this.settings.symbol, price: roundPrice(price), stop: roundPrice(stop), target: roundPrice(target), units: round2(units), riskUsd: position.riskUsd });
     this.save();
   }
 
@@ -242,7 +244,7 @@ export class CryptoPaper {
     const short = position.side === 'SHORT';
     const mae = short ? Math.max(position.mae ?? position.entry, price) : Math.min(position.mae ?? position.entry, price);
     const pnlUsd = round2((short ? position.entry - price : price - position.entry) * position.units);
-    this.state.position = { ...position, price: round2(price), pnlUsd, mae: round2(mae), updatedAt: this.now().toISOString() };
+    this.state.position = { ...position, price: roundPrice(price), pnlUsd, mae: roundPrice(mae), updatedAt: this.now().toISOString() };
     const heldHours = (this.now() - Date.parse(position.openedAt)) / 3600000;
     let reason = null;
     if (short ? price >= position.stop : price <= position.stop) reason = 'STOP';
@@ -253,11 +255,11 @@ export class CryptoPaper {
     const gross = (short ? position.entry - exit : exit - position.entry) * position.units;
     const fees = (position.entry + exit) * position.units * this.settings.feePct;
     const realized = round2(gross - fees);
-    const trade = { ...position, exit: round2(exit), pnlUsd, realizedUsd: realized, fees: round2(fees), closedAt: this.now().toISOString(), closeReason: reason, maePct: round2(((short ? mae - position.entry : position.entry - mae) / position.entry) * 100) };
+    const trade = { ...position, exit: roundPrice(exit), pnlUsd, realizedUsd: realized, fees: round2(fees), closedAt: this.now().toISOString(), closeReason: reason, maePct: round2(((short ? mae - position.entry : position.entry - mae) / position.entry) * 100) };
     this.state.history = [...(this.state.history || []), trade].slice(-100);
     this.state.position = null;
     this.state.cycle = { state: 'CERRADO', note: 'Cierre ' + reason + ': P/L ' + realized + ' USD.' };
-    this.log('EXIT', { reason, pnlUsd: realized, price: round2(exit) });
+    this.log('EXIT', { reason, pnlUsd: realized, price: roundPrice(exit) });
     this.save();
     void this.postMortem(trade);
   }
