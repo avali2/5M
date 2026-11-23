@@ -7,6 +7,32 @@ import { Sparkline } from './components/charts.jsx';
 
 const URGENCY_TONE = { AHORA: 'up', HOY: 'warn', VIGILAR: 'neutral' };
 
+function fmtPrice(value) { if (!Number.isFinite(Number(value))) return '—'; const abs = Math.abs(Number(value)); return abs >= 100 ? Number(value).toFixed(2) : abs >= 1 ? Number(value).toFixed(2) : Number(value).toFixed(4); }
+
+function SignalContext({ symbol }) {
+  const api = useApi(() => apiGet('/api/positioning?symbol=' + symbol), [symbol]);
+  const d = api.data || {};
+  const quote = d.quote || {}; const tech = d.technical || {}; const pos = d.positioning || {}; const flow = d.flow || {};
+  const trend = tech.trend === 'bullish' ? 'ALCISTA' : tech.trend === 'bearish' ? 'BAJISTA' : 'LATERAL';
+  const regime = pos.regime?.dealerGamma === 'SHORT' ? 'dealers venden caídas / compran subidas' : pos.regime?.dealerGamma === 'LONG' ? 'dealers compran caídas / venden subidas' : 'posicionamiento mixto';
+  const open = Number(quote.open) > 0 ? quote.open : null;
+  return (
+    <div className="stack xs" style={{ marginTop: 8, borderTop: '1px dashed var(--border)', paddingTop: 8 }}>
+      <p className="tiny" style={{ fontWeight: 700 }}>Contexto del día</p>
+      <div className="row wrap tiny muted" style={{ gap: 12 }}>
+        <span>Apertura {fmtPrice(open)}</span>
+        <span>Actual {fmtPrice(quote.price)}</span>
+        <span>Tendencia {trend}</span>
+        <span>EMA50 {fmtPrice(tech.ema50)}</span>
+        <span>Soporte {fmtPrice(tech.support)}</span>
+        <span>Resistencia {fmtPrice(tech.resistance)}</span>
+        <span>Instituciones: {flow.direction || '—'} · {regime}</span>
+      </div>
+      {flow.methodology && <p className="tiny muted">{String(flow.methodology).slice(0, 150)}</p>}
+    </div>
+  );
+}
+
 export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd }) {
   const [tick, setTick] = useState(0);
   const [expanded, setExpanded] = useState(null);
