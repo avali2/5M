@@ -17,6 +17,8 @@ import { getSnapshot, isDemoActive, dataSourceLabel, providerStatus } from './li
 import { freeProbe } from './lib/freeData.js';
 import { buildQuickScan } from './lib/quickScan.js';
 import { CryptoPaper } from './trading/cryptoPaper.js';
+import { binanceAccount } from './lib/binanceUS.js';
+import { syncCryptoHistory, historyStatus } from './lib/cryptoHistory.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { CreditBot } from './trading/creditBot.js';
 import { newsStatus, resetNewsCache } from './lib/news.js';
@@ -394,6 +396,19 @@ app.post('/api/crypto/paper/tick', async (request, response) => {
 app.post('/api/crypto/paper/arm', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.arm() }));
 app.post('/api/crypto/paper/pause', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.pause(true) }));
 app.post('/api/crypto/paper/disarm', requireAccess, (_request, response) => response.json({ ok: true, ...cryptoPaper.disarm() }));
+
+
+// Históricos crypto (SQLite en disco persistente) + estado de claves Binance.US
+const historySyncTimer = setTimeout(() => {
+  if (process.env.CRYPTO_SYNC !== 'false') syncCryptoHistory({ symbol: 'SOLUSDT' }).catch(() => {});
+}, 6000);
+historySyncTimer.unref?.();
+app.get('/api/crypto/history', requireAccess, (_request, response) => response.json({ ok: true, ...historyStatus() }));
+app.post('/api/crypto/history/sync', requireAccess, async (_request, response) => {
+  const result = await syncCryptoHistory({ symbol: 'SOLUSDT' });
+  return response.json({ ok: true, ...result });
+});
+app.get('/api/crypto/binance', requireAccess, async (_request, response) => response.json({ ok: true, ...(await binanceAccount()) }));
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
