@@ -6,6 +6,7 @@
 import { getSnapshot, optionChainFor, dteFor } from './marketData.js';
 import { config } from '../config.js';
 import { TradierClient } from './tradier.js';
+import { researchCandidate } from './capitulationResearch.js';
 
 export const CAPITULATION_UNIVERSE = ['AMD', 'NVDA', 'TSLA', 'META', 'AMZN', 'PLTR', 'COIN', 'SOFI'];
 
@@ -87,7 +88,7 @@ export function evaluateCapitulation(snapshot) {
   const candidate = best ? {
     symbol: snapshot.symbol || null,
     spot: round2(spot),
-    dayDrop, twoDayDrop, rsi14: round2(rsi14), ivRatio: isNum(atmIv) && isNum(rv) && rv > 0 ? round2(atmIv / rv) : null,
+    dayDrop, twoDayDrop, rsi14: round2(rsi14), atmIv: isNum(atmIv) ? round2(atmIv) : null, ivRatio: isNum(atmIv) && isNum(rv) && rv > 0 ? round2(atmIv / rv) : null,
     expiration, dte,
     strategy: 'PUT_CREDIT_CAPITULACION',
     shortStrike: best.shortPut.strike,
@@ -125,8 +126,11 @@ export async function scanCapitulation(options = {}) {
       catch (error) { skipped.push({ symbol, reason: error.message.slice(0, 80) }); continue; }
     }
     const evaluation = evaluateCapitulation(snapshot);
-    if (evaluation.candidate) results.push(evaluation.candidate);
-    else skipped.push({ symbol, reason: evaluation.notes[0] || 'sin señal' });
+    if (evaluation.candidate) {
+      const candidate = { ...evaluation.candidate };
+      try { candidate.research = await researchCandidate(snapshot, candidate); } catch { candidate.research = null; }
+      results.push(candidate);
+    } else skipped.push({ symbol, reason: evaluation.notes[0] || 'sin señal' });
   }
   results.sort((a, b) => b.score - a.score);
   return { scannedAt: new Date().toISOString(), universe: symbols, candidates: results.slice(0, 6), skipped };

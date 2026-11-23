@@ -34,6 +34,26 @@ export default function CapitulationPanel() {
               <div className="row wrap" style={{ gap: 8, marginTop: 6 }}>
                 <CopyButton text={candidate.legs.map((leg) => leg.action + ' ' + leg.type + ' ' + leg.strike + ' @ ' + leg.price).join('\n')} label="Copiar orden" />
               </div>
+              {candidate.research && (
+                <div className="stack xs" style={{ marginTop: 6, paddingTop: 6, borderTop: '1px dashed var(--border)' }}>
+                  <div className="row between wrap">
+                    <Badge tone={candidate.research.tradeable ? 'up' : 'warn'}>{candidate.research.verdict}</Badge>
+                    <span className="tiny muted">Mov. esperado ±{candidate.research.expectedMovePct ?? '—'}%</span>
+                  </div>
+                  {candidate.research.stats && candidate.research.stats.samples > 0 && (
+                    <p className="tiny muted">Histórico similar (n={candidate.research.stats.samples}): rebote 5d {candidate.research.stats.probabilityUp5}% · mediana {candidate.research.stats.median5}% · p25 {candidate.research.stats.p25_5}% · 10d {candidate.research.stats.probabilityUp10}% (p25 {candidate.research.stats.p25_10}%)</p>
+                  )}
+                  {candidate.research.levels && (candidate.research.levels.levels || []).length > 0 && (
+                    <p className="tiny muted">Pisos: {(candidate.research.levels.levels || []).slice(0, 3).map((level) => level.label + ' ' + level.value + ' (' + level.distancePct + '%)').join(' · ')}</p>
+                  )}
+                  {(candidate.research.news || []).length > 0 && (
+                    <div>
+                      <p className="tiny" style={{ fontWeight: 700 }}>Por qué cayó</p>
+                      {candidate.research.news.map((item) => <p key={item.title} className="tiny muted">· {item.title}</p>)}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
