@@ -4,6 +4,8 @@
  * crédito/ancho mínimo 18%, riesgo <= $300, TP 50%, salida por strike/tiempo.
  */
 import { getSnapshot, optionChainFor, dteFor } from './marketData.js';
+import { config } from '../config.js';
+import { TradierClient } from './tradier.js';
 
 export const CAPITULATION_UNIVERSE = ['AMD', 'NVDA', 'TSLA', 'META', 'AMZN', 'PLTR', 'COIN', 'SOFI'];
 
@@ -110,6 +112,7 @@ export function evaluateCapitulation(snapshot) {
 const cache = new Map();
 export async function scanCapitulation(options = {}) {
   const symbols = options.symbols || CAPITULATION_UNIVERSE;
+  const tradier = config.tradier && config.tradier.token ? new TradierClient(config.tradier) : undefined;
   const results = [];
   const skipped = [];
   for (const symbol of symbols) {
@@ -118,7 +121,7 @@ export async function scanCapitulation(options = {}) {
     let snapshot = null;
     if (hit && Date.now() - hit.at < 5 * 60000) snapshot = hit.value;
     else {
-      try { snapshot = await getSnapshot(symbol, {}); cache.set(key, { at: Date.now(), value: snapshot }); }
+      try { snapshot = await getSnapshot(symbol, { tradier }); cache.set(key, { at: Date.now(), value: snapshot }); }
       catch (error) { skipped.push({ symbol, reason: error.message.slice(0, 80) }); continue; }
     }
     const evaluation = evaluateCapitulation(snapshot);
