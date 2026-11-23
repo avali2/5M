@@ -536,6 +536,7 @@ app.post('/api/kill-switch', requireAccess, (request, response) => {
     try { cryptoPaper.pause(true); } catch { /* aislado */ }
   }
   try { record({ module: 'system', level: active ? 'warn' : 'info', type: 'kill-switch', message: active ? 'Kill switch ACTIVADO' : 'Kill switch desactivado' }); } catch { /* aislado */ }
+  if (active) notifyImportant('🛑 Kill switch ACTIVADO', ['Motivo: ' + String((request.body && request.body.reason) || 'manual'), 'Todos los bots quedaron pausados.'], 'kill:' + Date.now()).catch(() => {});
   return response.json({ ok: true, ...state });
 });
 
