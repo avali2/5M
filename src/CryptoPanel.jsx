@@ -5,6 +5,8 @@ import { Icon, Card, Badge, Stat, EmptyState, Banner } from './components/ui.jsx
 import LiveChart from './components/LiveChart.jsx';
 import { money } from './lib/format.js';
 
+const fmtPrice = (value) => { if (!Number.isFinite(Number(value))) return '—'; const abs = Math.abs(Number(value)); return abs >= 100 ? Number(value).toFixed(2) : abs >= 1 ? Number(value).toFixed(4) : abs >= 0.01 ? Number(value).toFixed(6) : Number(value).toFixed(9); };
+
 const FIELDS = [
   ['riskUsd', 'Riesgo por trade (USD)'],
   ['maxNotional', 'Notional máximo (USD)'],
@@ -57,16 +59,16 @@ export default function CryptoPanel() {
         {data && (
           <div className="stack xs">
             <div className="grid-4">
-              <Stat label="Precio" value={data.lastRound ? money(data.lastRound.price) : '—'} sub={data.lastRound ? 'RSI ' + data.lastRound.rsi14 : ''} />
-              <Stat label="Tendencia" value={data.lastRound ? (data.lastRound.price > data.lastRound.ema200 ? 'ALCISTA' : 'BAJISTA') : '—'} sub={data.lastRound ? 'EMA200 ' + money(data.lastRound.ema200) : ''} />
-              <Stat label="ATR" value={data.lastRound ? money(data.lastRound.atr14) : '—'} sub="volatilidad 1h" />
+              <Stat label="Precio" value={data.lastRound ? fmtPrice(data.lastRound.price) : '—'} sub={data.lastRound ? 'RSI ' + data.lastRound.rsi14 : ''} />
+              <Stat label="Tendencia" value={data.lastRound ? (data.lastRound.price > data.lastRound.ema200 ? 'ALCISTA' : 'BAJISTA') : '—'} sub={data.lastRound ? 'EMA200 ' + fmtPrice(data.lastRound.ema200) : ''} />
+              <Stat label="ATR" value={data.lastRound ? fmtPrice(data.lastRound.atr14) : '—'} sub="volatilidad 1h" />
               <Stat label="P/L paper" value={money(data.stats?.totalPnlUsd || 0)} tone={(data.stats?.totalPnlUsd || 0) >= 0 ? 'up' : 'down'} sub={(data.stats?.winRate ?? 0) + '% win'} />
             </div>
             {position ? (
               <div className="card-tight">
                 <div className="row between wrap">
                   <Badge tone="brand">{position.side} ABIERTO</Badge>
-                  <span className="tiny mono">entrada {money(position.entry)} · stop {money(position.stop)} · objetivo {money(position.target)}</span>
+                  <span className="tiny mono">entrada {fmtPrice(position.entry)} · stop {fmtPrice(position.stop)} · objetivo {fmtPrice(position.target)}</span>
                 </div>
                 <p className="tiny muted">Unidades {position.units} · riesgo {money(position.riskUsd)} · P/L {money(position.pnlUsd || 0)}</p>
               </div>

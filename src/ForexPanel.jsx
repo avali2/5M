@@ -5,6 +5,8 @@ import { Icon, Card, Badge, Stat, EmptyState, SectionTitle } from './components/
 import LiveChart from './components/LiveChart.jsx';
 import { money } from './lib/format.js';
 
+const fmtPrice = (value) => { if (!Number.isFinite(Number(value))) return '—'; const abs = Math.abs(Number(value)); return abs >= 100 ? Number(value).toFixed(2) : abs >= 1 ? Number(value).toFixed(4) : abs >= 0.01 ? Number(value).toFixed(6) : Number(value).toFixed(9); };
+
 const FIELDS = [
   ['riskUsd', 'Riesgo por trade (USD)'],
   ['atrStopMult', 'Stop (x ATR)'],
@@ -45,8 +47,8 @@ export default function ForexPanel() {
         {data && (
           <div className="stack xs">
             <div className="grid-4">
-              <Stat label="Precio" value={round ? round.price : '—'} sub={round ? 'spread ' + round.spreadPips + ' pips' : ''} />
-              <Stat label="Tendencia" value={round ? (round.price > round.ema50 ? 'ALCISTA' : 'BAJISTA') : '—'} sub={round ? 'EMA50 ' + round.ema50 : ''} />
+              <Stat label="Precio" value={round ? fmtPrice(round.price) : '—'} sub={round ? 'spread ' + round.spreadPips + ' pips' : ''} />
+              <Stat label="Tendencia" value={round ? (round.price > round.ema50 ? 'ALCISTA' : 'BAJISTA') : '—'} sub={round ? 'EMA50 ' + fmtPrice(round.ema50) : ''} />
               <Stat label="RSI" value={round ? round.rsi14 : '—'} sub="14 velas" />
               <Stat label="P/L paper" value={money(data.stats?.totalPnlUsd || 0)} tone={(data.stats?.totalPnlUsd || 0) >= 0 ? 'up' : 'down'} sub={(data.stats?.winRate ?? 0) + '% win · ' + (data.stats?.totalPips ?? 0) + ' pips'} />
             </div>
@@ -54,7 +56,7 @@ export default function ForexPanel() {
               <div className="card-tight">
                 <div className="row between wrap">
                   <Badge tone="brand">{position.side} ABIERTO</Badge>
-                  <span className="tiny mono">entrada {position.entry} · stop {position.stop} · objetivo {position.target}</span>
+                  <span className="tiny mono">entrada {fmtPrice(position.entry)} · stop {fmtPrice(position.stop)} · objetivo {fmtPrice(position.target)}</span>
                 </div>
                 <p className="tiny muted">Unidades {position.units} · riesgo {money(position.riskUsd)} · P/L {money(position.pnlUsd || 0)}</p>
               </div>
