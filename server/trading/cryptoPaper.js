@@ -98,7 +98,7 @@ export class CryptoPaper {
     };
     if (patch.symbol !== undefined) {
       const symbol = String(patch.symbol).toUpperCase();
-      if (!['SOLUSDT', 'SOLUSD', 'SOLUSDC'].includes(symbol)) errors.push('símbolo no soportado');
+      if (!['SOLUSDT', 'SOLUSD', 'SOLUSDC', 'PEPEUSDT', 'NEARUSDT', 'INJUSDT', 'DOGEUSDT', 'AVAXUSDT', 'SUIUSDT'].includes(symbol)) errors.push('símbolo no soportado');
       else next.symbol = symbol;
     }
     num('riskUsd', 25, 2000);
@@ -108,6 +108,10 @@ export class CryptoPaper {
     num('maxHoldHours', 6, 720);
     num('minRsi', 20, 70);
     num('maxRsi', 50, 95);
+    if (patch.strategy !== undefined) {
+      if (!['momentum', 'meanrev'].includes(String(patch.strategy))) errors.push('estrategia invalida');
+      else next.strategy = String(patch.strategy);
+    }
     if (errors.length) return { ok: false, errors };
     this.overrides = next;
     this.settings = { ...this.settings, ...next };
