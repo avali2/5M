@@ -19,6 +19,7 @@ import { buildQuickScan } from './lib/quickScan.js';
 import { CryptoPaper } from './trading/cryptoPaper.js';
 import { binanceAccount } from './lib/binanceUS.js';
 import { syncCryptoHistory, historyStatus } from './lib/cryptoHistory.js';
+import { syncStockHistory, stockStatus } from './lib/stockHistory.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { CreditBot } from './trading/creditBot.js';
 import { newsStatus, resetNewsCache } from './lib/news.js';
@@ -409,6 +410,18 @@ app.post('/api/crypto/history/sync', requireAccess, async (_request, response) =
   return response.json({ ok: true, ...result });
 });
 app.get('/api/crypto/binance', requireAccess, async (_request, response) => response.json({ ok: true, ...(await binanceAccount()) }));
+
+
+// Históricos de acciones/índices (SQLite en disco persistente)
+const stockSyncTimer = setTimeout(() => {
+  if (process.env.STOCK_SYNC !== 'false') syncStockHistory({ days: 1825 }).catch(() => {});
+}, 16000);
+stockSyncTimer.unref?.();
+app.get('/api/stocks/history', requireAccess, (_request, response) => response.json({ ok: true, ...stockStatus() }));
+app.post('/api/stocks/history/sync', requireAccess, async (_request, response) => {
+  const result = await syncStockHistory({ days: 1825 });
+  return response.json({ ok: true, ...result });
+});
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
