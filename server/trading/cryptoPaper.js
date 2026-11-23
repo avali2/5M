@@ -188,6 +188,8 @@ export class CryptoPaper {
     const notes = [];
     const price = snapshot.price;
     const atr = snapshot.atr14;
+    const snapshotAt = Date.parse(snapshot.updatedAt || '');
+    if (Number.isFinite(snapshotAt) && (this.now() - snapshotAt) > 15 * 60000) notes.push('dataQuality: snapshot de ' + Math.round((this.now() - snapshotAt) / 60000) + ' min (max 15) (NO_TRADE)');
     if (!isNum(price) || !isNum(atr) || atr <= 0) notes.push('Sin precio o ATR válido.');
     const trendUp = this.settings.strictTrend
       ? (isNum(snapshot.ema50) && isNum(snapshot.ema200) && price > snapshot.ema50 && snapshot.ema50 > snapshot.ema200)
@@ -195,7 +197,7 @@ export class CryptoPaper {
     const trendDown = this.settings.strictTrend
       ? (isNum(snapshot.ema50) && isNum(snapshot.ema200) && price < snapshot.ema50 && snapshot.ema50 < snapshot.ema200)
       : (isNum(snapshot.ema50) && price < snapshot.ema50);
-    const side = trendUp ? 'LONG' : (trendDown && this.settings.sideMode === 'both' ? 'SHORT' : null);
+    const side = trendUp ? 'LONG' : (trendDown && this.settings.sideMode === 'both' && this.env.CRYPTO_ALLOW_SHORT === 'true' ? 'SHORT' : null);
     if (!side) notes.push('Sin tendencia clara para operar.');
     const rsi = snapshot.rsi14;
     if (isNum(rsi)) {

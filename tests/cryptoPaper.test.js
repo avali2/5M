@@ -11,9 +11,9 @@ function snapshot(overrides = {}) {
   return { symbol: 'SOLUSDT', source: 'test', price: 100, ema20: 99, ema50: 98, ema200: 90, rsi14: 55, atr14: 2, change24h: 1, ...overrides };
 }
 
-function makeBot(fetcher) {
+function makeBot(fetcher, env = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), '5m-crypto-'));
-  const bot = new CryptoPaper({ env: {}, now: () => NOW, fetcher, stateFile: 'state.json', dataDir });
+  const bot = new CryptoPaper({ env, now: () => NOW, fetcher, stateFile: 'state.json', dataDir });
   bot.arm();
   return bot;
 }
@@ -31,7 +31,7 @@ test('abre long paper con riesgo y stop por ATR cuando hay tendencia', async () 
 });
 
 test('abre short paper cuando la tendencia es bajista', async () => {
-  const bot = makeBot(async () => snapshot({ price: 100, ema50: 102, ema200: 110, rsi14: 45 }));
+  const bot = makeBot(async () => snapshot({ price: 100, ema50: 102, ema200: 110, rsi14: 45 }), { CRYPTO_ALLOW_SHORT: 'true' });
   const status = await bot.runCycle();
   assert.equal(status.cycle.state, 'ABIERTO');
   assert.equal(status.position.side, 'SHORT');

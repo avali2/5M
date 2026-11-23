@@ -91,6 +91,8 @@ function atmIvForChain(chain, spot) {
 const DEFAULTS = {
   symbol: 'SPY',
   allowCondor: true,
+  allowCondorLive: false,
+  maxPositions: 1,
   autoStrategy: true,
   adaptiveLearning: true,
   strategies: { bullPut: true, bearCall: true, ironCondor: true },
@@ -270,6 +272,7 @@ export class CreditBot {
       add('Cuenta live', /^[A-Z0-9]{4,20}$/i.test(String(this.env.BOT_ACCOUNT_ID || '').trim()), 'BOT_ACCOUNT_ID de la cuenta real.');
       add('Confirmación explícita', this.env.LIVE_CONFIRM === 'I_ACCEPT_REAL_MONEY', 'LIVE_CONFIRM=I_ACCEPT_REAL_MONEY.');
       add('Disco persistente', this.env.BOT_DURABLE_STORAGE === 'true' && path.isAbsolute(this.env.DATA_DIR || ''), 'BOT_DURABLE_STORAGE=true y DATA_DIR absoluto.');
+      add('Validación NBBO', this.validationStatus().ok, 'Requiere LIVE_TRADING=true y validation.json con backtest reproducible.');
     } else {
       add('Token sandbox', Boolean(this.env.TRADIER_SANDBOX_TOKEN), 'TRADIER_SANDBOX_TOKEN configurado.');
       add('Cuenta sandbox', /^[A-Z0-9]{4,20}$/i.test(String(this.env.BOT_SANDBOX_ACCOUNT_ID || '').trim()), 'BOT_SANDBOX_ACCOUNT_ID configurado.');
@@ -432,6 +435,35 @@ export class CreditBot {
     return true;
   }
 
+  validationStatus() {
+    const filePath = path.join(config.dataDir, 'validation.json');
+    let artifact = null;
+    try { artifact = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { artifact = null; }
+    const metrics = artifact?.metrics || {};
+    const hasRelease = Boolean(artifact?.releaseId) && Boolean(artifact?.approvedAt);
+    const tradesOk = Number(metrics.trades || 0) >= 100;
+    const expectancyOk = Number(metrics.expectancyR || 0) > 0;
+    const enabled = this.env.LIVE_TRADING === 'true';
+    return {
+      ok: enabled && hasRelease && tradesOk && expectancyOk,
+      enabled, releaseId: artifact?.releaseId || null, approvedAt: artifact?.approvedAt || null,
+      metrics: { trades: Number(metrics.trades || 0), expectancyR: Number(metrics.expectancyR || 0) },
+      reasons: [!enabled ? 'LIVE_TRADING distinto de true' : null, !hasRelease ? 'falta validation.json' : null, !tradesOk ? 'menos de 100 trades' : null, !expectancyOk ? 'expectancyR no positiva' : null].filter(Boolean)
+    };
+  }
+
+  dataQualityGate(snapshot) {
+    const issues = [];
+    const quote = snapshot?.quote || {};
+    const asOf = Date.parse(quote.asOf || snapshot?.asOf || snapshot?.fetchedAt || '');
+    if (Number.isFinite(asOf)) {
+      const ageSeconds = Math.round((this.now() - asOf) / 1000);
+      if (ageSeconds > 180) issues.push('quote de ' + ageSeconds + 's (max 180s)');
+    }
+    if (snapshot?.simulated) issues.push('datos simulados');
+    return { ok: issues.length === 0, issues };
+  }
+
   async verifyLiveToken() {
     if (this.mode !== 'live') return { ok: true, mode: 'paper', note: 'El modo paper ya está validado con el token sandbox.' };
     const token = config.tradier.token || String(this.env.TRADIER_TOKEN || '');
@@ -587,6 +619,8 @@ export class CreditBot {
   playbook(snapshot) {
     const notes = [];
     const warnings = [];
+    const dq = this.dataQualityGate(snapshot);
+    if (!dq.ok) dq.issues.forEach((issue) => notes.push('dataQuality: ' + issue + ' (NO_TRADE)'));
     const ctx = this.readContext(snapshot);
     const spot = ctx.spot;
     if (!isNum(spot)) return { plan: null, notes: ['Sin precio.'], warnings };
@@ -719,6 +753,9 @@ export class CreditBot {
   condorPlan(snapshot, ctx) {
     const notes = [];
     const warnings = [];
+    if (this.mode === 'live' && !this.settings.allowCondorLive) return { plan: null, notes: ['Iron condor deshabilitado en live hasta validarlo.'], warnings, dte: null };
+    const dq = this.dataQualityGate(snapshot);
+    if (!dq.ok) dq.issues.forEach((issue) => notes.push('dataQuality: ' + issue + ' (NO_TRADE)'));
     const spot = ctx.spot;
     if (false && this.settings.blockBackwardationVix && isNum(snapshot.vix?.ratio) && snapshot.vix.ratio >= 1) {
       notes.push('VIX en backwardation (ratio ' + round2(snapshot.vix.ratio) + '): no vender prima.');
