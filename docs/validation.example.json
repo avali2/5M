@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0.0",
+  "validation_id": "val-2026-11-23-spread45-v1",
+  "created_at": "2026-11-23T21:15:00Z",
+  "strategy": {
+    "name": "spread_45dte",
+    "strategy_version": "1.0.0",
+    "git_commit": "REEMPLAZAR",
+    "config_sha256": "sha256:REEMPLAZAR"
+  },
+  "dataset": {
+    "vendor": "ThetaData",
+    "product": "Options Standard",
+    "range": [
+      "2019-01-01",
+      "2026-09-30"
+    ]
+  },
+  "splits": {
+    "development": [
+      "2019-01-01",
+      "2023-12-31"
+    ],
+    "validation": [
+      "2024-01-01",
+      "2024-12-31"
+    ],
+    "holdout": [
+      "2025-01-01",
+      "2026-09-30"
+    ],
+    "purge_days": 45
+  },
+  "execution_model": {
+    "commission_model": "tradier_current",
+    "slippage_model": "nbbo_fraction",
+    "fill_rule": "conservative"
+  },
+  "statistics": {
+    "trades": 0,
+    "expectancy": 0,
+    "bootstrap_ci_95": [
+      0,
+      0
+    ],
+    "deflated_sharpe_probability": 0,
+    "max_drawdown": 0
+  },
+  "robustness": {
+    "plus_1_tick": "PENDING",
+    "minus_1_tick": "PENDING",
+    "delta_plus_5": "PENDING",
+    "delta_minus_5": "PENDING",
+    "stress_2020": "PENDING",
+    "double_slippage": "PENDING"
+  },
+  "decision": {
+    "status": "PENDING",
+    "live_trading": false,
+    "approved_by": null,
+    "approved_at": null
+  },
+  "signature": {
+    "algorithm": "hmac-sha256",
+    "value": null
+  }
+}

@@ -14,6 +14,7 @@ import { round2 } from '../lib/optionsMath.js';
 import { TradingBroker, LIVE_URL } from './broker.js';
 import { analyzeTask } from '../lib/aiAnalyst.js';
 import { eventRisk } from '../lib/calendar.js';
+import { validateArtifact } from '../lib/validation.js';
 
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value);
 const DAY = 86400000;
@@ -439,17 +440,7 @@ export class CreditBot {
     const filePath = path.join(config.dataDir, 'validation.json');
     let artifact = null;
     try { artifact = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { artifact = null; }
-    const metrics = artifact?.metrics || {};
-    const hasRelease = Boolean(artifact?.releaseId) && Boolean(artifact?.approvedAt);
-    const tradesOk = Number(metrics.trades || 0) >= 100;
-    const expectancyOk = Number(metrics.expectancyR || 0) > 0;
-    const enabled = this.env.LIVE_TRADING === 'true';
-    return {
-      ok: enabled && hasRelease && tradesOk && expectancyOk,
-      enabled, releaseId: artifact?.releaseId || null, approvedAt: artifact?.approvedAt || null,
-      metrics: { trades: Number(metrics.trades || 0), expectancyR: Number(metrics.expectancyR || 0) },
-      reasons: [!enabled ? 'LIVE_TRADING distinto de true' : null, !hasRelease ? 'falta validation.json' : null, !tradesOk ? 'menos de 100 trades' : null, !expectancyOk ? 'expectancyR no positiva' : null].filter(Boolean)
-    };
+    return { ...validateArtifact(artifact, this.env), file: filePath };
   }
 
   dataQualityGate(snapshot) {

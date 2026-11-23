@@ -505,6 +505,7 @@ const calendarTimer = setInterval(refreshCalendarSafe, 6 * 60 * 60 * 1000);
 calendarTimer.unref?.();
 app.get('/api/calendar', requireAccess, (_request, response) => response.json({ ok: true, ...calendarStatus() }));
 
+app.get('/api/validation', requireAccess, (_request, response) => response.json({ ok: true, liveTrading: process.env.LIVE_TRADING === 'true', live: bots.live.validationStatus() }));
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
   enabled: config.alerts.enabled,
