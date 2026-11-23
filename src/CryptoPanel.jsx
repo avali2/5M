@@ -100,23 +100,19 @@ export default function CryptoPanel() {
               <input className="input" type="number" step="0.1" value={config[key] ?? ''} onChange={(event) => setDraft({ ...config, [key]: Number(event.target.value) })} />
             </label>
           ))}
-          <label className="field"><span>Símbolo</span>
-            <select className="select" value={config.symbol || 'SOLUSDT'} onChange={(event) => setDraft({ ...config, symbol: event.target.value })}>
-              <option value="SOLUSDT">SOL/USDT</option>
-              <option value="SOLUSD">SOL/USD</option>
-              <option value="SOLUSDC">SOL/USDC</option>
-            </select>
-          </label>
+          <div className="field"><span>Símbolo del libro</span>
+            <div className="input" style={{ display: 'flex', alignItems: 'center', opacity: 0.9 }}>{data?.settings?.symbol || '—'}</div>
+          </div>
         </div>
         <div className="row" style={{ marginTop: 8 }}><button className="btn primary sm" onClick={save}><Icon name="check" size={13} />Guardar</button></div>
       </Card>
 
-      <Card title="Últimas operaciones paper" icon="bar-chart">
+      <Card title="Últimas operaciones crypto" icon="bar-chart">
         {(data?.history || []).length === 0 ? <EmptyState icon="bar-chart" title="Sin trades todavía">El módulo opera solo cuando la tendencia y el RSI acompañan.</EmptyState> : (
           <div className="stack xs">
             {data.history.slice().reverse().map((trade) => (
               <div key={trade.openedAt} className="row between wrap" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
-                <span className="tiny mono">{trade.side} {money(trade.entry)} → {money(trade.exit)}</span>
+                <span className="tiny mono">{trade.side} {fmtPrice(trade.entry)} → {fmtPrice(trade.exit)}</span>
                 <span className="tiny" style={{ color: trade.realizedUsd >= 0 ? 'var(--up)' : 'var(--down)' }}>{money(trade.realizedUsd)} · {trade.closeReason}</span>
               </div>
             ))}
@@ -128,7 +124,7 @@ export default function CryptoPanel() {
         {(data?.log || []).length === 0 ? <p className="tiny muted">Sin registros.</p> : data.log.slice().reverse().slice(0, 12).map((entry, index) => (
           <p key={(entry.at || '') + index} className="tiny" style={{ margin: '4px 0', color: 'var(--text-2)' }}>
             <Badge tone={entry.type === 'ENTRY' ? 'up' : entry.type === 'EXIT' ? 'brand' : 'neutral'}>{entry.type}</Badge>{' '}
-            {entry.note || (entry.side ? entry.side + ' ' + money(entry.price) : '')} {entry.pnlUsd !== undefined ? '· ' + money(entry.pnlUsd) : ''}
+            {entry.note || (entry.side ? entry.side + ' ' + fmtPrice(entry.price ?? entry.entry) : '')} {entry.pnlUsd !== undefined ? '· ' + money(entry.pnlUsd) : ''}
           </p>
         ))}
       </Card>
