@@ -97,7 +97,7 @@ export class CryptoPaper {
       else next.symbol = symbol;
     }
     num('riskUsd', 25, 2000);
-    num('maxNotional', 100, 20000);
+    num('maxNotional', 100, 100000);
     num('atrStopMult', 0.5, 4);
     num('targetR', 1, 5);
     num('maxHoldHours', 6, 720);
