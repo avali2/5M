@@ -127,6 +127,12 @@ export class ForexPaper {
       if (this.state.position.symbol !== this.settings.symbol) {
         try { snapshot = await this.fetcher({ ...this.settings, symbol: this.state.position.symbol }); } catch { /* mantiene snapshot */ }
       }
+      if (snapshot.symbol && this.state.position.symbol !== snapshot.symbol) {
+        this.state.cycle = { state: 'ERROR', note: 'Snapshot de ' + snapshot.symbol + ' no coincide con la posición ' + this.state.position.symbol + '; no se gestiona.' };
+        this.save();
+        return this.status();
+      }
+      this.state.lastRound = { at: this.now().toISOString(), symbol: snapshot.symbol, price: round5(snapshot.price), source: snapshot.source, ema50: round5(snapshot.ema50), ema200: round5(snapshot.ema200), rsi14: round2(snapshot.rsi14), atr14: round5(snapshot.atr14), spreadPips: snapshot.spreadPips, session: snapshot.session, marketOpen: snapshot.marketOpen };
       await this.manage(snapshot);
       return this.status();
     }
@@ -185,6 +191,7 @@ export class ForexPaper {
 
   async manage(snapshot) {
     const position = this.state.position;
+    if (snapshot.symbol && position.symbol !== snapshot.symbol) return;
     const price = snapshot.price;
     if (!isNum(price)) return;
     const pipSize = Number(snapshot.pipSize || 0.0001);
