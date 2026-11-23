@@ -25,6 +25,7 @@ import { Orchestrator } from './lib/orchestrator.js';
 import { record, queryEvents, telemetryStats, collect } from './lib/telemetry.js';
 import { refreshCalendar, calendarStatus } from './lib/calendar.js';
 import { killSwitchStatus, setKillActive } from './lib/killSwitch.js';
+import { authorized as mt5Authorized, receiveState, status as mt5Status, enqueueCommand, takeCommands, ackCommand } from './lib/mt5Bridge.js';
 import { decideOpportunityAlerts, decidePositionAlerts, AlertCenter } from './lib/alerts.js';
 import { CreditBot } from './trading/creditBot.js';
 import { newsStatus, resetNewsCache } from './lib/news.js';
@@ -547,6 +548,29 @@ app.post('/api/forex/paper/tick', async (request, response) => {
 app.post('/api/forex/paper/arm', requireAccess, (_request, response) => response.json({ ok: true, ...forexPaper.arm() }));
 app.post('/api/forex/paper/pause', requireAccess, (_request, response) => response.json({ ok: true, ...forexPaper.pause(true) }));
 app.post('/api/forex/paper/disarm', requireAccess, (_request, response) => response.json({ ok: true, ...forexPaper.disarm() }));
+
+
+// Puente MT5: el EA de Windows hace polling y reporta estado
+app.post('/api/mt5/bridge/state', express.text({ type: '*/*', limit: '200kb' }), (request, response) => {
+  if (!mt5Authorized(request.query.token || request.get('X-MT5-Token'))) return response.status(401).json({ error: 'Token MT5 inválido.' });
+  const status = receiveState(typeof request.body === 'string' ? request.body : '');
+  return response.json({ ok: true, connected: status.connected, positions: status.positions.length });
+});
+app.get('/api/mt5/bridge/commands', (request, response) => {
+  if (!mt5Authorized(request.query.token || request.get('X-MT5-Token'))) return response.status(401).json({ error: 'Token MT5 inválido.' });
+  const { lines } = takeCommands();
+  response.type('text/plain').send(lines.join('\n'));
+});
+app.post('/api/mt5/bridge/ack', (request, response) => {
+  if (!mt5Authorized(request.query.token || request.get('X-MT5-Token'))) return response.status(401).json({ error: 'Token MT5 inválido.' });
+  const command = ackCommand(request.query.id, request.query.result || 'ok');
+  return response.json({ ok: Boolean(command), command });
+});
+app.get('/api/mt5/status', requireAccess, (_request, response) => response.json({ ok: true, ...mt5Status() }));
+app.post('/api/mt5/command', requireAccess, (request, response) => {
+  const command = enqueueCommand(request.body || {});
+  return response.json({ ok: true, command });
+});
 
 app.get('/api/alerts/status', requireAccess, (_request, response) => response.json({
   ok: true,
