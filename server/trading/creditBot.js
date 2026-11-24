@@ -126,7 +126,7 @@ const DEFAULTS = {
   entryBlockDays: 2,
   positionWarnDays: 1,
   fomcEntryBlockDays: 7,
-  entryFromMinutes: 600,
+  entryFromMinutes: 570,
   entryToMinutes: 900
 };
 
@@ -140,7 +140,7 @@ export class CreditBot {
     this.mode = String(mode || env.CREDIT_BOT_MODE || config.creditBot?.mode || 'paper').toLowerCase();
     this.profile = String(env.CREDIT_BOT_PROFILE || 'prudent').toLowerCase();
     const presets = this.profile === 'aggressive'
-      ? { dteMin: 30, dteMax: 50, targetDte: 45, shortDeltaMin: 0.2, shortDeltaMax: 0.28, targetDelta: 0.24, minCreditWidth: 0.18, minIvRatio: 1.15, minCreditUsd: 60, condorDeltaMin: 0.2, condorDeltaMax: 0.3, condorTargetDelta: 0.25 }
+      ? { dteMin: 30, dteMax: 50, targetDte: 45, shortDeltaMin: 0.2, shortDeltaMax: 0.28, targetDelta: 0.24, minCreditWidth: 0.18, minIvRatio: 1.0, minCreditUsd: 60, condorDeltaMin: 0.2, condorDeltaMax: 0.3, condorTargetDelta: 0.25 }
       : { dteMin: 35, dteMax: 50, targetDte: 45, minIvRatio: 1.1, minCreditWidth: 0.15, minCreditUsd: 45 };
     this.settings = { ...DEFAULTS, ...(config.creditBot || {}), ...presets };
     this.aiReview = ['required', 'optional', 'off'].includes(String(env.CREDIT_BOT_AI_REVIEW || 'required').toLowerCase())
@@ -618,7 +618,7 @@ export class CreditBot {
     const spot = ctx.spot;
     if (!isNum(spot)) return { plan: null, notes: ['Sin precio.'], warnings };
     const { uptrend, downtrend, minutes } = ctx;
-    if (minutes < this.settings.entryFromMinutes || minutes > this.settings.entryToMinutes) notes.push('Fuera de la ventana de entrada (10:00–15:00 ET).');
+    if (minutes < this.settings.entryFromMinutes || minutes > this.settings.entryToMinutes) notes.push('Fuera de la ventana de entrada (9:30–15:55 ET).');
     if (!uptrend && !downtrend) {
       if (this.settings.allowCondor && this.settings.strategies.ironCondor) {
         const result = this.condorPlan(snapshot, ctx);
@@ -755,7 +755,7 @@ export class CreditBot {
     if (false && this.settings.blockBackwardationVix && isNum(snapshot.vix?.ratio) && snapshot.vix.ratio >= 1) {
       notes.push('VIX en backwardation (ratio ' + round2(snapshot.vix.ratio) + '): no vender prima.');
     }
-    if (ctx.minutes < this.settings.entryFromMinutes || ctx.minutes > this.settings.entryToMinutes) notes.push('Fuera de la ventana de entrada (10:00–15:00 ET).');
+    if (ctx.minutes < this.settings.entryFromMinutes || ctx.minutes > this.settings.entryToMinutes) notes.push('Fuera de la ventana de entrada (9:30–15:55 ET).');
     if (!isNum(ctx.rsi14) || ctx.rsi14 < 38 || ctx.rsi14 > 62) notes.push('RSI fuera de 38–62: sin rango para condor.');
     if (isNum(ctx.distanceAtr) && ctx.distanceAtr > 0.9) notes.push('Precio lejos de la EMA50: no es rango.');
     const candidates = (snapshot.expirations || [])
