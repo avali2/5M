@@ -6,10 +6,14 @@ import { Icon, Card, Badge, Stat, SectionTitle, Gauge, Segmented, Modal, CopyBut
 import { PayoffChart, ScenarioBars } from './components/charts.jsx';
 
 const PROFILES = [{ value: 'standard', label: 'Estándar' }, { value: 'aggressive', label: 'Agresivo' }, { value: 'max', label: 'Máximo' }];
-const STRATEGIES = [
-  { value: 'all', label: 'Todas' }, { value: 'BULL_PUT_CREDIT', label: 'Bull put' }, { value: 'BEAR_CALL_CREDIT', label: 'Bear call' },
-  { value: 'IRON_CONDOR', label: 'Iron condor' }, { value: 'IRON_FLY', label: 'Iron fly' }, { value: 'JADE_LIZARD', label: 'Jade lizard' },
-  { value: 'BROKEN_WING_PUT', label: 'Broken wing' }, { value: 'CALL_DEBIT', label: 'Debit call' }, { value: 'PUT_DEBIT', label: 'Debit put' }
+const STRATEGY_GROUPS = [
+  { label: 'Todas', items: [{ value: 'all', label: 'Todas las estrategias' }] },
+  { label: 'Crédito · cobrás prima', items: [
+    { value: 'BULL_PUT_CREDIT', label: 'Bull put' }, { value: 'BEAR_CALL_CREDIT', label: 'Bear call' },
+    { value: 'IRON_CONDOR', label: 'Iron condor' }, { value: 'IRON_FLY', label: 'Iron fly' },
+    { value: 'JADE_LIZARD', label: 'Jade lizard' }, { value: 'BROKEN_WING_PUT', label: 'Broken wing' }
+  ] },
+  { label: 'Débito · pagás prima', items: [{ value: 'CALL_DEBIT', label: 'Debit call' }, { value: 'PUT_DEBIT', label: 'Debit put' }] }
 ];
 
 export default function SpreadsPanel({ symbols = [], symbol, setSymbol }) {
@@ -53,7 +57,19 @@ export default function SpreadsPanel({ symbols = [], symbol, setSymbol }) {
           <button className="btn sm" onClick={() => setTick((value) => value + 1)} disabled={list.loading}><Icon name="refresh" size={14} />{list.loading ? 'Buscando…' : 'Re-escanear'}</button>
         </div>
         <div style={{ marginTop: 12 }}><Segmented options={PROFILES} value={profile} onChange={setProfile} label="Agresividad" /></div>
-        <div style={{ marginTop: 8 }}><Segmented options={STRATEGIES.map((item) => item)} value={strategy} onChange={setStrategy} label="Estrategia" /></div>
+        <div style={{ marginTop: 10 }}>
+          {STRATEGY_GROUPS.map((group) => (
+            <div key={group.label} style={{ marginTop: 8 }}>
+              <p className="eyebrow" style={{ marginBottom: 4 }}>{group.label}</p>
+              <div className="row wrap" style={{ gap: 6 }}>
+                {group.items.map((item) => (
+                  <button key={item.value} type="button" className="chip" aria-pressed={strategy === item.value} onClick={() => setStrategy(item.value)}>{item.label}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="tiny muted" style={{ marginTop: 6 }}>Crédito: cobrás prima y asumís riesgo definido. Débito: pagás prima y el riesgo se limita al débito.</p>
+        </div>
         <div className="grid-4" style={{ marginTop: 12 }}>
           <Stat label="Ideas" value={ideas.length} sub={`perfil ${profile}`} />
           <Stat label="Crédito total" value={money(ideas.reduce((sum, idea) => sum + (idea.pricing?.credit ?? 0) * 100, 0))} sub="suma si abrís todas" />
