@@ -1097,8 +1097,17 @@ function briefingMinuteET(now = new Date()) {
   return parts.hour === '09' && parts.minute === '10';
 }
 
+function isMarketOpenET() {
+  const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day = et.getDay();
+  if (day === 0 || day === 6) return false;
+  const minutes = et.getHours() * 60 + et.getMinutes();
+  return minutes >= 570 && minutes < 960;
+}
+
 async function alertCycle() {
   if (!config.alerts.enabled) return;
+  if (!isMarketOpenET()) { lastAlertResult = { at: new Date().toISOString(), skipped: 'mercado-cerrado' }; return; }
   const push = pushStatus();
   if (!push.configured) { lastAlertResult = { at: new Date().toISOString(), skipped: 'push-no-configurado' }; return; }
   const started = Date.now();
