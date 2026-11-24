@@ -15,7 +15,7 @@ export function decideOpportunityAlerts({ scan, minScore = 75, now = new Date() 
     if (!isNum(item.score) || item.score < minScore) continue;
     if (item.meta?.operable === false) continue;
     const detail = item.kind === 'SPREAD'
-      ? `${item.strategy?.replaceAll('_', ' ')} · ${item.dte}d · crédito ${money(item.credit)} · POP ${Math.round((item.pop || 0) * 100)}%`
+      ? `${item.strategy?.replaceAll('_', ' ')} · ${item.dte}d · ${(item.credit ?? 0) < 0 ? 'débito ' + money(Math.abs(item.credit)) : 'crédito ' + money(item.credit)} · POP ${Math.round((item.pop || 0) * 100)}%`
       : `${item.expiry} ${item.kind === 'CALL' ? 'C' : 'P'} ${item.contract?.strike} · entrada ${money(item.entry)} · POP ${Math.round((item.pop || 0) * 100)}%`;
     alerts.push({
       key: 'opp:' + item.kind + ':' + item.symbol + ':' + (item.kind === 'SPREAD' ? item.strategy : item.contract?.strike + ':' + item.expiry),

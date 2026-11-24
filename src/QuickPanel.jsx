@@ -164,7 +164,7 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
                   <Icon name={item.kind === 'CALL' ? 'trending-up' : item.kind === 'PUT' ? 'trending-down' : 'layers'} size={13} />
                   <span>
                     {item.kind === 'SPREAD'
-                      ? `${item.action} · ${item.dte}d · crédito ${money(item.credit)}`
+                      ? `${item.action} · ${item.dte}d · ${(item.credit ?? 0) < 0 ? 'débito ' + money(Math.abs(item.credit)) : 'crédito ' + money(item.credit)}`
                       : `${item.action} ${item.symbol} ${item.expiry} ${item.kind === 'CALL' ? 'C' : 'P'} ${money(item.contract?.strike, 0)} · ${item.dte}d`}
                   </span>
                 </div>
@@ -217,7 +217,7 @@ export default function QuickPanel({ symbols = [], symbol, setSymbol, accountUsd
                   <span className="tiny" style={{ color: position.priority === 'ALTA' ? 'var(--down)' : position.priority === 'MEDIA' ? 'var(--warn)' : 'var(--text-2)', fontWeight: 700 }}>{position.action}</span>
                 </div>
                 <div className="row wrap tiny muted" style={{ gap: 12, marginTop: 4 }}>
-                  <span>crédito {money(position.credit)}</span>
+                  <span>{(position.credit ?? 0) < 0 ? 'débito ' + money(Math.abs(position.credit)) : 'crédito ' + money(position.credit)}</span>
                   <span>máx. pérdida {money(position.maxLossUsd)}</span>
                   <span>strike corto {position.shortStrike ?? '—'} {position.shortType || ''}</span>
                   <span>distancia {position.distanceToShortPct != null ? num(position.distanceToShortPct, 1) + '%' : '—'}</span>

@@ -520,7 +520,7 @@ export class CreditBot {
     if (events.blockEntry) blocking.push(events.note || 'Evento macro inminente.');
     const fomcSoon = events.upcoming.find((event) => event.type === 'FOMC' && Math.abs((Date.parse(event.date + 'T20:00:00Z') - this.now()) / DAY) <= this.settings.fomcEntryBlockDays);
     if (fomcSoon) blocking.push('FOMC el ' + fomcSoon.date + ': no abrir 7 días antes.');
-    const warnings = events.duringTrade.map((event) => event.type + ' ' + event.date + ' dentro del vencimiento');
+    const warnings = events.duringTrade.map((event) => (event.label || event.type || 'Evento') + ' ' + (event.date || '') + ' dentro del vencimiento');
     return { blocking, warnings };
   }
 
