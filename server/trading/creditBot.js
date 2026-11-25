@@ -555,8 +555,12 @@ export class CreditBot {
       atr,
       slope: emaSlope(closes, 50, 5),
       distanceAtr: isNum(spot) && isNum(ema50) && isNum(atr) ? Math.abs(spot - ema50) / Math.max(atr, 0.01) : null,
-      uptrend: isNum(spot) && isNum(ema50) && isNum(ema200) && spot > ema50 && ema50 > ema200,
-      downtrend: isNum(spot) && isNum(ema50) && isNum(ema200) && spot < ema50 && ema50 < ema200,
+      uptrend: (this.profile === 'aggressive' && this.mode === 'paper')
+        ? isNum(spot) && isNum(ema50) && spot > ema50 && isNum(emaSlope(closes, 50, 5)) && emaSlope(closes, 50, 5) > 0
+        : isNum(spot) && isNum(ema50) && isNum(ema200) && spot > ema50 && ema50 > ema200,
+      downtrend: (this.profile === 'aggressive' && this.mode === 'paper')
+        ? isNum(spot) && isNum(ema50) && spot < ema50 && isNum(emaSlope(closes, 50, 5)) && emaSlope(closes, 50, 5) < 0
+        : isNum(spot) && isNum(ema50) && isNum(ema200) && spot < ema50 && ema50 < ema200,
       minutes: etMinutes(this.now()),
       rv: realizedVol(snapshot.history)
     };
